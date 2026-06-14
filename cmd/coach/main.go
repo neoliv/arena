@@ -417,6 +417,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 
 	engCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(engCtx, parts[0], parts[1:]...)
+	cmd.Dir = filepath.Dir(parts[0]) // run from engine's directory
 	cmd.Stderr = os.Stderr
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
