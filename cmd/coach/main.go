@@ -13,7 +13,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
 	"log/slog"
 	"net/http"
 	"os"
