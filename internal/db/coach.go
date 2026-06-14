@@ -89,7 +89,7 @@ func (db *DB) UpsertCoachAI(coachID int, name, version, created, changelogShort,
 			is_available=1,
 			engine_id=excluded.engine_id,
 			engine_manifest=excluded.engine_manifest,
-			updated_at=excluded.updated_at`, coachID, name, version, cores, memMB, maxInst, runCmd, buildCmd, created, changelogShort, changelogFull, now)
+			updated_at=excluded.updated_at`, coachID, name, version, cores, memMB, maxInst, runCmd, buildCmd, created, changelogShort, changelogFull, engineID, engineManifest, now)
 	if err != nil {
 		return 0, fmt.Errorf("upsert coach ai: %w", err)
 	}
