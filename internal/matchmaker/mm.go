@@ -102,9 +102,14 @@ func (m *MatchMaker) tick() {
 
 	// Get online coaches
 	coaches, err := m.DB.GetOnlineCoaches(90)
-	if err != nil || len(coaches) < 2 {
+	if err != nil {
+		slog.Error("matchmaker get online coaches", "err", err)
 		return
 	}
+	if len(coaches) == 0 {
+		return
+	}
+	slog.Info("matchmaker tick", "coaches", len(coaches))
 
 	// Collect all available AIs from all coaches
 	type availAI struct {
@@ -167,7 +172,10 @@ func (m *MatchMaker) tick() {
 		}
 	}
 
-	if len(pairs) == 0 { return }
+	if len(pairs) == 0 {
+		slog.Info("matchmaker no feasible pairs", "coaches", len(coaches), "ais", len(allAIs))
+		return
+	}
 
 	// Pick the best pair (highest priority × recency)
 	rand.Shuffle(len(pairs), func(i, j int) { pairs[i], pairs[j] = pairs[j], pairs[i] })
