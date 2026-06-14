@@ -17,11 +17,8 @@ type Relay struct {
 }
 
 type relaySlot struct {
-	conn    *websocket.Conn
-	ready   chan struct{} // closed when connection is available
-	taken   chan struct{} // closed when connection is claimed by match executor
-	done    chan struct{} // closed by Cleanup when match is over
-	claimed bool          // prevents double-close of taken
+	conn  *websocket.Conn
+	ready chan struct{} // closed when connection is available
 }
 
 // NewRelay creates a new relay manager.
@@ -48,46 +45,36 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if exists && slot.conn != nil {
-		// Already have a connection — real duplicate
 		r.mu.Unlock()
 		conn.Close(websocket.StatusNormalClosure, "session already connected")
 		slog.Warn("relay duplicate connection", "session", sessionID)
 		return
 	}
 	if exists {
-		// Placeholder created by WaitForConn — fill in the connection
 		slot.conn = conn
-		if slot.taken == nil {
-			slot.taken = make(chan struct{})
-		}
 		close(slot.ready)
 	} else {
-		slot = &relaySlot{conn: conn, ready: make(chan struct{}), taken: make(chan struct{}), done: make(chan struct{})}
+		slot = &relaySlot{conn: conn, ready: make(chan struct{})}
 		close(slot.ready)
 		r.sessions[sessionID] = slot
 	}
 	r.mu.Unlock()
 
 	slog.Info("relay engine connected", "session", sessionID)
-
-	// Stay alive until match executor is done with the connection (or timeout).
-	select {
-	case <-slot.done:
-	case <-time.After(5 * time.Minute):
-		slog.Warn("relay timeout waiting for match", "session", sessionID)
-		conn.Close(websocket.StatusInternalError, "match timeout")
-	}
+	// Return immediately — Accept hijacks the connection from the HTTP
+	// handler. The match executor uses it via WaitForConn, and Cleanup
+	// closes it when the match ends.
 }
 
 // ErrRelayTimeout is returned when waiting for a coach times out.
 var ErrRelayTimeout = errors.New("relay timeout")
 
-// WaitForConn blocks until a coach connects for the given session, then returns the connection.
+// WaitForConn blocks until a coach connects for the given session.
 func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, error) {
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if !exists {
-		slot = &relaySlot{ready: make(chan struct{}), done: make(chan struct{})}
+		slot = &relaySlot{ready: make(chan struct{})}
 		r.sessions[sessionID] = slot
 	}
 	r.mu.Unlock()
@@ -96,10 +83,6 @@ func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, 
 	case <-slot.ready:
 		r.mu.Lock()
 		c := slot.conn
-		if !slot.claimed {
-			slot.claimed = true
-			close(slot.taken)
-		}
 		r.mu.Unlock()
 		return c, nil
 	case <-time.After(time.Duration(timeoutSec) * time.Second):
@@ -107,18 +90,13 @@ func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, 
 	}
 }
 
-// Cleanup removes a session.
+// Cleanup removes a session and closes the connection.
 func (r *Relay) Cleanup(sessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	slot, ok := r.sessions[sessionID]
-	if ok {
-		if slot.conn != nil {
-			slot.conn.Close(websocket.StatusNormalClosure, "match done")
-		}
-		if slot.done != nil {
-			close(slot.done)
-		}
+	if ok && slot.conn != nil {
+		slot.conn.Close(websocket.StatusNormalClosure, "match done")
 	}
 	delete(r.sessions, sessionID)
 }
