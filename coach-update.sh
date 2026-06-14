@@ -54,12 +54,22 @@ $DRY_RUN && rm "$COACH_DIR/bin/coach.new" || mv "$COACH_DIR/bin/coach.new" "$COA
 echo "   done"
 
 # 2. Build engines from builds.d/
+# Auto-discover: arena examples + coach-adapters
 if [ ! -d "$BUILDS_DIR" ]; then
     echo "2. Creating $BUILDS_DIR from examples..."
     mkdir -p "$BUILDS_DIR"
+    # Copy arena's bundled examples
     if [ -d "$SCRIPT_DIR/builds.d" ]; then
         cp "$SCRIPT_DIR/builds.d"/*.yaml "$BUILDS_DIR/" 2>/dev/null || true
-        echo "   Copied example entries. Edit these to match your machine:"
+    fi
+    # Copy coach-adapters entries (othello-refs sibling)
+    ADAPTERS_DIR="$HOME/dev/agent/othello-refs/coach-adapters/builds.d"
+    if [ -d "$ADAPTERS_DIR" ]; then
+        cp "$ADAPTERS_DIR"/*.yaml "$BUILDS_DIR/" 2>/dev/null || true
+        echo "   Included coach-adapters entries"
+    fi
+    if [ -n "$(ls -A "$BUILDS_DIR" 2>/dev/null)" ]; then
+        echo "   Created entries. Edit these to match your machine:"
         for f in "$BUILDS_DIR"/*.yaml; do echo "     $f"; done
     else
         echo "   No examples found. Create .yaml files in $BUILDS_DIR/"
@@ -68,6 +78,17 @@ if [ ! -d "$BUILDS_DIR" ]; then
 fi
 
 cd "$SCRIPT_DIR"
+
+# Sync: pull in any new entries from coach-adapters
+ADAPTERS_DIR="$HOME/dev/agent/othello-refs/coach-adapters/builds.d"
+if [ -d "$ADAPTERS_DIR" ]; then
+    for f in "$ADAPTERS_DIR"/*.yaml; do
+        [ -f "$f" ] || continue
+        dst="$BUILDS_DIR/$(basename "$f")"
+        [ -f "$dst" ] || { cp "$f" "$dst"; echo "   Added new entry: $(basename "$f")"; }
+    done
+fi
+
 for f in "$BUILDS_DIR"/*.yaml; do
     [ -f "$f" ] || continue
     # Extract source path (simple YAML: source: "...")
