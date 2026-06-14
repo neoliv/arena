@@ -256,7 +256,15 @@ func (h *Handler) renderSpeedGraph(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleMatches(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Recent Matches</h1>`+filterBox+`<table><tr><th>ID</th><th>Engine 1</th><th>Engine 2</th><th>Score</th><th>Games</th><th>Date</th></tr>`)
+	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Matches</h1>`)
+
+		// In-progress
+		io.WriteString(w, `<h2>In Progress</h2><table><tr><th>ID</th><th>Engine 1</th><th>Engine 2</th><th>Time</th><th>Games</th><th>Started</th></tr>`)
+		aRows, _ := h.DB.Query(`SELECT a.id, (SELECT name||' '||version FROM engines WHERE id=a.engine1_id), (SELECT name||' '||version FROM engines WHERE id=a.engine2_id), COALESCE(a.time_control,'{}'), a.num_games, COALESCE(a.in_progress_at, a.created_at) FROM match_assignments a WHERE a.status='in_progress' ORDER BY a.id DESC LIMIT 20`)
+		if aRows != nil { defer aRows.Close(); for aRows.Next() { var id, games int; var e1, e2, tc, started string; aRows.Scan(&id, &e1, &e2, &tc, &games, &started); fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`, id, e1, e2, tc, games, started[:min(19,len(started))]) } }
+
+		// Completed
+		io.WriteString(w, filterBox+`<h2>Completed</h2><table><tr><th>ID</th><th>Engine 1</th><th>Engine 2</th><th>Score</th><th>Games</th><th>Date</th></tr>`)
 	rows, _ := h.DB.Query(`SELECT m.id, (SELECT name||' '||version FROM engines WHERE id=m.engine1_id), (SELECT name||' '||version FROM engines WHERE id=m.engine2_id), m.wins_1, m.wins_2, m.draws, m.total_games, COALESCE(m.created_at,'') FROM matches m ORDER BY m.id DESC LIMIT 100`)
 	if rows != nil { defer rows.Close(); for rows.Next() { var id, w1, w2, d, t int; var e1, e2, created string; rows.Scan(&id, &e1, &e2, &w1, &w2, &d, &t, &created); fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/matches/%d">%d</a></td><td>%s</td><td>%s</td><td>%d-%d-%d</td><td>%d</td><td>%s</td></tr>`, id, id, e1, e2, w1, w2, d, t, created[:min(10,len(created))]) } }
 	io.WriteString(w, "</table>")
