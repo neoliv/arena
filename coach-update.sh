@@ -4,7 +4,7 @@
 #   coach-update.sh --dry-run    show what would happen
 #   coach-update.sh --reload     only reload config (SIGHUP)
 #   coach-update.sh -h           show help
-set -ex  # DEBUG: trace every command
+set -e
 
 # Detect stale symlink (old neursi/arena path)
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
@@ -30,7 +30,9 @@ reload() {
 }
 $RELOAD_ONLY && { echo "=== Reload config ==="; reload; exit 0; }
 
-echo "=== Arena Coach Update ==="
+# Log everything to arena/coach-update.log
+exec > >(tee -a "$SCRIPT_DIR/coach-update.log") 2>&1
+echo "=== Arena Coach Update === ($(date))"
 
 # 0. Ensure coach tree exists
 mkdir -p "$COACH_DIR"/{bin,engines}
@@ -137,13 +139,5 @@ done
 
 echo ""; echo "─── Reload ───"; reload
 echo ""; echo "=== Done ==="
-echo ""
-echo "=== Checking engine directories ==="
-find "$COACH_DIR/engines" -name "players.d" -type d 2>/dev/null | while read d; do
-    echo "  Found: $d"
-    ls "$d"/*.yaml 2>/dev/null
-done
-echo ""
-echo "=== Checking coach registration log ==="
-journalctl --user -u arena-coach --no-pager -n 20 2>/dev/null || echo "No journal access"
+echo "Log saved to: $SCRIPT_DIR/coach-update.log"
 $DRY_RUN && echo "(dry run — no changes made)"
