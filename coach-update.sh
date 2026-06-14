@@ -32,6 +32,20 @@ $RELOAD_ONLY && { echo "=== Reload config ==="; reload; exit 0; }
 
 echo "=== Arena Coach Update ==="
 
+# 0. Ensure coach tree exists
+mkdir -p "$COACH_DIR"/{bin,engines}
+if [ ! -f "$COACH_DIR/coach.yaml" ]; then
+    cat > "$COACH_DIR/coach.yaml" << 'YAMLEOF'
+coach_id: "workstation"
+label: "Workstation"
+arena_url: "https://arena.arsac.org"
+max_cores: 4
+max_ram_mb: 4096
+engines_dir: "~/coach/engines"
+YAMLEOF
+    echo "0. Created default $COACH_DIR/coach.yaml — edit it to set your resources and token."
+fi
+
 # 1. Coach binary
 echo "1. Coach binary..."
 cd "$SCRIPT_DIR"
@@ -41,8 +55,16 @@ echo "   done"
 
 # 2. Build engines from builds.d/
 if [ ! -d "$BUILDS_DIR" ]; then
-    echo "2. No builds.d/ at $BUILDS_DIR — skipping."
-    reload; exit 0
+    echo "2. Creating $BUILDS_DIR from examples..."
+    mkdir -p "$BUILDS_DIR"
+    if [ -d "$SCRIPT_DIR/builds.d" ]; then
+        cp "$SCRIPT_DIR/builds.d"/*.yaml "$BUILDS_DIR/" 2>/dev/null || true
+        echo "   Copied example entries. Edit these to match your machine:"
+        for f in "$BUILDS_DIR"/*.yaml; do echo "     $f"; done
+    else
+        echo "   No examples found. Create .yaml files in $BUILDS_DIR/"
+        echo "   Format: source: \"path/to/engine/source\""
+    fi
 fi
 
 cd "$SCRIPT_DIR"
