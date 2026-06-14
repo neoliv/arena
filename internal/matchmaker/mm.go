@@ -52,7 +52,6 @@ type MatchMaker struct {
 	DB     *db.DB
 	Relay  interface {
 		WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, error)
-		GetConn(sessionID string) *websocket.Conn
 		Cleanup(sessionID string)
 	}
 	Config Config
@@ -62,7 +61,6 @@ type MatchMaker struct {
 // New creates a new MatchMaker.
 func New(database *db.DB, relay interface {
 	WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, error)
-	GetConn(sessionID string) *websocket.Conn
 	Cleanup(sessionID string)
 }, cfg Config) *MatchMaker {
 	interval := cfg.TickInterval

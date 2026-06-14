@@ -381,12 +381,16 @@ func (h *Handler) handleCoaches(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, `<h2>Total</h2><table><tr><th>CPU</th><td>`+bar(usedCores, totalCores)+`</td></tr><tr><th>RAM</th><td>`+bar(usedMem, totalMem)+` MB</td></tr></table>`)
 	io.WriteString(w, `<h2>Per Coach</h2><table><tr><th>Coach</th><th>Version</th><th>Label</th><th>CPU (used/total)</th><th>RAM (used/total)</th><th>Last Seen</th></tr>`)
 	for _, c := range coaches {
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			c.ID, c.Label,
+		lastSeen := c.LastSeen
+		if t, err := time.Parse(time.RFC3339, c.LastSeen); err == nil {
+			lastSeen = niceDuration(t)
+		}
+		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s MB</td><td>%s</td></tr>",
+			c.ID, c.Version, c.Label,
 			bar(c.CoresUsed, c.CoresTotal),
-			fmt.Sprintf(`%s MB`, bar(c.MemUsed, c.MemTotal)),
-			c.LastSeen[:min(19, len(c.LastSeen))])
-	}
+			bar(c.MemUsed, c.MemTotal),
+			lastSeen)
+		}
 	io.WriteString(w, "</table>")
 }
 
