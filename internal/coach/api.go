@@ -211,10 +211,8 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			if err != nil { continue }
 			for _, a := range assignments {
 				sessionID := a.Session1ID
-				engineID := a.Engine1ID
 				if a.Coach2AIID == ai.ID {
 					sessionID = a.Session2ID
-					engineID = a.Engine2ID
 				}
 				if sessionID == "" {
 					sessionID = genSessionID()
@@ -224,16 +222,10 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 						h.DB.Exec("UPDATE match_assignments SET session2_id=?, status='assigned', assigned_at=? WHERE id=?", sessionID, time.Now().UTC().Format(time.RFC3339), a.ID)
 					}
 				}
-				var engName, engVer string
-				h.DB.QueryRow("SELECT name, version FROM engines WHERE id=?", engineID).Scan(&engName, &engVer)
-				if engName == "" {
-					engName = ai.EngineName
-					engVer = ai.EngineVersion
-				}
 				tasks = append(tasks, taskItem{
 					AssignmentID:  a.ID,
-					EngineName:    engName,
-					EngineVersion: engVer,
+					EngineName:    ai.EngineName,
+					EngineVersion: ai.EngineVersion,
 					TimeControl:   a.TimeControl,
 					NumGames:      a.NumGames,
 					SessionID:     sessionID,
