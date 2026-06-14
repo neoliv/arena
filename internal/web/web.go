@@ -44,8 +44,8 @@ input,select{background:var(--bg);color:var(--fg);border:1px solid var(--border)
 
 const searchJS = `<scr` + `ipt>
 function filter(){let q=document.getElementById('filterBox').value.toLowerCase().trim();if(!q){document.querySelectorAll('tr.filter-row').forEach(r=>r.style.display='');document.querySelectorAll('.filter-item').forEach(r=>r.style.display='');return}
-document.querySelectorAll('tr.filter-row').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=t.includes(q)?'':'none'})
-document.querySelectorAll('.filter-item').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=t.includes(q)?'':'none'})}
+let words=q.split(/\s+/);document.querySelectorAll('tr.filter-row').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=words.every(function(w){return t.includes(w)})?'':'none'})
+document.querySelectorAll('.filter-item').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=words.every(function(w){return t.includes(w)})?'':'none'})}
 var sc=-1,sa=!0;
 function st(t,c,n){var b=t.querySelector("tbody")||t,r=Array.from(b.querySelectorAll("tr.filter-row"));
 if(c===sc)sa=!sa;else{sa=!0;sc=c}

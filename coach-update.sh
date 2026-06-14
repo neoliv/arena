@@ -5,6 +5,15 @@
 #   coach-update.sh --reload     only reload config (SIGHUP)
 #   coach-update.sh -h           show help
 set -e
+
+# Detect stale symlink (old neursi/arena path)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if echo "$SCRIPT_DIR" | grep -q "neursi/arena"; then
+    echo "ERROR: coach-update.sh is in the old neursi/arena location."
+    echo "The arena is now at agent/arena. Fix with:"
+    echo "  ln -sf ~/dev/agent/arena/coach-update.sh ~/bin/coach-update"
+    exit 1
+fi
 COACH_DIR="${COACH_DIR:-$HOME/coach}"
 BUILDS_DIR="${BUILDS_DIR:-$COACH_DIR/builds.d}"
 DRY_RUN=false; RELOAD_ONLY=false
@@ -25,7 +34,6 @@ echo "=== Arena Coach Update ==="
 
 # 1. Coach binary
 echo "1. Coach binary..."
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$COACH_DIR/bin/coach.new" ./cmd/coach
 $DRY_RUN && rm "$COACH_DIR/bin/coach.new" || mv "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach"
