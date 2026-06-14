@@ -46,16 +46,22 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
-	if exists {
-		// Second connection? Close — only one per session in this model.
+	if exists && slot.conn != nil {
+		// Real duplicate — already have a connection for this session.
 		r.mu.Unlock()
 		conn.Close(websocket.StatusNormalClosure, "session already connected")
 		slog.Warn("relay duplicate connection", "session", sessionID)
 		return
 	}
-	slot = &relaySlot{conn: conn, ready: make(chan struct{})}
-	close(slot.ready)
-	r.sessions[sessionID] = slot
+	if exists {
+		// Placeholder created by WaitForConn — fill in the connection.
+		slot.conn = conn
+		close(slot.ready)
+	} else {
+		slot = &relaySlot{conn: conn, ready: make(chan struct{})}
+		close(slot.ready)
+		r.sessions[sessionID] = slot
+	}
 	r.mu.Unlock()
 
 	slog.Info("relay engine connected", "session", sessionID)
