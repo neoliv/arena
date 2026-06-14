@@ -274,7 +274,7 @@ func (h *Handler) handleMatch(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Games</h1>`)
+	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Games</h1>`+filterBox)
 
 	// In-progress matches
 	io.WriteString(w, `<h2>In Progress</h2><table><tr><th>ID</th><th>Engine 1</th><th>Engine 2</th><th>Time</th><th>Games</th><th>Started</th></tr>`)
@@ -291,7 +291,7 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "</table>")
 
 	// Completed games
-	io.WriteString(w, filterBox+`<h2>Completed</h2><table><tr><th>ID</th><th>Black</th><th>White</th><th>Result</th><th>Score</th><th>Opening</th></tr>`)
+	io.WriteString(w, `<h2>Completed</h2><table><tr><th>ID</th><th>Black</th><th>White</th><th>Result</th><th>Score</th><th>Opening</th></tr>`)
 	gRows, _ := h.DB.Query(`SELECT g.id, (SELECT name||' '||version FROM engines WHERE id=g.black_id), (SELECT name||' '||version FROM engines WHERE id=g.white_id), g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,'') FROM games g ORDER BY g.id DESC LIMIT 100`)
 	if gRows != nil { defer gRows.Close(); for gRows.Next() { var id, s int; var blk, wht, r, o string; gRows.Scan(&id, &blk, &wht, &r, &s, &o); fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%+d</td><td>%s</td></tr>`, id, blk, wht, r, s, o) } }
 	io.WriteString(w, "</table>")
