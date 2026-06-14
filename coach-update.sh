@@ -47,6 +47,16 @@ engines_dir: "~/coach/engines"
 YAMLEOF
     echo "0. Created default $COACH_DIR/coach.yaml — edit it to set your resources and token."
 fi
+# Warn if no token configured
+if ! grep -q "^token:" "$COACH_DIR/coach.yaml" 2>/dev/null && [ -z "$ARENA_TOKEN" ]; then
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  WARNING: No token configured!                              ║"
+    echo "║  Add to $COACH_DIR/coach.yaml:                              ║"
+    echo "║    token: \"your-token-here\"                                 ║"
+    echo "║  Or set ARENA_TOKEN in the systemd unit.                    ║"
+    echo "║  Without a token, the coach cannot register players.        ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+fi
 
 # 1. Coach binary
 echo "1. Coach binary..."
