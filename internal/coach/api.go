@@ -19,6 +19,7 @@ type Handler struct {
 	Relay         *Relay
 	ValidateToken func(string) bool
 	matchmaker    MatchMakerFunc
+	ServerGen     string // random ID regenerated on server restart
 }
 
 type MatchMakerFunc func(assignmentID int)
@@ -185,7 +186,7 @@ func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		slog.Error("heartbeat", "err", err)
 		jsonErr(w, "db error", http.StatusInternalServerError); return
 	}
-	jsonOK(w, map[string]bool{"ok": true})
+	jsonOK(w, map[string]any{"ok": true, "server_gen": h.ServerGen})
 }
 
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -90,7 +92,9 @@ func main() {
 	apiServer.RegisterRoutes(mux)
 
 	relay := coach.NewRelay()
-	coachHandler := &coach.Handler{DB: database, Token: *token, Relay: relay, ValidateToken: validateToken}
+	var serverGen [8]byte
+	rand.Read(serverGen[:])
+	coachHandler := &coach.Handler{DB: database, Token: *token, Relay: relay, ValidateToken: validateToken, ServerGen: hex.EncodeToString(serverGen[:])}
 	mux.HandleFunc("POST /api/coach/register", coachHandler.HandleRegister)
 	mux.HandleFunc("POST /api/coach/heartbeat", coachHandler.HandleHeartbeat)
 	mux.HandleFunc("GET /api/coach/tasks", coachHandler.HandleTasks)

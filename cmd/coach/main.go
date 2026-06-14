@@ -189,7 +189,7 @@ func main() {
 	var mu sync.Mutex
 	running := make(map[string]*runningEngine) // key: sessionID
 
-	go heartbeatLoop(ctx, client, cfg, &mu, running)
+	go heartbeatLoop(ctx, client, cfg, &mu, running, loadAndRegister)
 
 	// Task polling loop
 	slog.Info("starting task poll loop")
@@ -316,17 +316,14 @@ func register(client *http.Client, cfg config) error {
 	return nil
 }
 
-func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *sync.Mutex, running map[string]*runningEngine) {
+func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *sync.Mutex, running map[string]*runningEngine, reload func()) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+	var lastServerGen string
 	for {
 		select {
 		case <-ctx.Done(): return
 		case <-ticker.C:
-		}
-		// Re-register to keep server state in sync (idempotent, handles server restart)
-		if err := register(client, cfg); err != nil {
-			slog.Warn("heartbeat re-register failed", "err", err)
 		}
 		mu.Lock()
 		var ais []map[string]any
@@ -354,7 +351,16 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 		}
 		resp, err := postJSON(client, cfg, "/api/coach/heartbeat", body)
 		if err != nil { slog.Warn("heartbeat failed", "err", err); continue }
+		var hb struct {
+			ServerGen string `json:"server_gen"`
+		}
+		json.NewDecoder(resp.Body).Decode(&hb)
 		resp.Body.Close()
+		if hb.ServerGen != "" && hb.ServerGen != lastServerGen {
+			slog.Info("server restart detected, re-registering", "server_gen", hb.ServerGen[:min(8, len(hb.ServerGen))])
+			lastServerGen = hb.ServerGen
+			reload()
+		}
 	}
 }
 
