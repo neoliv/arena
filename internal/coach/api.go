@@ -152,9 +152,12 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		// Also upsert into engines table with changelog info
-		h.DB.Exec(`INSERT INTO engines (name, version, created, changelog_short, changelog_full, engine_id, engine_manifest) VALUES (?, ?, ?, ?, ?, ?, ?)
+		_, err = h.DB.Exec(`INSERT INTO engines (name, version, created, changelog_short, changelog_full, engine_id, engine_manifest) VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(name, version) DO UPDATE SET created=excluded.created, changelog_short=excluded.changelog_short, changelog_full=excluded.changelog_full, engine_id=excluded.engine_id, engine_manifest=excluded.engine_manifest`,
 			ai.Name, ai.Version, ai.Created, ai.ChangelogShort, ai.ChangelogFull, ai.EngineID, ai.EngineManifest)
+		if err != nil {
+			slog.Error("upsert engine", "name", ai.Name, "version", ai.Version, "err", err)
+		}
 		registered++
 	}
 	jsonOK(w, map[string]any{"status": "registered", "ais_registered": registered})

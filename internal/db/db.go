@@ -47,6 +47,8 @@ func (db *DB) Migrate() error {
 		"ALTER TABLE engines ADD COLUMN created TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_short TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_full TEXT DEFAULT ''",
+		"ALTER TABLE engines ADD COLUMN engine_id TEXT DEFAULT ''",
+		"ALTER TABLE engines ADD COLUMN engine_manifest TEXT DEFAULT ''",
 	} {
 		db.Exec(stmt) // ignore errors — column may already exist
 	}
