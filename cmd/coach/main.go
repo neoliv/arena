@@ -74,11 +74,11 @@ func main() {
 	handleShortFlags("coach")
 	flag.Parse()
 
-	// Log to file alongside the binary (arena/coach.log)
-	if exe, err := os.Executable(); err == nil {
-		if lf, err := os.Create(filepath.Join(filepath.Dir(exe), "coach.log")); err == nil {
-			slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: slog.LevelInfo})))
-		}
+	// Log to ~/dev/agent/arena/coach.log (readable from sandbox)
+	logDir := filepath.Join(os.Getenv("HOME"), "dev", "agent", "arena")
+	os.MkdirAll(logDir, 0755)
+	if lf, err := os.Create(filepath.Join(logDir, "coach.log")); err == nil {
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
 	slog.Info("coach starting", "pid", os.Getpid())
 
