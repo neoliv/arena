@@ -44,6 +44,8 @@ func (db *DB) Migrate() error {
 		"ALTER TABLE coach_ais ADD COLUMN created TEXT DEFAULT ''",
 		"ALTER TABLE coach_ais ADD COLUMN changelog_short TEXT DEFAULT ''",
 		"ALTER TABLE coach_ais ADD COLUMN changelog_full TEXT DEFAULT ''",
+		"ALTER TABLE coach_ais ADD COLUMN engine_id TEXT DEFAULT ''",
+		"ALTER TABLE coach_ais ADD COLUMN engine_manifest TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN created TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_short TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_full TEXT DEFAULT ''",
