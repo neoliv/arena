@@ -1,0 +1,4 @@
+time=2026-06-14T23:34:05.921+02:00 level=INFO msg="coach starting" pid=791319
+time=2026-06-14T23:34:05.921+02:00 level=INFO msg="using token" source="ARENA_TOKEN env" token=324d...0844
+time=2026-06-14T23:34:05.921+02:00 level=ERROR msg="no players found in engines/*/players.d/*.yaml"
+time=2026-06-14T23:34:05.922+02:00 level=INFO msg="starting task poll loop"

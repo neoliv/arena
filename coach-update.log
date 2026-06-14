@@ -117,3 +117,43 @@ Coach binary was updated — restarting service...
 
 === Done ===
 Log saved to: /home/oliv/dev/agent/arena/coach-update.log
+=== Arena Coach Update === (Sun Jun 14 11:34:01 PM CEST 2026)
+1. Coach binary...
+   updated (binary changed)
+
+─── darwersi ───
+   /home/oliv/dev/agent/darwersi/Arena
+rm -rf coach-engine
+mkdir -p coach-engine/players.d
+cp darwersi-gtp coach-engine/
+coach-engine/ ready: 17 files
+   -> /home/oliv/coach/engines/31b73a74507ce980/
+
+─── edax ───
+   /home/oliv/dev/agent/othello-refs/coach-adapters/edax
+cd /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/src && mkdir -p ../bin && CC=gcc BUILD=optimize ARCH=native make build
+make[1]: Entering directory '/home/oliv/dev/agent/othello-refs/edax/src/src'
+building edax...
+gcc -std=c17 -pedantic -W -Wall -Wextra -pipe -D_GNU_SOURCE=1 -Ofast -fwhole-program -flto=auto -fomit-frame-pointer -DNDEBUG -march=native  all.c -o ../bin/lEdax-native -lm -lrt
+make[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/edax/src/src'
+rm -rf coach-engine
+mkdir -p coach-engine/players.d coach-engine/data
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/bin/lEdax-native coach-engine/edax
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/data/eval.dat coach-engine/data/ 2>/dev/null || true
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/data/book.dat coach-engine/data/ 2>/dev/null || true
+cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
+coach-engine/ ready: 5 files
+   -> /home/oliv/coach/engines/4f75da81f1c97f96/
+
+─── neursi ───
+   /home/oliv/dev/agent/neursi/engine
+make: 'coach-build' is up to date.
+coach-engine/ ready: 2 files
+   -> /home/oliv/coach/engines/0d24dc2d47f382b5/
+
+─── Reload ───
+Coach binary was updated — restarting service...
+   restarted
+
+=== Done ===
+Log saved to: /home/oliv/dev/agent/arena/coach-update.log
