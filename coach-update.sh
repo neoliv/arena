@@ -82,11 +82,11 @@ for f in "$BUILDS_DIR"/*.yaml; do
 
     cd "$source"
     # Try make coach-build first, then ./coach-build.sh
-    if make coach-build 2>/dev/null; then
-        : # ok
-    elif [ -f coach-build.sh ] && bash coach-build.sh 2>&1 | tail -1; then
-        : # ok
-    else
+    make coach-build 2>/dev/null || true
+    if [ ! -d coach-engine ] && [ -f coach-build.sh ]; then
+        bash coach-build.sh 2>&1 | tail -1 || true
+    fi
+    if [ ! -d coach-engine ]; then
         echo "   ERROR: no coach-build target found (tried make and coach-build.sh)"
         continue
     fi
