@@ -125,10 +125,10 @@ func main() {
 		if len(ais) == 0 { slog.Error("no players found in engines" + "/*/players.d/*.yaml"); return }
 		slog.Info("loaded AIs", "count", len(ais))
 		cfg.AIs = ais
-		if err := register(client, cfg); err != nil {
-			slog.Error("register failed", "err", err)
+		slog.Info("registering with arena", "url", cfg.ArenaURL, "ais", len(cfg.AIs)); for i, a := range cfg.AIs { slog.Info("  player", "name", a.Name, "version", a.Version, "binary", a.Binary, "args", a.Args, "engine_id", a.EngineID[:min(16,len(a.EngineID))]) }; if err := register(client, cfg); err != nil {
+			slog.Error("REGISTRATION FAILED", "err", err)
 		} else {
-			slog.Info("registered with arena", "ais", len(cfg.AIs))
+			slog.Info("REGISTRATION SUCCEEDED", "ais", len(cfg.AIs))
 		}
 	}
 	loadAndRegister()
