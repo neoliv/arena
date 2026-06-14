@@ -98,7 +98,14 @@ func main() {
 	}
 	if cfg.CoachID == "" { slog.Error("coach_id is required"); os.Exit(1) }
 	if cfg.ArenaURL == "" { cfg.ArenaURL = "https://arena.arsac.org" }
-	if cfg.Token == "" { cfg.Token = os.Getenv("ARENA_TOKEN") }
+	tokenSource := "coach.yaml"
+	if cfg.Token == "" { cfg.Token = os.Getenv("ARENA_TOKEN"); tokenSource = "ARENA_TOKEN env" }
+	if cfg.Token == "" {
+		slog.Error("NO TOKEN CONFIGURED — set token in coach.yaml or ARENA_TOKEN env var")
+	} else {
+		obs := cfg.Token[:min(4,len(cfg.Token))] + "..." + cfg.Token[max(0,len(cfg.Token)-4):]
+		slog.Info("using token", "source", tokenSource, "token", obs)
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
@@ -270,11 +277,13 @@ func register(client *http.Client, cfg config) error {
 	}
 	body["ais"] = ais
 	resp, err := postJSON(client, cfg, "/api/coach/register", body)
-	if err != nil { return err }
+	if err != nil { return fmt.Errorf("register POST failed: %w", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		var errResp map[string]string
-		json.NewDecoder(resp.Body).Decode(&errResp)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		json.Unmarshal(bodyBytes, &errResp)
+		slog.Error("registration failed", "status", resp.StatusCode, "body", string(bodyBytes))
 		return fmt.Errorf("register: %s (%s)", resp.Status, errResp["error"])
 	}
 	return nil
