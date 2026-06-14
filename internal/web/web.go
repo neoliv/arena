@@ -65,7 +65,7 @@ const navHTML = `<nav>
 <span style="float:right"><a href="/logout">Disconnect</a></span>
 </nav>`
 
-const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>neursi Arena</title>` + sharedCSS + `</head><body>`
+const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + `</head><body>`
 const pageFoot = `</body></html>`
 
 // chartColors are chalk/pastel hues visible on both light and dark backgrounds.

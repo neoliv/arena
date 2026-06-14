@@ -1,12 +1,12 @@
 #!/bin/bash
-# setup-vps.sh — Install all requirements for the neursi Arena on Ubuntu 24.04.
+# setup-vps.sh — Install all requirements for the Arena on Ubuntu 24.04.
 # The arena uses SQLite (pure Go) — no PostgreSQL needed.
 #
 # Usage: ssh root@arena.arsac.org 'bash -s' < setup-vps.sh
 
 set -euo pipefail
 
-echo "=== neursi Arena VPS Setup ==="
+echo "=== Arena VPS Setup ==="
 echo "Target: Ubuntu 24.04"
 
 # ── Caddy ────────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ systemctl reload caddy
 echo "--- Installing systemd service ---"
 cat > /etc/systemd/system/arena.service <<SYSTEMD
 [Unit]
-Description=neursi Arena Server
+Description=Arena Server
 After=network.target caddy.service
 
 [Service]

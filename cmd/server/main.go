@@ -1,4 +1,4 @@
-// arena-server is the central results database + web dashboard for the neursi Arena.
+// arena-server is the central results database + web dashboard for the Othello Arena.
 package main
 
 import (

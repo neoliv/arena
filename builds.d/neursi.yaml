@@ -1,0 +1,2 @@
+# Neursi engine — ./coach-build.sh produces neursi binary + player configs
+source: "~/dev/agent/neursi/engine"

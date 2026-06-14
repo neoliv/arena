@@ -1,5 +1,5 @@
 // match_runner runs engine-vs-engine Othello games and POSTs results
-// to the neursi Arena server. Time control is total game time per side
+// to the Arena server. Time control is total game time per side
 // (engines manage their own internal allocation).
 package main
 
@@ -149,7 +149,7 @@ func runGame(blackPath, whitePath, opening string, gameTimeSec float64, blackNam
 		for _, e := range []*gtpEngine{black, white} { e.send("play " + color + " " + mv) }
 	}
 	var pgnBuf bytes.Buffer
-	fmt.Fprintf(&pgnBuf, "[Event \"neursi Arena\"]\n[Date \"%s\"]\n[TimeControl \"%.0fs total\"]\n", time.Now().Format("2006.01.02"), gameTimeSec)
+	fmt.Fprintf(&pgnBuf, "[Event \"Arena\"]\n[Date \"%s\"]\n[TimeControl \"%.0fs total\"]\n", time.Now().Format("2006.01.02"), gameTimeSec)
 	if opening != "" { fmt.Fprintf(&pgnBuf, "[Opening \"%s\"]\n", opening) }
 	pgnBuf.WriteString("\n")
 	moveNum, sideToMove, consecutivePasses := len(moves), "B", 0

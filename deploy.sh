@@ -12,7 +12,7 @@ VPS="${1:-arena.arsac.org}"
 VPS_USER="${VPS_USER:-root}"
 BINARY="arena-server"
 
-echo "=== neursi Arena Deploy ==="
+echo "=== Arena Deploy ==="
 echo "Target: ${VPS_USER}@${VPS}"
 echo ""
 

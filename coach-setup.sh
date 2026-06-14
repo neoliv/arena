@@ -1,5 +1,5 @@
 #!/bin/bash
-# neursi Coach — one-time setup for a workstation.
+# Arena Coach — one-time setup for a workstation.
 # Run this ONCE from your host (not the sandbox) to install the coach.
 set -e
 
@@ -23,13 +23,13 @@ if [ "$OS" = "Darwin" ] && [ "$1" != "--force" ]; then
     echo "║       $COACH_DIR/bin/coach -config $COACH_DIR/coach.yaml    ║"
     echo "║                                                              ║"
     echo "║  4. To auto-start on login, create a launchd plist:         ║"
-    echo "║       ~/Library/LaunchAgents/org.neursi.coach.plist         ║"
+    echo "║       ~/Library/LaunchAgents/org.arena.coach.plist         ║"
     echo "║                                                              ║"
     echo "║  Or run with --force to proceed anyway (no systemd).        ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     exit 0
 fi
-echo "=== neursi Coach Setup ==="
+echo "=== Arena Coach Setup ==="
 echo "Installing to: $COACH_DIR"
 echo ""
 
@@ -39,7 +39,7 @@ mkdir -p "$COACH_DIR"/{bin,engines,players.d}
 
 # 2. Build stable coach
 echo "2. Building stable coach binary..."
-cd ~/dev/agent/neursi/arena
+cd ~/dev/agent/arena
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$COACH_DIR/bin/coach" ./cmd/coach
 echo "   -> $COACH_DIR/bin/coach"
 
@@ -85,21 +85,21 @@ bash "$COACH_DIR/bin/coach-build-engines" 2>/dev/null || {
 
 # 4. Install player configs (pointing to engine_id directories)
 echo "4. Installing player configs..."
-for f in ~/dev/agent/neursi/arena/players.d/*.yaml; do
+for f in ~/dev/agent/arena/players.d/*.yaml; do
     [ -f "$f" ] || continue
     cp "$f" "$COACH_DIR/players.d/$(basename $f)"
     echo "   -> $COACH_DIR/players.d/$(basename $f)"
 done
 # If no players.d/ exists yet, create from coach.d/
 if [ -z "$(ls -A "$COACH_DIR/players.d/" 2>/dev/null)" ]; then
-    echo "   No player configs found. Create them in ~/dev/agent/neursi/arena/players.d/"
+    echo "   No player configs found. Create them in ~/dev/agent/arena/players.d/"
     echo "   (see coach-setup.sh for examples)"
 fi
 
 # 5. Create coach.yaml
 cat > "$COACH_DIR/coach.yaml" << YAMLEOF
 coach_id: "workstation"
-label: "Workstation (neursi + darwersi variants)"
+label: "Workstation (darwersi + neursi AIs)"
 arena_url: "https://arena.arsac.org"
 max_cores: 6
 max_ram_mb: 8192
@@ -110,9 +110,9 @@ echo "5. Created $COACH_DIR/coach.yaml"
 # 6. Install user systemd unit
 echo "6. Installing user systemd unit..."
 mkdir -p ~/.config/systemd/user
-cat > ~/.config/systemd/user/neursi-coach.service << UNITEOF
+cat > ~/.config/systemd/user/arena-coach.service << UNITEOF
 [Unit]
-Description=neursi Arena Coach
+Description=Arena Coach
 After=network-online.target
 Wants=network-online.target
 
@@ -128,34 +128,34 @@ ExecReload=/bin/kill -HUP \$MAINPID
 [Install]
 WantedBy=default.target
 UNITEOF
-echo "   -> ~/.config/systemd/user/neursi-coach.service"
+echo "   -> ~/.config/systemd/user/arena-coach.service"
 
 # 7. Create coach-update.sh (rebuild engines to new ID dirs)
 cat > "$COACH_DIR/coach-update.sh" << 'UPDEOF'
 #!/bin/bash
-# neursi Coach — rebuild engines into new ID-based directories.
+# Arena Coach — rebuild engines into new ID-based directories.
 set -e
 COACH_DIR="$HOME/coach"
 DRY_RUN=false; RELOAD_ONLY=false
 for a in "$@"; do case "$a" in --dry-run) DRY_RUN=true ;; --reload) RELOAD_ONLY=true ;; -h|--help) echo "Usage: coach-update.sh [--dry-run] [--reload] [-h]"; exit 0 ;; esac; done
 
 reload() {
-    if systemctl --user is-active neursi-coach >/dev/null 2>&1; then
-        $DRY_RUN && echo "[DRY RUN] Would reload" || { systemctl --user reload neursi-coach; echo "SIGHUP sent"; }
+    if systemctl --user is-active arena-coach >/dev/null 2>&1; then
+        $DRY_RUN && echo "[DRY RUN] Would reload" || { systemctl --user reload arena-coach; echo "SIGHUP sent"; }
     else echo "Coach not running."; fi
 }
 $RELOAD_ONLY && { echo "=== Reload config ==="; reload; exit 0; }
 
-echo "=== neursi Coach Update ==="
+echo "=== Arena Coach Update ==="
 # 1. Coach binary
 echo "1. Coach binary..."
-cd ~/dev/agent/neursi/arena
+cd ~/dev/agent/arena
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$COACH_DIR/bin/coach.new" ./cmd/coach
 $DRY_RUN && rm "$COACH_DIR/bin/coach.new" || mv "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach"
 echo "   done"
 
 # 2. Build neursi to engine_id directory
-echo "2. neursi..."
+echo "2. neursi engine (from ~/dev/agent/neursi/engine)..."
 cd ~/dev/agent/neursi/engine
 cargo build --release 2>&1 | tail -1
 HASH=$(sha256sum target/release/neursi | cut -c1-16)
@@ -203,16 +203,16 @@ echo ""
 echo "  Directory layout:"
 echo "    ~/coach/bin/coach          — coach binary"
 echo "    ~/coach/engines/<id>/      — one dir per engine build"
-echo "    ~/coach/players.d/         — player declarations"
+echo "    ~/coach/builds.d/          — engine build definitions"
 echo "    ~/coach/coach.yaml         — coach settings"
 echo ""
 echo "  Manual steps:"
 echo "  1. Get a token from https://arena.arsac.org/admin"
-echo "  2. systemctl --user edit neursi-coach  (set ARENA_TOKEN)"
+echo "  2. systemctl --user edit arena-coach  (set ARENA_TOKEN)"
 echo "  3. systemctl --user daemon-reload"
-echo "  4. systemctl --user enable --now neursi-coach"
+echo "  4. systemctl --user enable --now arena-coach"
 echo "  5. sudo loginctl enable-linger \$USER"
 echo ""
 echo "  Update engines:  ~/bin/coach-update"
-echo "  Reload players:  systemctl --user reload neursi-coach"
+echo "  Reload players:  systemctl --user reload arena-coach"
 echo "═══════════════════════════════════════════════════════════"

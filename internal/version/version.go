@@ -6,5 +6,5 @@ const Version = "0.2.0"
 
 // PrintVersion returns the version banner string.
 func PrintVersion(binary string) string {
-	return binary + " v" + Version + "  (neursi Arena — distributed Othello match framework)\n"
+	return binary + " v" + Version + "  (Othello Arena — distributed match framework)\n"
 }
