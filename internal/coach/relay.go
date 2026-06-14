@@ -20,6 +20,7 @@ type relaySlot struct {
 	conn    *websocket.Conn
 	ready   chan struct{} // closed when connection is available
 	taken   chan struct{} // closed when connection is claimed by match executor
+	done    chan struct{} // closed by Cleanup when match is over
 	claimed bool          // prevents double-close of taken
 }
 
@@ -61,7 +62,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 		}
 		close(slot.ready)
 	} else {
-		slot = &relaySlot{conn: conn, ready: make(chan struct{}), taken: make(chan struct{})}
+		slot = &relaySlot{conn: conn, ready: make(chan struct{}), taken: make(chan struct{}), done: make(chan struct{})}
 		close(slot.ready)
 		r.sessions[sessionID] = slot
 	}
@@ -69,8 +70,8 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 
 	slog.Info("relay engine connected", "session", sessionID)
 
-	<-slot.taken
-	// Connection handed over to match executor — we're done.
+	// Stay alive until match executor is done with the connection.
+	<-slot.done
 }
 
 // ErrRelayTimeout is returned when waiting for a coach times out.
@@ -81,7 +82,7 @@ func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, 
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if !exists {
-		slot = &relaySlot{ready: make(chan struct{})}
+		slot = &relaySlot{ready: make(chan struct{}), done: make(chan struct{})}
 		r.sessions[sessionID] = slot
 	}
 	r.mu.Unlock()
@@ -106,8 +107,13 @@ func (r *Relay) Cleanup(sessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	slot, ok := r.sessions[sessionID]
-	if ok && slot.conn != nil {
-		slot.conn.Close(websocket.StatusNormalClosure, "match done")
+	if ok {
+		if slot.conn != nil {
+			slot.conn.Close(websocket.StatusNormalClosure, "match done")
+		}
+		if slot.done != nil {
+			close(slot.done)
+		}
 	}
 	delete(r.sessions, sessionID)
 }
