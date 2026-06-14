@@ -7,7 +7,7 @@
 set -e
 
 # Detect stale symlink (old neursi/arena path)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 if echo "$SCRIPT_DIR" | grep -q "neursi/arena"; then
     echo "ERROR: coach-update.sh is in the old neursi/arena location."
     echo "The arena is now at agent/arena. Fix with:"
