@@ -265,9 +265,10 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 
 	if status == "ready" && h.matchmaker != nil {
 		var a db.AssignmentRow
-		row := h.DB.QueryRow("SELECT id, COALESCE(session1_id,''), COALESCE(session2_id,''), coach1_ai_id, coach2_ai_id FROM match_assignments WHERE id=?", assignmentID)
-		if err := row.Scan(&a.ID, &a.Session1ID, &a.Session2ID, &a.Coach1AIID, &a.Coach2AIID); err == nil {
-			if a.Session1ID != "" && a.Session2ID != "" {
+		row := h.DB.QueryRow("SELECT id, COALESCE(session1_id,''), COALESCE(session2_id,''), coach1_ai_id, coach2_ai_id, status FROM match_assignments WHERE id=?", assignmentID)
+		if err := row.Scan(&a.ID, &a.Session1ID, &a.Session2ID, &a.Coach1AIID, &a.Coach2AIID, &a.Status); err == nil {
+			if a.Session1ID != "" && a.Session2ID != "" && a.Status == "ready" {
+				h.DB.Exec("UPDATE match_assignments SET status='in_progress' WHERE id=? AND status='ready'", assignmentID)
 				h.matchmaker(assignmentID)
 			}
 		}

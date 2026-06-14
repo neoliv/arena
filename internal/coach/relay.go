@@ -20,6 +20,7 @@ type relaySlot struct {
 	conn     *websocket.Conn
 	ready    chan struct{} // closed when connection is available
 	taken    chan struct{} // closed when connection is claimed by match executor
+	claimed  bool          // prevents double-claim and double-close of taken
 }
 
 // NewRelay creates a new relay manager.
@@ -79,8 +80,9 @@ func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, 
 	case <-slot.ready:
 		r.mu.Lock()
 		c := slot.conn
-		if slot.taken != nil {
-			close(slot.taken) // signal HandleRelay to stop reading
+		if !slot.claimed && slot.taken != nil {
+			slot.claimed = true
+			close(slot.taken)
 		}
 		r.mu.Unlock()
 		return c, nil
