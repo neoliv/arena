@@ -59,8 +59,8 @@ t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind"
 const filterBox = `<input type="search" id="filterBox" placeholder="Filter…" oninput="filter()" autofocus>`
 
 const navHTML = `<nav>
-<a href="/">Rankings</a> <a href="/charts">Charts</a> <a href="/players">Players</a>
-<a href="/matches">Matches</a> <a href="/games">Games</a> <a href="/coaches">Coaches</a>
+<a href="/">Rankings</a> <a href="/charts">Charts</a>
+<a href="/matches">Matches</a> <a href="/games">Games</a> <a href="/players">Players</a> <a href="/coaches">Coaches</a>
 <a href="/health">Health</a> <a href="/admin">Admin</a>
 <span style="float:right"><a href="/logout">Disconnect</a></span>
 </nav>`
@@ -335,7 +335,7 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 		if v.Games > 0 { v.WR = fmt.Sprintf("%.1f%%", float64(v.Wins)/float64(v.Games)*100) } else { v.WR = "—" }
 		versions = append(versions, v)
 	}
-	if len(versions) == 0 { io.WriteString(w, "<p>No engines registered yet.</p>"+pageFoot); return }
+	if len(versions) == 0 { io.WriteString(w, "<p>No players registered yet.</p>"+pageFoot); return }
 	io.WriteString(w, `<table><tr><th onclick="st(this.parentElement.parentElement,0,false)" style="cursor:pointer">Engine</th><th onclick="st(this.parentElement.parentElement,1,false)" style="cursor:pointer">Version</th><th onclick="st(this.parentElement.parentElement,2,false)" style="cursor:pointer">Created</th><th onclick="st(this.parentElement.parentElement,3,false)" style="cursor:pointer">Budget</th><th onclick="st(this.parentElement.parentElement,4,true)" style="cursor:pointer">Elo</th><th onclick="st(this.parentElement.parentElement,5,true)" style="cursor:pointer">Games</th><th onclick="st(this.parentElement.parentElement,6,true)" style="cursor:pointer">W/L/D</th><th>Changes</th></tr>`)
 	for i, v := range versions {
 		shortID := fmt.Sprintf("cl-%d", i)
