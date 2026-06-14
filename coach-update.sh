@@ -50,10 +50,16 @@ fi
 
 # 1. Coach binary
 echo "1. Coach binary..."
+COACH_UPDATED=false
 cd "$SCRIPT_DIR"
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$COACH_DIR/bin/coach.new" ./cmd/coach
-$DRY_RUN && rm "$COACH_DIR/bin/coach.new" || mv "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach"
-echo "   done"
+if ! cmp -s "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach" 2>/dev/null; then
+    $DRY_RUN && rm "$COACH_DIR/bin/coach.new" || { mv "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach"; COACH_UPDATED=true; }
+    echo "   updated (binary changed)"
+else
+    rm "$COACH_DIR/bin/coach.new"
+    echo "   unchanged"
+fi
 
 # 2. Build engines from builds.d/
 # Auto-discover: arena examples + coach-adapters
@@ -137,7 +143,17 @@ for f in "$BUILDS_DIR"/*.yaml; do
     fi
 done
 
-echo ""; echo "─── Reload ───"; reload
+echo ""; echo "─── Reload ───"
+if $COACH_UPDATED; then
+    echo "Coach binary was updated — restarting service..."
+    if systemctl --user is-active arena-coach >/dev/null 2>&1; then
+        $DRY_RUN && echo "[DRY RUN] Would restart arena-coach" || { systemctl --user restart arena-coach; echo "   restarted"; }
+    else
+        reload  # Darwin / manual mode
+    fi
+else
+    reload
+fi
 echo ""; echo "=== Done ==="
 echo "Log saved to: $SCRIPT_DIR/coach-update.log"
 $DRY_RUN && echo "(dry run — no changes made)"
