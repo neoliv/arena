@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 	"log/slog"
 	"net/http"
 	"os"
@@ -73,6 +74,14 @@ func main() {
 	aisFilter  := flag.String("ais", "", "Comma-separated list of AI names to load from coach.d/ (default: all)")
 	handleShortFlags("coach")
 	flag.Parse()
+
+	// Log to file alongside the binary (arena/coach.log)
+	if exe, err := os.Executable(); err == nil {
+		if lf, err := os.Create(filepath.Join(filepath.Dir(exe), "coach.log")); err == nil {
+			slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: slog.LevelInfo})))
+		}
+	}
+	slog.Info("coach starting", "pid", os.Getpid())
 
 	if *showVer {
 		fmt.Print(version.PrintVersion("coach"))
