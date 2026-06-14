@@ -122,6 +122,9 @@ func main() {
 	if enginesDir == "" {
 		enginesDir = *playersDir
 	}
+	if enginesDir == "players.d" {
+		enginesDir = "~/coach/engines" // default location
+	}
 	if strings.HasPrefix(enginesDir, "~/") {
 		enginesDir = filepath.Join(os.Getenv("HOME"), enginesDir[2:])
 	}
