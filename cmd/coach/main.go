@@ -324,6 +324,10 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 		case <-ctx.Done(): return
 		case <-ticker.C:
 		}
+		// Re-register to keep server state in sync (idempotent, handles server restart)
+		if err := register(client, cfg); err != nil {
+			slog.Warn("heartbeat re-register failed", "err", err)
+		}
 		mu.Lock()
 		var ais []map[string]any
 		counts := map[string]int{}
