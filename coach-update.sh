@@ -140,6 +140,7 @@ for f in "$BUILDS_DIR"/*.yaml; do
             rm -rf "$ENGINE_DIR" 2>/dev/null || true
             mkdir -p "$ENGINE_DIR"
             cp -a coach-engine/* "$ENGINE_DIR/"
+            find "$ENGINE_DIR" -type f -exec chmod +x {} +
             echo "$HASH" > "$ENGINE_DIR/engine_id"
             echo "$name $(git rev-parse --short HEAD 2>/dev/null || echo '?')" > "$ENGINE_DIR/manifest.txt"
             echo "Built: $(date -Iseconds)" >> "$ENGINE_DIR/manifest.txt"
