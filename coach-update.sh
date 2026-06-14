@@ -62,6 +62,7 @@ fi
 echo "1. Coach binary..."
 COACH_UPDATED=false
 cd "$SCRIPT_DIR"
+git pull --ff-only 2>/dev/null || true
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$COACH_DIR/bin/coach.new" ./cmd/coach
 if ! cmp -s "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach" 2>/dev/null; then
     $DRY_RUN && rm "$COACH_DIR/bin/coach.new" || { mv "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach"; COACH_UPDATED=true; }

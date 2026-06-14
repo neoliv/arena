@@ -117,27 +117,43 @@ func main() {
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
+	// Determine engines directory
+	enginesDir := cfg.EnginesDir
+	if enginesDir == "" {
+		enginesDir = *playersDir
+	}
+	if strings.HasPrefix(enginesDir, "~/") {
+		enginesDir = filepath.Join(os.Getenv("HOME"), enginesDir[2:])
+	}
+	slog.Info("scanning for players", "engines_dir", enginesDir)
+
 	// Register
 	loadAndRegister := func() {
 		var ais []aiConfig
-		entries, err := os.ReadDir(*playersDir)
+		matches, err := filepath.Glob(filepath.Join(enginesDir, "*", "players.d", "*.yaml"))
 		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") { continue }
-				aiData, err := os.ReadFile("coach.d/" + entry.Name())
-				if err != nil { slog.Warn("read ai config", "file", entry.Name(), "err", err); continue }
+			for _, yamlPath := range matches {
+				engineDir := filepath.Dir(filepath.Dir(yamlPath)) // engines/<id>/
+				aiData, err := os.ReadFile(yamlPath)
+				if err != nil { slog.Warn("read ai config", "file", yamlPath, "err", err); continue }
 				var ai aiConfig
 				if err := yaml.Unmarshal(aiData, &ai); err != nil {
-					slog.Warn("parse ai config", "file", entry.Name(), "err", err); continue
+					slog.Warn("parse ai config", "file", yamlPath, "err", err); continue
 				}
 				if ai.Name == "" || ai.Version == "" { continue }
 				if len(allowedAIs) > 0 && !allowedAIs[ai.Name] { continue }
+				// Resolve binary path relative to engine dir if not absolute
+				if ai.Binary != "" && !strings.HasPrefix(ai.Binary, "/") {
+					ai.Binary = filepath.Join(engineDir, ai.Binary)
+				}
+				// Construct full run command from binary + args
+				ai.RunCmd = strings.TrimSpace(ai.Binary + " " + ai.Args)
 				// Compute engine_id: hash binary + companion data
 				ai.EngineID, ai.EngineManifest = computeEngineIdentity(ai)
 				ais = append(ais, ai)
 			}
 		}
-		if len(ais) == 0 { slog.Error("no players found in engines" + "/*/players.d/*.yaml"); return }
+		if len(ais) == 0 { slog.Error("no players found in " + enginesDir + "/*/players.d/*.yaml"); return }
 		slog.Info("loaded AIs", "count", len(ais))
 		cfg.AIs = ais
 		slog.Info("registering with arena", "url", cfg.ArenaURL, "ais", len(cfg.AIs)); for _, a := range cfg.AIs { slog.Info("  player", "name", a.Name, "version", a.Version, "binary", a.Binary, "args", a.Args, "engine_id", a.EngineID[:min(16,len(a.EngineID))]) }; if err := register(client, cfg); err != nil {
