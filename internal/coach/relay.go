@@ -70,8 +70,13 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 
 	slog.Info("relay engine connected", "session", sessionID)
 
-	// Stay alive until match executor is done with the connection.
-	<-slot.done
+	// Stay alive until match executor is done with the connection (or timeout).
+	select {
+	case <-slot.done:
+	case <-time.After(5 * time.Minute):
+		slog.Warn("relay timeout waiting for match", "session", sessionID)
+		conn.Close(websocket.StatusInternalError, "match timeout")
+	}
 }
 
 // ErrRelayTimeout is returned when waiting for a coach times out.

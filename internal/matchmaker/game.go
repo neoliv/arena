@@ -25,7 +25,7 @@ type gameResult struct {
 }
 
 func wsSend(ctx context.Context, conn *websocket.Conn, cmd string) (string, error) {
-	if err := conn.Write(ctx, websocket.MessageText, []byte(cmd+"\n")); err != nil {
+	if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
 		return "", fmt.Errorf("write: %w", err)
 	}
 	// Read response lines until = or ?
