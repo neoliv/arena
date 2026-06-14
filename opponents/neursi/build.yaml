@@ -1,0 +1,10 @@
+# Neursi engine — build and run configuration.
+# Add this AI entry to your coach.yaml to offer neursi to the arena.
+
+name: "neursi"
+version: "0.1.0"
+build: "cd neursi/engine && cargo build --release"
+run: "neursi/engine/target/release/neursi"
+cores: 1
+memory_mb: 256
+max_concurrency: 2

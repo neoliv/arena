@@ -1,0 +1,42 @@
+# Darwersi engine — build and run configuration.
+# Add entries to coach.yaml for the strength levels you want to offer.
+#
+# Named variant progression (gradually stronger):
+#   amoeba:  d=2,  ES=60  (near-pure static eval, ~200 nodes/move)
+#   worm:    d=4,  ES=50  (shallow search, ~5K nodes/move)
+#   rodent:  d=8,  ES=44  (competent, ~80K nodes/move) — default
+#   octopus: d=12, ES=36  (deep search, early endgame, ~500K nodes/move)
+#
+# Version scheme: d<max-depth>-es<end-search-ply>
+# Name scheme:   darwersi-<strength-tier>
+#
+# Example coach.yaml entries:
+
+# - name: "darwersi-amoeba"
+#   version: "d2-es60"
+#   run: "path/to/darwersi-gtp --name darwersi-amoeba --max-depth 2 --end-search 60"
+#   cores: 1; memory_mb: 8; max_concurrency: 4
+
+# - name: "darwersi-worm"
+#   version: "d4-es50"
+#   run: "path/to/darwersi-gtp --name darwersi-worm --max-depth 4 --end-search 50"
+#   cores: 1; memory_mb: 8; max_concurrency: 4
+
+# - name: "darwersi-rodent"
+#   version: "d8-es44"
+#   run: "path/to/darwersi-gtp --name darwersi-rodent --max-depth 8 --end-search 44"
+#   cores: 1; memory_mb: 8; max_concurrency: 4
+
+# - name: "darwersi-octopus"
+#   version: "d12-es36"
+#   run: "path/to/darwersi-gtp --name darwersi-octopus --max-depth 12 --end-search 36"
+#   cores: 1; memory_mb: 8; max_concurrency: 4
+
+# Base (no tier, default d8-es44):
+name: "darwersi"
+version: "d8-es44"
+build: "cd darwersi/Arena && make"
+run: "darwersi/Arena/darwersi-gtp"
+cores: 1
+memory_mb: 8
+max_concurrency: 4

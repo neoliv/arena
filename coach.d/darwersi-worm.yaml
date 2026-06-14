@@ -1,0 +1,17 @@
+name: "dw-worm"
+version: "d4-es50"
+created: "2026-06-14"
+changelog_short: "Shallow search darwersi — depth 4 with late endgame solver"
+changelog_full: |
+  Darwersi variant with shallow search (depth 4). Endgame solver starts
+  at ply 50 (WLD only, no exact solve). Expected ~1400 Elo.
+
+  Search: depth 4 (looks ahead 3 opponent replies)
+  Endgame: WLD at ply 50
+  Nodes/move: ~5,000
+  Time/move: ~1ms
+build: "cd darwersi/Arena && make"
+run: "/home/oliv/dev/agent/darwersi/Arena/darwersi-gtp --name dw-worm --max-depth 4 --end-search 50"
+cores: 1
+memory_mb: 8
+max_concurrency: 4

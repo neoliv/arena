@@ -1,0 +1,8 @@
+# Coach settings — copy to coach.yaml and customize.
+# AI definitions go in coach.d/*.yaml (one file per AI).
+coach_id: "my-hostname"
+label: "My dev machine"
+arena_url: "https://arena.arsac.org"
+token: ""        # set via ARENA_TOKEN env var, or hardcode here (not recommended)
+max_cores: 4     # maximum CPU cores allocated to the AI pool
+max_ram_mb: 8192 # maximum RAM (MB) allocated to the AI pool

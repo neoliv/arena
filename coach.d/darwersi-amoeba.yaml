@@ -1,0 +1,17 @@
+name: "dw-amoeba"
+version: "d2-es60"
+created: "2026-06-14"
+changelog_short: "Weakest darwersi variant — pure static evaluation, barely searches"
+changelog_full: |
+  Darwersi variant using minimal search (depth 2). Endgame solver disabled
+  (starts at ply 60, which never triggers in practice). Expected ~1200 Elo.
+
+  Search: depth 2 (evaluate all moves, no opponent replies)
+  Endgame: none (WLD at ply 60)
+  Nodes/move: ~200
+  Time/move: <1ms
+build: "cd darwersi/Arena && make"
+run: "/home/oliv/dev/agent/darwersi/Arena/darwersi-gtp --name dw-amoeba --max-depth 2 --end-search 60"
+cores: 1
+memory_mb: 8
+max_concurrency: 4

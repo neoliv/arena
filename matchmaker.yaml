@@ -1,0 +1,31 @@
+# Match Maker configuration.
+# The match maker schedules matches across available coaches at multiple
+# time controls. Shorter games are preferred (more games = lower uncertainty),
+# but longer games are used when Elo uncertainty is high (new/volatile engines).
+
+arena_url: "https://arena.arsac.org"
+token: ""                                                                # set via ARENA_TOKEN env var, or here
+
+# Time controls to schedule. Each has a base weight (higher = more frequent)
+# and an uncertainty boost (multiplied by CI/400 to favor long games for
+# under-tested engines).
+time_controls:
+  - seconds: 30
+    weight: 4.0           # most frequent
+    label: "blitz"
+  - seconds: 60
+    weight: 2.0           # standard
+    label: "standard"
+  - seconds: 120
+    weight: 1.0           # least frequent — only for high-uncertainty engines
+    label: "tournament"
+
+# Minimum games before an engine's uncertainty is considered "low"
+# (uncertainty boost decays as games increase).
+provisional_games: 20
+
+# How many games per match (each game swaps colors).
+games_per_match: 2
+
+# Tick interval for the scheduler loop.
+tick_interval: 60s

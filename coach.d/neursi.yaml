@@ -1,0 +1,17 @@
+name: "nr-neursi"
+version: "0.1.0"
+created: "2026-06-14"
+changelog_short: "Initial neursi release — heuristic evaluation only (no NN weights)"
+changelog_full: |
+  Initial release of the neursi Othello engine. This version uses:
+  - Heuristic evaluation (mobility + pattern-based) — no NN weights loaded
+  - PVS search with iterative deepening
+  - Bitboard move generation (Kogge-Stone)
+  - Transposition table (1M entries)
+  - GTP v2 protocol support
+  Expected ~1800 Elo without NN weights.
+build: "cd neursi/engine && cargo build --release"
+run: "/home/oliv/dev/agent/neursi/engine/target/release/neursi"
+cores: 1
+memory_mb: 256
+max_concurrency: 2
