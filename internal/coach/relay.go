@@ -17,10 +17,10 @@ type Relay struct {
 }
 
 type relaySlot struct {
-	conn     *websocket.Conn
-	ready    chan struct{} // closed when connection is available
-	taken    chan struct{} // closed when connection is claimed by match executor
-	claimed  bool          // prevents double-claim and double-close of taken
+	conn    *websocket.Conn
+	ready   chan struct{} // closed when connection is available
+	taken   chan struct{} // closed when connection is claimed by match executor
+	claimed bool          // prevents double-close of taken
 }
 
 // NewRelay creates a new relay manager.
@@ -46,21 +46,31 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
-	if exists {
+	if exists && slot.conn != nil {
+		// Already have a connection — real duplicate
 		r.mu.Unlock()
 		conn.Close(websocket.StatusNormalClosure, "session already connected")
 		slog.Warn("relay duplicate connection", "session", sessionID)
 		return
 	}
-	slot = &relaySlot{conn: conn, ready: make(chan struct{}), taken: make(chan struct{})}
-	close(slot.ready)
-	r.sessions[sessionID] = slot
+	if exists {
+		// Placeholder created by WaitForConn — fill in the connection
+		slot.conn = conn
+		if slot.taken == nil {
+			slot.taken = make(chan struct{})
+		}
+		close(slot.ready)
+	} else {
+		slot = &relaySlot{conn: conn, ready: make(chan struct{}), taken: make(chan struct{})}
+		close(slot.ready)
+		r.sessions[sessionID] = slot
+	}
 	r.mu.Unlock()
 
 	slog.Info("relay engine connected", "session", sessionID)
 
-	// Wait until the match executor takes over, then stop reading.
 	<-slot.taken
+	// Connection handed over to match executor — we're done.
 }
 
 // ErrRelayTimeout is returned when waiting for a coach times out.
@@ -80,7 +90,7 @@ func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, 
 	case <-slot.ready:
 		r.mu.Lock()
 		c := slot.conn
-		if !slot.claimed && slot.taken != nil {
+		if !slot.claimed {
 			slot.claimed = true
 			close(slot.taken)
 		}
