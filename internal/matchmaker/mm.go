@@ -81,6 +81,8 @@ func New(database *db.DB, relay interface {
 // Run starts the scheduler loop. Call as a goroutine.
 func (m *MatchMaker) Run() {
 	slog.Info("matchmaker started")
+	// Clear stale assignments from previous server run.
+	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='server restarted' WHERE status IN ('pending','assigned','accepted','in_progress')")
 	for range m.ticker.C {
 		m.tick()
 	}
@@ -92,7 +94,8 @@ func (m *MatchMaker) tick() {
 	if err := m.DB.RetryExpiredAssignments(); err != nil {
 		slog.Error("matchmaker retry", "err", err)
 	}
-	// Phase 2: Fail stale assignments (coaches offline)
+	// Phase 2: Fail stale assignments (coaches offline or server restarted)
+	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='timeout' WHERE status='in_progress' AND in_progress_at < datetime('now','-5 minutes')")
 	if err := m.DB.FailStaleAssignments(); err != nil {
 		slog.Error("matchmaker fail stale", "err", err)
 	}
