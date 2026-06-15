@@ -252,7 +252,6 @@ func main() {
 				mu.Lock()
 				delete(running, sid)
 				mu.Unlock()
-				slog.Info("engine exited", "session", sid)
 			}(t.SessionID, t.AssignmentID)
 		}
 		select {
