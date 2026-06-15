@@ -25,8 +25,8 @@ const sharedCSS = `<style>
 body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:1em;color:var(--fg);background:var(--bg)}
 h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
-nav a{margin-right:1.5em;text-decoration:none;color:var(--link)}
-nav a:hover{color:var(--link-hover)}
+nav a{margin-right:.5em;text-decoration:none;color:var(--link);font-size:1.05em;font-weight:500;padding:.35em .7em;border-radius:4px;transition:background .15s}
+nav a:hover{background:var(--hover)}
 table{border-collapse:collapse;width:100%;margin-bottom:2em}
 th,td{text-align:left;padding:.4em .6em;border-bottom:1px solid var(--border)}
 th{font-weight:600;background:var(--th-bg);cursor:pointer;user-select:none;position:relative;padding-right:18px}th:hover{background:var(--hover)}td{white-space:nowrap}.sort-ind{position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:1.2em;font-weight:900;color:var(--fg)}
@@ -141,11 +141,11 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	io.WriteString(w, pageHead+navHTML+`<h1>Graphs</h1>
 		<div style="margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em">
-		<a href="?tab=elo" style="margin-right:1.5em;font-weight:`+func()string{if tab==""||tab=="elo"{return"bold"}else{return"normal"}}()+`">Elo Evolution</a>
-		<a href="?tab=speed" style="margin-right:1.5em;font-weight:`+func()string{if tab=="speed"{return"bold"}else{return"normal"}}()+`">Speed</a>
-		<a href="?tab=games" style="margin-right:1.5em;font-weight:`+func()string{if tab=="games"{return"bold"}else{return"normal"}}()+`">Games</a>
-		<a href="?tab=timeout" style="margin-right:1.5em;font-weight:`+func()string{if tab=="timeout"{return"bold"}else{return"normal"}}()+`">Timeouts</a>
-		<a href="?tab=performance" style="margin-right:1.5em;font-weight:`+func()string{if tab=="performance"{return"bold"}else{return"normal"}}()+`">Performance</a>
+		<a href="?tab=elo" style="margin-right:.5em;padding:.3em .7em;border-radius:4px;font-size:1.05em;font-weight:500;text-decoration:none;color:var(--link);background:`+func()string{if tab==""||tab=="elo"{return"var(--hover)"}else{return"transparent"}}()+`">Elo</a>
+		<a href="?tab=speed" style="margin-right:.5em;padding:.3em .7em;border-radius:4px;font-size:1.05em;font-weight:500;text-decoration:none;color:var(--link);background:`+func()string{if tab=="speed"{return"var(--hover)"}else{return"transparent"}}()+`">Speed</a>
+		<a href="?tab=games" style="margin-right:.5em;padding:.3em .7em;border-radius:4px;font-size:1.05em;font-weight:500;text-decoration:none;color:var(--link);background:`+func()string{if tab=="games"{return"var(--hover)"}else{return"transparent"}}()+`">Games</a>
+		<a href="?tab=timeout" style="margin-right:.5em;padding:.3em .7em;border-radius:4px;font-size:1.05em;font-weight:500;text-decoration:none;color:var(--link);background:`+func()string{if tab=="timeout"{return"var(--hover)"}else{return"transparent"}}()+`">Timeouts</a>
+		<a href="?tab=performance" style="margin-right:.5em;padding:.3em .7em;border-radius:4px;font-size:1.05em;font-weight:500;text-decoration:none;color:var(--link);background:`+func()string{if tab=="performance"{return"var(--hover)"}else{return"transparent"}}()+`">Performance</a>
 		</div>`)
 
 	switch tab {
