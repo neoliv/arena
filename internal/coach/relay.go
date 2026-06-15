@@ -80,7 +80,9 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 				if !ok {
 					return
 				}
-				conn.Write(ctx, websocket.MessageText, []byte(cmd))
+				if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
+					return
+				}
 			case <-ctx.Done():
 				return
 			}
