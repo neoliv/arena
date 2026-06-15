@@ -13,13 +13,9 @@ Design ideas to comment upon:
 
 
 
-On the coach page:
-The memory is displayed: 472/8192 (5%) MB
-should be: 5% (472Mb/8.2Gb)
-In many agent/ Go code, like tab, sholib, ... there is a NiceSize method you can copy in arena sources.
 
 
-- improve the edax adapter to collect at least the time per ply metric (the adapter can compute this without having to look at the engin source)
+- When the "Disconnect" link is in hover mode, Use read instead of green as bg.
 
 - build new complete coach-adapters/ for other AIs in agent/othello-refs/ (eg: egaroucid). As for edax, create 4 playrs of various strength.
 

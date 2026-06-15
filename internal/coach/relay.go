@@ -81,6 +81,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 					return
 				}
 				if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
+					slog.Warn("relay write error", "err", err)
 					return
 				}
 			case <-ctx.Done():
