@@ -382,6 +382,7 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 
 	// Play each game alternating colors
 	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
+	slog.Info("playGames completed", "assignment", assignmentID, "games", len(games))
 
 	// Store results (retry on DB lock)
 	var matchID int
