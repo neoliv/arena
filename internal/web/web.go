@@ -54,7 +54,7 @@ r.sort(function(a,b){var va=a.cells[c].textContent.trim(),vb=b.cells[c].textCont
 if(n){va=parseFloat(va)||0;vb=parseFloat(vb)||0}
 return sa?va>vb?1:va<vb?-1:0:va<vb?1:va>vb?-1:0});
 r.forEach(function(r){b.appendChild(r)});
-t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind");if(!s){s=document.createElement("span");s.className="sort-ind";t.appendChild(s)}s.textContent=i===c?(sa?"\u2191":"\u2193"):""})}
+t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind");if(!s){s=document.createElement("span");s.className="sort-ind";t.appendChild(s)}s.textContent=i===c?(sa?"\u25b2":"\u25bc"):""})}
 <` + `/script>`
 
 const filterBox = `<input type="search" id="filterBox" placeholder="Filter…" oninput="filter()" autofocus>`
@@ -407,7 +407,7 @@ func (h *Handler) handleEngine(w http.ResponseWriter, r *http.Request) {
 	if eloRows != nil { defer eloRows.Close(); var vals []float64; min, max := 4000.0, 0.0; for eloRows.Next() { var v float64; eloRows.Scan(&v); vals = append(vals, v); if v < min { min = v }; if v > max { max = v } }; if len(vals) > 0 && max > min { chars := "▁▂▃▄▅▆▇█"; for _, v := range vals { idx := int((v-min)/(max-min)*float64(len(chars)-1)); if idx < 0 { idx = 0 }; if idx >= len(chars) { idx = len(chars)-1 }; spark += string(chars[idx]) }; spark += fmt.Sprintf("  %.0f … %.0f", min, max) } }
 	fmt.Fprintf(w, "<pre>%s</pre><h3>Recent Games</h3><table><tr><th>#</th><th>Opponent</th><th>Result</th><th>Score</th></tr>", spark)
 	gameRows, _ := h.DB.Query(`SELECT g.id, CASE WHEN g.black_id IN (SELECT id FROM engines WHERE name=?) THEN ew.name ELSE eb.name END, CASE WHEN g.black_id IN (SELECT id FROM engines WHERE name=?) THEN g.result ELSE CASE g.result WHEN '1-0' THEN '0-1' WHEN '0-1' THEN '1-0' ELSE g.result END END, COALESCE(g.final_score,0) FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE eb.name=? OR ew.name=? ORDER BY g.id DESC LIMIT 30`, name, name, name, name)
-	if gameRows != nil { defer gameRows.Close(); for gameRows.Next() { var id, s int; var opp, r string; if gameRows.Scan(&id, &opp, &r, &s) == nil { fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%+d</td></tr>`, id, opp, r, s) } } }
+	if gameRows != nil { defer gameRows.Close(); for gameRows.Next() { var id, s int; var opp, r string; if gameRows.Scan(&id, &opp, &r, &s) == nil { fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/games/%d">%d</a></td><td>%s</td><td>%s</td><td>%+d</td></tr>`, id, id, opp, r, s) } } }
 	io.WriteString(w, "</table>")
 }
 
