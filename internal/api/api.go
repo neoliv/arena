@@ -190,8 +190,8 @@ func (s *Server) HandleSubmitMatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.DB.Exec(`UPDATE matches SET wins_1=?, wins_2=?, draws=? WHERE id=?`, wins1, wins2, draws, matchID)
-	s.recomputeElo(int(e1ID))
-	s.recomputeElo(int(e2ID))
+	s.RecomputeElo(int(e1ID))
+	s.RecomputeElo(int(e2ID))
 
 	jsonOK(w, map[string]any{"match_id": matchID, "games": len(req.Games),
 		"wins_1": wins1, "wins_2": wins2, "draws": draws, "status": "recorded"})
@@ -435,7 +435,7 @@ func (s *Server) HandleBisectResult(w http.ResponseWriter, r *http.Request) {
 
 // ── Elo recomputation ──────────────────────────────────────────────────────
 
-func (s *Server) recomputeElo(engineID int) {
+func (s *Server) RecomputeElo(engineID int) {
 	rows, _ := s.DB.Query(`SELECT g.id,g.black_id,g.white_id,g.result,g.match_id,eb.name,ew.name
 		FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id
 		WHERE g.black_id=? OR g.white_id=? ORDER BY g.created_at, g.id`, engineID, engineID)

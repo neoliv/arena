@@ -55,8 +55,9 @@ func main() {
 		dbPath   = flag.String("db", envDefault("ARENA_DB", "/opt/arena/arena.db"), "SQLite database path")
 		addr     = flag.String("addr", envDefault("LISTEN_ADDR", ":8500"), "HTTP listen address")
 		token    = flag.String("token", envDefault("ARENA_TOKEN", ""), "Master API token (also checks DB tokens)")
-		newToken = flag.String("new-token", "", "Generate a new API token for the given email and exit")
-		showVer  = flag.Bool("version", false, "Print version and exit")
+		newToken     = flag.String("new-token", "", "Generate a new API token for the given email and exit")
+		recomputeElo = flag.Bool("recompute-elo", false, "Recompute Elo for all engines from game history and exit")
+		showVer      = flag.Bool("version", false, "Print version and exit")
 	)
 	handleShortFlags("arena-server")
 	flag.Parse()
@@ -80,6 +81,20 @@ func main() {
 
 	if *newToken != "" {
 		fmt.Print(database.PrintNewToken(*newToken, ""))
+		return
+	}
+	if *recomputeElo {
+		apiSrv := &api.Server{DB: database}
+		rows, _ := database.Query("SELECT DISTINCT id FROM engines")
+		if rows != nil {
+			var ids []int
+			for rows.Next() { var id int; rows.Scan(&id); ids = append(ids, id) }
+			rows.Close()
+			for _, id := range ids {
+				apiSrv.RecomputeElo(id)
+			}
+			fmt.Printf("Recomputed Elo for %d engines\n", len(ids))
+		}
 		return
 	}
 
