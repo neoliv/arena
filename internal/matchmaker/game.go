@@ -116,12 +116,13 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	}
 	consecutivePasses := 0
 
+	timeLimit := gameTimeSec * 1.05
 	for {
-		if gr.BlackTimeS >= gameTimeSec {
+		if gr.BlackTimeS >= timeLimit {
 			gr.Result = "0-1"
 			break
 		}
-		if gr.WhiteTimeS >= gameTimeSec {
+		if gr.WhiteTimeS >= timeLimit {
 			gr.Result = "1-0"
 			break
 		}
