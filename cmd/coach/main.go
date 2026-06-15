@@ -201,7 +201,7 @@ func main() {
 
 	// Task polling loop
 	slog.Info("starting task poll loop")
-	lastReReg := time.Now()
+	lastReReg := time.Now().Add(-5 * time.Minute) // trigger first re-reg immediately
 	for ctx.Err() == nil {
 		// Re-register every 5 minutes as heartbeat-independent fallback
 		if time.Since(lastReReg) > 5*time.Minute {
