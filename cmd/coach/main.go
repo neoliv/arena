@@ -224,14 +224,22 @@ func main() {
 			}
 			if instCount >= ai.MaxInstances || usedCores+ai.Cores > totalCores(cfg) || usedMem+ai.MemoryMB > totalMem(cfg) {
 				mu.Unlock()
-				slog.Info("declining task (at capacity)", "ai", ai.Name, "instances", instCount)
-				declineTask(client, cfg, t.AssignmentID, fmt.Sprintf("at capacity: %d/%d %s", instCount, ai.MaxInstances, ai.Name))
+				slog.Info("declining task (at capacity)", "ai", ai.Name,
+					"instances", instCount, "max_instances", ai.MaxInstances,
+					"cores_used", usedCores, "cores_needed", ai.Cores, "cores_total", totalCores(cfg),
+					"mem_used", usedMem, "mem_needed", ai.MemoryMB, "mem_total", totalMem(cfg))
+				declineTask(client, cfg, t.AssignmentID, fmt.Sprintf("at capacity: %d/%d instances, %d/%d cores, %d/%d MB for %s",
+					instCount, ai.MaxInstances, usedCores, totalCores(cfg), usedMem, totalMem(cfg), ai.Name))
 				continue
 			}
 			mu.Unlock()
 
 			acceptTask(client, cfg, t.AssignmentID)
-			re, err := launchEngine(ctx, *ai, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir)
+			aiCopy := *ai
+			if secs := parseGameTime(t.TimeControl); secs > 0 {
+				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%game_time%", fmt.Sprintf("%.0f", secs), -1)
+			}
+			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir)
 			if err != nil {
 				slog.Error("launch engine", "ai", ai.Name, "err", err)
 				failTask(client, cfg, t.AssignmentID, "launch failed: "+err.Error())
@@ -486,6 +494,37 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		return nil, fmt.Errorf("start: %w", err)
 	}
 
+	// Pre-flight GTP health check — catch engines that crash on startup
+	// before telling the server we're ready. Read byte-by-byte so the
+	// WS bridging scanner gets all remaining stdout bytes.
+	stdin.Write([]byte("name\n"))
+	healthCh := make(chan string, 1)
+	go func() {
+		line := make([]byte, 0, 256)
+		for {
+			var b [1]byte
+			if _, err := stdout.Read(b[:]); err != nil || b[0] == '\n' {
+				break
+			}
+			line = append(line, b[0])
+		}
+		healthCh <- string(line)
+	}()
+	select {
+	case resp := <-healthCh:
+		if !strings.HasPrefix(resp, "= ") {
+			cmd.Process.Kill()
+			cancel()
+			slog.Error("engine health check failed", "session", sessionID, "response", resp, "stderr", stderrBuf.String())
+			return nil, fmt.Errorf("health check failed: %s", resp)
+		}
+		slog.Info("engine health check OK", "session", sessionID, "name", strings.TrimPrefix(resp, "= "))
+	case <-time.After(3 * time.Second):
+		cmd.Process.Kill()
+		cancel()
+		return nil, fmt.Errorf("health check timeout")
+	}
+
 	wsURL := strings.Replace(arenaURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 	wsURL += relayPath
@@ -521,6 +560,19 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+func parseGameTime(tcJSON string) float64 {
+	if tcJSON == "" {
+		return 0
+	}
+	var tc struct {
+		Seconds float64 `json:"seconds"`
+	}
+	if err := json.Unmarshal([]byte(tcJSON), &tc); err != nil {
+		return 0
+	}
+	return tc.Seconds
+}
 
 func findAI(cfg config, name, version string) *aiConfig {
 	for i := range cfg.AIs {

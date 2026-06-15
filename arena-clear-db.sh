@@ -1,0 +1,53 @@
+#!/bin/bash
+# arena-clear-db.sh — Clear all game/match/engine data from the arena DB.
+# Keeps api_tokens and web_sessions intact.
+# Usage: ./arena-clear-db.sh [vps-host]
+set -euo pipefail
+
+VPS="${1:-arena.arsac.org}"
+VPS_USER="${VPS_USER:-root}"
+DB="/opt/arena/arena.db"
+
+echo "=== Arena Clear DB ==="
+echo "Target: ${VPS_USER}@${VPS}"
+echo ""
+
+# Stop the server so no writes happen during cleanup
+echo "--- Stopping arena ---"
+ssh "${VPS_USER}@${VPS}" "systemctl stop arena"
+
+# Backup
+echo "--- Backing up DB ---"
+ssh "${VPS_USER}@${VPS}" "cp '$DB' '$DB.bak-\$(date +%Y%m%d-%H%M%S)'"
+echo "  backup created"
+
+# Clear all data tables, keep tokens and sessions
+echo "--- Clearing tables ---"
+TABLES=(
+    bisect_steps bisections coach_ais coaches elo_history engines
+    game_moves games match_assignments matches speed_stats
+)
+for t in "${TABLES[@]}"; do
+    count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")
+    ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"DELETE FROM $t\""
+    echo "  cleared $t ($count rows)"
+done
+
+TOKENS=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM api_tokens\"")
+SESSIONS=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM web_sessions\"")
+echo "Kept: $TOKENS api_tokens, $SESSIONS web_sessions"
+
+# Start the server
+echo "--- Starting arena ---"
+ssh "${VPS_USER}@${VPS}" "systemctl start arena"
+sleep 2
+HTTP_CODE=$(ssh "${VPS_USER}@${VPS}" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8500/" 2>/dev/null || echo "000")
+if [ "$HTTP_CODE" != "000" ]; then
+    echo "✓ Server healthy (HTTP $HTTP_CODE)"
+else
+    echo "✗ Health check failed"
+    exit 1
+fi
+
+echo ""
+echo "=== Done ==="

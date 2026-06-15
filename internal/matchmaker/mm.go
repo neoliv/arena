@@ -103,6 +103,7 @@ func (m *MatchMaker) tick() {
 	}
 	// Phase 2: Fail stale assignments (coaches offline or server restarted)
 	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='timeout' WHERE (status='in_progress' AND in_progress_at < datetime('now','-5 minutes')) OR (status='ready' AND assigned_at < datetime('now','-2 minutes'))")
+	m.DB.Exec("UPDATE match_assignments SET status='retry', decline_reason='accepted timeout', retry_after=datetime('now') WHERE status='accepted' AND assigned_at < datetime('now','-90 seconds')")
 	if err := m.DB.FailStaleAssignments(); err != nil {
 		slog.Error("matchmaker fail stale", "err", err)
 	}
@@ -190,8 +191,8 @@ func (m *MatchMaker) tick() {
 			}
 
 			// Elo uncertainty
-			aEngID, _ := m.DB.GetEngineIDByName(a.ai.EngineName)
-			bEngID, _ := m.DB.GetEngineIDByName(b.ai.EngineName)
+			aEngID, _ := m.DB.GetEngineID(a.ai.EngineName, a.ai.EngineVersion)
+			bEngID, _ := m.DB.GetEngineID(b.ai.EngineName, b.ai.EngineVersion)
 			if aEngID == 0 || bEngID == 0 { continue }
 
 			aGames := m.countGames(aEngID)
@@ -352,6 +353,10 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 		slog.Error("executeMatch get assignment", "err", err)
 		return
 	}
+
+	// Ensure relay sessions are cleaned up on any exit path.
+	defer m.Relay.Cleanup(a.Session1ID)
+	defer m.Relay.Cleanup(a.Session2ID)
 
 	// Wait for both streams
 	blackStream, err := m.Relay.WaitForStream(a.Session1ID, 120)

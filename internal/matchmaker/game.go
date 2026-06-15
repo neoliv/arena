@@ -96,27 +96,24 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Play opening moves (fire-and-forget — don't wait for responses)
+	// Play opening moves synchronously — wait for each ack so responses
+	// don't leak into the genmove phase and get misinterpreted as moves.
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
 		color := "B"
 		if i%2 == 1 { color = "W" }
+		cmd := "play " + color + " " + mv
+		// Send to both engines, then read one ack from each.
 		for _, s := range []coach.Stream{black, white} {
 			select {
-			case s.Out <- "play " + color + " " + mv:
+			case s.Out <- cmd:
 			default:
 			}
 		}
-	}
-
-	// Drain buffered opening move responses (break needs label to exit for loop)
-	for _, s := range []coach.Stream{black, white} {
-	drain:
-		for {
+		for _, s := range []coach.Stream{black, white} {
 			select {
 			case <-s.In:
-			default:
-				break drain
+			case <-time.After(3 * time.Second):
 			}
 		}
 	}

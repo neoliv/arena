@@ -216,7 +216,7 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<line x1="0" y1="%.0f" x2="%.0f" y2="%.0f" stroke="var(--border)" stroke-width="0.5"/>`, y, graphw, y)
 		fmt.Fprintf(w, `<text x="-6" y="%.0f" text-anchor="end" fill="var(--muted)" font-size="10">%.0f</text>`, y+4, val)
 	}
-	fmt.Fprintf(w, `<text x="%.0f" y="%.0f" text-anchor="middle" fill="var(--fg)" font-size="12">Elo</text>`, graphw/2, -25)
+	fmt.Fprintf(w, `<text x="%.0f" y="%.0f" text-anchor="middle" fill="var(--fg)" font-size="12">Elo</text>`, float64(graphw)/2, float64(-25))
 	fmt.Fprintf(w, `<text x="%.0f" y="%.0f" text-anchor="middle" fill="var(--muted)" font-size="10">Time →</text>`, graphw/2, graphh+30)
 	// Data lines
 	for i, data := range engineData {

@@ -86,7 +86,7 @@ systemctl --user enable --now arena-coach
 sudo loginctl enable-linger $USER
 
 # Rebuild engines after changes
-~/bin/coach-update
+~/bin/coach-update.sh
 
 # Reload config without rebuild
 systemctl --user reload arena-coach

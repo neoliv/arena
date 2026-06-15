@@ -177,14 +177,22 @@ func (db *DB) CreateAssignment(e1ID, e2ID, c1AIID, c2AIID int, timeControl strin
 
 func (db *DB) UpdateAssignmentStatus(id int, status, reason string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	extraCols := ""
-	extraVals := ""
-	if status == "in_progress" {
-		extraCols = ", in_progress_at=?"
-		extraVals = ", " + now
+	switch status {
+	case "in_progress":
+		_, err := db.Exec("UPDATE match_assignments SET status=?, decline_reason=?, in_progress_at=? WHERE id=?",
+			status, reason, now, id)
+		return err
+	case "ready":
+		_, err := db.Exec("UPDATE match_assignments SET status=?, decline_reason=?, ready_at=? WHERE id=?",
+			status, reason, now, id)
+		return err
+	case "completed":
+		_, err := db.Exec("UPDATE match_assignments SET status=?, decline_reason=?, completed_at=? WHERE id=?",
+			status, reason, now, id)
+		return err
 	}
-	_, err := db.Exec("UPDATE match_assignments SET status=?, decline_reason=?"+extraCols+" WHERE id=?",
-		status, reason+extraVals, id)
+	_, err := db.Exec("UPDATE match_assignments SET status=?, decline_reason=? WHERE id=?",
+		status, reason, id)
 	return err
 }
 
@@ -208,12 +216,6 @@ func (db *DB) FailStaleAssignments() error {
 func (db *DB) GetEngineID(name, version string) (int, error) {
 	var id int
 	err := db.QueryRow("SELECT id FROM engines WHERE name=? AND version=?", name, version).Scan(&id)
-	return id, err
-}
-
-func (db *DB) GetEngineIDByName(name string) (int, error) {
-	var id int
-	err := db.QueryRow("SELECT id FROM engines WHERE name=? ORDER BY created_at DESC LIMIT 1", name).Scan(&id)
 	return id, err
 }
 

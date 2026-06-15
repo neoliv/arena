@@ -1,5 +1,8 @@
 ### Prompts
 
+- simple links (eg: game ID -> game detgails) have the same color visited or not. Should be different (eg in dark mode, use a darker green once visited)
+
+
 - Regarding the matchmaker vs coach allocation issue. This is still not working as intended. (I often see 6/6 with 0 game in progress and 0% CPU on the host). We need to discuss the flow to understand the catch. Don't implement yet, only analyse and recommend.
 - Is it True that a game can run between AIs managed by different coaches (probably on different hosts). Is arena relaying the moves or is it P2P?
 - How is the match-maker (MM from now on) deciding that a new match between two engines is required?
@@ -14,6 +17,18 @@ Design ideas to comment upon:
 
 
 - How can you make sure we won't get the 'stuck' games syndrome again? The game had clearly overrun their time budget but were still shown as "in progress". Offer design solution to make sure the game flow is robust.
+
+
+Could the arena web pages contaiing dynamic data auto-refresh?
+
+
+But I think there is something fishy anyway. The 'core occupation' state the
+  coach (should) see and the one shown by MM/arena are not the same. WHen no
+  engine is running, no game in progress, the MM/arena should see 0/6 not 6/6.
+  How could we redesign the flow to make sure the final word is the coach that
+  really knows what resources are used? Thin, analyse with as many agents as you  need. Offer new designs with pro/cons. 
+
+
 
 
 - build new complete coach-adapters/ for other AIs in agent/othello-refs/ (eg: egaroucid). As for edax, create 4 playrs of various strength.

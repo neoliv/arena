@@ -293,9 +293,22 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.QueryRow("SELECT c.id FROM coaches c JOIN coach_ais ca ON ca.coach_id=c.id WHERE (ca.id=(SELECT coach1_ai_id FROM match_assignments WHERE id=?) OR ca.id=(SELECT coach2_ai_id FROM match_assignments WHERE id=?)) AND c.coach_id=?", assignmentID, assignmentID, req.CoachID).Scan(&ownerCoachID); err != nil {
 		jsonErr(w, "not your assignment", http.StatusForbidden); return
 	}
-	if err := h.DB.UpdateAssignmentStatus(assignmentID, status, reason); err != nil {
-		slog.Error("task status", "err", err)
-		jsonErr(w, "db error", http.StatusInternalServerError); return
+	if status == "declined" {
+		var retryCount int
+		h.DB.QueryRow("SELECT retry_count FROM match_assignments WHERE id=?", assignmentID).Scan(&retryCount)
+		delays := []int{30, 60, 120, 240, 480}
+		delay := 480
+		if retryCount < len(delays) {
+			delay = delays[retryCount]
+		}
+		retryAfter := time.Now().Add(time.Duration(delay) * time.Second).UTC().Format(time.RFC3339)
+		h.DB.Exec("UPDATE match_assignments SET status='retry', decline_reason=?, retry_after=? WHERE id=?",
+			reason, retryAfter, assignmentID)
+	} else {
+		if err := h.DB.UpdateAssignmentStatus(assignmentID, status, reason); err != nil {
+			slog.Error("task status", "err", err)
+			jsonErr(w, "db error", http.StatusInternalServerError); return
+		}
 	}
 	if status == "ready" && h.matchmaker != nil {
 		var a db.AssignmentRow

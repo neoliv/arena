@@ -20,9 +20,10 @@ insertions, use Read + Write.
 
 ```bash
 ./arena-deploy.sh          # build, deploy to VPS, clean logs, health check
+./arena-clear-db.sh        # clear all game data from VPS DB (keeps tokens+sessions)
 ./arena-check.sh [--watch] # quick server health check
 ./arena-logs.sh            # pull server/caddy/journal logs to local log/
-~/bin/coach-update         # rebuild all engines + coach on host (run on host)
+~/bin/coach-update.sh      # rebuild all engines + coach on host (run on host)
 ```
 
 ## Deploy
@@ -69,6 +70,32 @@ Environment lines MUST have matching double quotes:
 Environment="ARENA_TOKEN=the-token-value"
 ```
 A missing closing quote swallows the next line and the variable is silently ignored.
+
+## Player YAML — `%game_time%` substitution
+
+The coach substitutes `%game_time%` in the player YAML `args` field with the
+matchmaker's chosen time control in seconds. This lets engines that need a CLI
+flag (like edax's `-t`) receive the time control at launch rather than via GTP.
+
+```yaml
+# edax — uses -t flag for time-per-game
+args: "-gtp -t %game_time% -l 5"
+
+# neursi — receives time via GTP game_time command, no substitution needed
+args: ""
+```
+
+The substitution is a simple `strings.Replace`. If the placeholder is absent,
+nothing changes. The engine process is per-match, so the value is always correct
+for the current time control.
+
+### Darwersi GTP adapter — stdout purity
+
+The darwersi library (`dwend.c`) used raw `printf()` for debug output (ordering,
+stats, etc.) which contaminated the GTP stdout stream. Fixed by replacing all
+debug `printf` calls with `DWLPrintf(level, ...)` — the library's existing
+level-driven logging API. The GTP adapter (`darwersi-gtp.c`) mutes all library
+debug output with `DWLPrintfLevel = 0`. To debug darwersi, set it to 1.
 
 ## Key files
 
