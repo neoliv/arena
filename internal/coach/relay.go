@@ -64,6 +64,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 			if err != nil {
 				return
 			}
+			slog.Info("relay read", "msg", string(msg)[:min(30, len(string(msg)))])
 			select {
 			case in <- string(msg):
 			case <-ctx.Done():
@@ -80,7 +81,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 				if !ok {
 					return
 				}
-				if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
+				slog.Info("relay write", "cmd", cmd[:min(20, len(cmd))]); if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
 					slog.Warn("relay write error", "err", err)
 					return
 				}
