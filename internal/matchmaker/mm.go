@@ -248,7 +248,7 @@ func (m *MatchMaker) tick() {
 
 	aEngID, _ := m.DB.GetEngineID(best.a.ai.EngineName, aVerTimed)
 	if aEngID == 0 {
-		m.DB.Exec("INSERT OR IGNORE INTO engines (name, version) VALUES (?,?)", best.a.ai.EngineName, aVerTimed)
+		m.DB.Exec("INSERT OR IGNORE INTO engines (name, version, created) SELECT ?, ?, COALESCE((SELECT created FROM engines WHERE name=? AND version=?), datetime('now'))", best.a.ai.EngineName, aVerTimed, best.a.ai.EngineName, best.a.ai.EngineVersion)
 		aEngID, _ = m.DB.GetEngineID(best.a.ai.EngineName, aVerTimed)
 	}
 	bEngID, _ := m.DB.GetEngineID(best.b.ai.EngineName, bVerTimed)
@@ -415,11 +415,11 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 	e1ID := a.Engine1ID
 	e2ID := a.Engine2ID
 	if e1ID == 0 {
-		m.DB.Exec("INSERT OR IGNORE INTO engines (name,version) VALUES (?,?)", e1Name, e1Ver)
+		m.DB.Exec("INSERT OR IGNORE INTO engines (name,version,created) VALUES (?,?,datetime('now'))", e1Name, e1Ver)
 		e1ID, _ = m.DB.GetEngineID(e1Name, e1Ver)
 	}
 	if e2ID == 0 {
-		m.DB.Exec("INSERT OR IGNORE INTO engines (name,version) VALUES (?,?)", e2Name, e2Ver)
+		m.DB.Exec("INSERT OR IGNORE INTO engines (name,version,created) VALUES (?,?,datetime('now'))", e2Name, e2Ver)
 		e2ID, _ = m.DB.GetEngineID(e2Name, e2Ver)
 	}
 
