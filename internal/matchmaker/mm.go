@@ -82,7 +82,7 @@ func New(database *db.DB, relay interface {
 func (m *MatchMaker) Run() {
 	slog.Info("matchmaker started")
 	// Clear stale assignments from previous server run.
-	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='server restarted' WHERE status IN ('pending','assigned','accepted','in_progress')")
+	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='server restarted' WHERE status IN ('pending','assigned','accepted','ready','in_progress','declined')")
 	for range m.ticker.C {
 		m.tick()
 	}
@@ -95,7 +95,7 @@ func (m *MatchMaker) tick() {
 		slog.Error("matchmaker retry", "err", err)
 	}
 	// Phase 2: Fail stale assignments (coaches offline or server restarted)
-	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='timeout' WHERE status='in_progress' AND in_progress_at < datetime('now','-5 minutes')")
+	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='timeout' WHERE (status='in_progress' AND in_progress_at < datetime('now','-5 minutes')) OR (status='ready' AND assigned_at < datetime('now','-2 minutes'))")
 	if err := m.DB.FailStaleAssignments(); err != nil {
 		slog.Error("matchmaker fail stale", "err", err)
 	}
