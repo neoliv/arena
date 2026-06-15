@@ -408,6 +408,7 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	// Cleanup relay sessions
 	m.Relay.Cleanup(a.Session1ID)
 	m.Relay.Cleanup(a.Session2ID)
+	select { case m.wakeup <- struct{}{}: default: }
 }
 
 func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name, e1Ver, e2Name, e2Ver string) (int, error) {
