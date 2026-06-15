@@ -139,7 +139,7 @@ func (h *Handler) handleRanks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tab := r.URL.Query().Get("tab")
-	io.WriteString(w, pageHead+navHTML+`<h1>Graphs</h1>
+	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Graphs</h1>`+filterBox+`
 		<div style="margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em">
 		<a href="?tab=elo" style="display:inline-block;margin-right:.4em;padding:.4em .9em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab==""||tab=="elo"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab==""||tab=="elo"{return"var(--link)"}else{return"transparent"}}()+`">Elo</a>
 		<a href="?tab=speed" style="display:inline-block;margin-right:.4em;padding:.4em .9em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="speed"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="speed"{return"var(--link)"}else{return"transparent"}}()+`">Speed</a>
@@ -220,7 +220,7 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 		if len(data) < 2 { continue }
 		pts := ""
 		for _, pt := range data { pts += fmt.Sprintf("%.1f,%.1f ", pt.x, pt.y) }
-		fmt.Fprintf(w, `<polyline fill="none" stroke="%s" stroke-width="2" points="%s"/>`, chartColors[i%8], strings.TrimSpace(pts))
+		fmt.Fprintf(w, `<polyline class="filter-item" fill="none" stroke="%s" stroke-width="2" points="%s"/>`, chartColors[i%8], strings.TrimSpace(pts))
 	}
 	io.WriteString(w, `</g></svg>`)
 	// Legend with filter support
@@ -816,9 +816,9 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 			y := i*(barH+gap)
 			lbl := s.Name
 			if len(lbl) > 18 { lbl = lbl[:17]+"…" }
-			fmt.Fprintf(&svg, `<text x="0" y="%d" fill="var(--fg)" font-size="11">%s</text>`, y+12, lbl)
+			fmt.Fprintf(&svg, `<g class="filter-item"><text x="0" y="%d" fill="var(--fg)" font-size="11">%s</text>`, y+12, lbl)
 			fmt.Fprintf(&svg, `<rect x="155" y="%d" width="%d" height="%d" fill="%s" rx="2"/>`, y, w, barH, color)
-			fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="var(--muted)" font-size="10">%s</text>`, 160+w, y+12, fmt.Sprintf("%.0f%s", val, unit))
+			fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="var(--muted)" font-size="10">%s</text></g>`, 160+w, y+12, fmt.Sprintf("%.0f%s", val, unit))
 		}
 		svg.WriteString(`</svg>`)
 		return svg.String()
