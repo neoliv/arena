@@ -12,8 +12,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/neoliv/arena/internal/coach"
 	"github.com/neoliv/arena/internal/db"
-	"nhooyr.io/websocket"
 )
 
 // TimeControl configures a time control tier.
@@ -51,8 +51,7 @@ func DefaultConfig() Config {
 type MatchMaker struct {
 	DB     *db.DB
 	Relay  interface {
-		WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, error)
-		GetConn(sessionID string) *websocket.Conn
+		WaitForStream(sessionID string, timeoutSec int) (coach.Stream, error)
 		Cleanup(sessionID string)
 	}
 	Config Config
@@ -61,8 +60,7 @@ type MatchMaker struct {
 
 // New creates a new MatchMaker.
 func New(database *db.DB, relay interface {
-	WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, error)
-	GetConn(sessionID string) *websocket.Conn
+	WaitForStream(sessionID string, timeoutSec int) (coach.Stream, error)
 	Cleanup(sessionID string)
 }, cfg Config) *MatchMaker {
 	interval := cfg.TickInterval
@@ -302,14 +300,14 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 		return
 	}
 
-	// Wait for both WebSocket connections
-	blackConn, err := m.Relay.WaitForConn(a.Session1ID, 120)
-	if err != nil || blackConn == nil {
+	// Wait for both streams
+	blackStream, err := m.Relay.WaitForStream(a.Session1ID, 120)
+	if err != nil {
 		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "timeout waiting for coach 1 (black)")
 		return
 	}
-	whiteConn, err := m.Relay.WaitForConn(a.Session2ID, 120)
-	if err != nil || whiteConn == nil {
+	whiteStream, err := m.Relay.WaitForStream(a.Session2ID, 120)
+	if err != nil {
 		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "timeout waiting for coach 2 (white)")
 		return
 	}
@@ -330,7 +328,7 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	if totalGames == 0 { totalGames = 2 }
 
 	// Play each game alternating colors
-	games := playGames(ctx, blackConn, whiteConn, totalGames, gameTimeSec)
+	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
 
 	// Store results
 	matchID, err := m.storeResults(a, games, e1Name, e1Ver, e2Name, e2Ver)

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/neoliv/arena/internal/coach"
 )
 
 type gameResult struct {
@@ -24,35 +24,32 @@ type gameResult struct {
 	WhiteDepth   int
 }
 
-func wsSend(ctx context.Context, conn *websocket.Conn, cmd string) (string, error) {
-	if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
-		return "", fmt.Errorf("write: %w", err)
+func wsSend(stream coach.Stream, cmd string) (string, error) {
+	select {
+	case stream.Out <- cmd:
+	case <-time.After(10 * time.Second):
+		return "", fmt.Errorf("write timeout: %s", cmd)
 	}
-	// Read response lines until = or ?
-	var buf strings.Builder
-	for {
-		_, msg, err := conn.Read(ctx)
-		if err != nil {
-			return "", fmt.Errorf("read: %w", err)
+
+	select {
+	case resp, ok := <-stream.In:
+		if !ok {
+			return "", fmt.Errorf("stream closed")
 		}
-		line := string(msg)
-		buf.WriteString(line)
-		if strings.HasPrefix(line, "=") || strings.HasPrefix(line, "?") {
-			break
-		}
+		return resp, nil
+	case <-time.After(10 * time.Second):
+		return "", fmt.Errorf("read timeout: %s", cmd)
 	}
-	return buf.String(), nil
 }
 
-func playGames(ctx context.Context, black, white *websocket.Conn, numGames int, gameTimeSec float64) []gameResult {
+func playGames(ctx context.Context, black, white coach.Stream, numGames int, gameTimeSec float64) []gameResult {
 	openings := defaultBook()
 	var results []gameResult
 
 	for i := 0; i < numGames; i++ {
 		opening := openings[i%len(openings)]
 
-		// Swap colors for even-numbered games
-		var e1, e2 *websocket.Conn
+		var e1, e2 coach.Stream
 		bName, wName := "Black", "White"
 		if i%2 == 1 {
 			e1, e2 = white, black
@@ -67,61 +64,104 @@ func playGames(ctx context.Context, black, white *websocket.Conn, numGames int, 
 	return results
 }
 
-func playOneGame(ctx context.Context, black, white *websocket.Conn, opening string, gameTimeSec float64, bName, wName string) gameResult {
+func playOneGame(ctx context.Context, black, white coach.Stream, opening string, gameTimeSec float64, bName, wName string) gameResult {
 	gr := gameResult{Black: bName, White: wName, OpeningLine: opening}
 
 	// Initialize both engines
-	for _, eng := range []*websocket.Conn{black, white} {
-		wsSend(ctx, eng, "boardsize 8")
-		wsSend(ctx, eng, "clear_board")
-		wsSend(ctx, eng, fmt.Sprintf("game_time %.1f", gameTimeSec))
+	for _, s := range []coach.Stream{black, white} {
+		if _, err := wsSend(s, "boardsize 8"); err != nil {
+			slog.Error("init failed", "cmd", "boardsize 8", "err", err)
+			gr.Result = "0-1"
+			return gr
+		}
+		if _, err := wsSend(s, "clear_board"); err != nil {
+			slog.Error("init failed", "cmd", "clear_board", "err", err)
+			gr.Result = "0-1"
+			return gr
+		}
+		if _, err := wsSend(s, fmt.Sprintf("game_time %.1f", gameTimeSec)); err != nil {
+			slog.Error("init failed", "cmd", "game_time", "err", err)
+			gr.Result = "0-1"
+			return gr
+		}
 	}
 
 	// Play opening moves
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
 		color := "B"
-		if i%2 == 1 { color = "W" }
-		for _, eng := range []*websocket.Conn{black, white} {
-			wsSend(ctx, eng, "play "+color+" "+mv)
+		if i%2 == 1 {
+			color = "W"
+		}
+		for _, s := range []coach.Stream{black, white} {
+			if _, err := wsSend(s, "play "+color+" "+mv); err != nil {
+				slog.Error("play failed", "move", mv, "err", err)
+				return gr
+			}
 		}
 	}
 
 	moveNum := len(moves)
 	sideToMove := "B"
-	if moveNum%2 == 1 { sideToMove = "W" }
+	if moveNum%2 == 1 {
+		sideToMove = "W"
+	}
 	consecutivePasses := 0
 
 	for {
-		if gr.BlackTimeS >= gameTimeSec { gr.Result = "0-1"; break }
-		if gr.WhiteTimeS >= gameTimeSec { gr.Result = "1-0"; break }
+		if gr.BlackTimeS >= gameTimeSec {
+			gr.Result = "0-1"
+			break
+		}
+		if gr.WhiteTimeS >= gameTimeSec {
+			gr.Result = "1-0"
+			break
+		}
 
 		current := black
-		if sideToMove == "W" { current = white }
+		if sideToMove == "W" {
+			current = white
+		}
 
 		t0 := time.Now()
-		resp, err := wsSend(ctx, current, "genmove "+sideToMove)
+		resp, err := wsSend(current, "genmove "+sideToMove)
 		elapsed := time.Since(t0).Seconds()
-		if sideToMove == "B" { gr.BlackTimeS += elapsed } else { gr.WhiteTimeS += elapsed }
+		if sideToMove == "B" {
+			gr.BlackTimeS += elapsed
+		} else {
+			gr.WhiteTimeS += elapsed
+		}
 
 		if err != nil {
 			slog.Error("genmove failed", "side", sideToMove, "err", err)
-			if sideToMove == "B" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+			if sideToMove == "B" {
+				gr.Result = "0-1"
+			} else {
+				gr.Result = "1-0"
+			}
 			break
 		}
 
 		resp = strings.TrimSpace(strings.TrimPrefix(resp, "= "))
 		parts := strings.Fields(resp)
-		if len(parts) == 0 { break }
+		if len(parts) == 0 {
+			break
+		}
 		mv := strings.ToUpper(parts[0])
 
 		if mv == "RESIGN" {
-			if sideToMove == "B" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+			if sideToMove == "B" {
+				gr.Result = "0-1"
+			} else {
+				gr.Result = "1-0"
+			}
 			break
 		}
 		if mv == "PASS" {
 			consecutivePasses++
-			if consecutivePasses >= 2 { break }
+			if consecutivePasses >= 2 {
+				break
+			}
 			sideToMove = map[string]string{"B": "W", "W": "B"}[sideToMove]
 			continue
 		}
@@ -131,11 +171,13 @@ func playOneGame(ctx context.Context, black, white *websocket.Conn, opening stri
 
 		// Tell the other engine
 		other := white
-		if sideToMove == "W" { other = black }
-		wsSend(ctx, other, "play "+sideToMove+" "+mv)
+		if sideToMove == "W" {
+			other = black
+		}
+		wsSend(other, "play "+sideToMove+" "+mv)
 
 		// Gather stats
-		statsResp, _ := wsSend(ctx, current, "stats")
+		statsResp, _ := wsSend(current, "stats")
 		statsResp = strings.TrimPrefix(strings.TrimSpace(statsResp), "= ")
 		var nodes, nps int64
 		var depth, branch, empties int
@@ -147,18 +189,24 @@ func playOneGame(ctx context.Context, black, white *websocket.Conn, opening stri
 
 		if sideToMove == "B" {
 			gr.BlackNodes += nodes
-			if depth > gr.BlackDepth { gr.BlackDepth = depth }
+			if depth > gr.BlackDepth {
+				gr.BlackDepth = depth
+			}
 		} else {
 			gr.WhiteNodes += nodes
-			if depth > gr.WhiteDepth { gr.WhiteDepth = depth }
+			if depth > gr.WhiteDepth {
+				gr.WhiteDepth = depth
+			}
 		}
 
-		if moveNum > 120 { break }
+		if moveNum > 120 {
+			break
+		}
 	}
 
 	// Get final score
 	if gr.Result == "" {
-		finalResp, _ := wsSend(ctx, black, "final_score")
+		finalResp, _ := wsSend(black, "final_score")
 		finalResp = strings.TrimPrefix(strings.TrimSpace(finalResp), "= ")
 		if strings.HasPrefix(finalResp, "B+") {
 			fmt.Sscanf(finalResp, "B+%d", &gr.FinalScore)
@@ -175,11 +223,15 @@ func playOneGame(ctx context.Context, black, white *websocket.Conn, opening stri
 }
 
 func parseMoveList(line string) []string {
-	if line == "" { return nil }
+	if line == "" {
+		return nil
+	}
 	line = strings.TrimSpace(line)
 	var m []string
 	for i := 0; i < len(line); i += 2 {
-		if i+1 < len(line) { m = append(m, strings.ToUpper(line[i:i+2])) }
+		if i+1 < len(line) {
+			m = append(m, strings.ToUpper(line[i:i+2]))
+		}
 	}
 	return m
 }

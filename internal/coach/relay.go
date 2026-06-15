@@ -1,6 +1,7 @@
 package coach
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,13 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// Stream is a bidirectional GTP channel pair for a single engine session.
+// The match executor writes GTP commands to Out and reads responses from In.
+type Stream struct {
+	In  <-chan string
+	Out chan<- string
+}
+
 // Relay manages WebSocket sessions for GTP relay.
 type Relay struct {
 	mu       sync.Mutex
@@ -17,9 +25,10 @@ type Relay struct {
 }
 
 type relaySlot struct {
-	conn  *websocket.Conn
-	ready chan struct{} // closed when connection is available
-	done  chan struct{} // closed by Cleanup when match is over
+	stream Stream
+	ready  chan struct{} // closed when stream is available
+	done   chan struct{} // closed by Cleanup
+	cancel context.CancelFunc
 }
 
 // NewRelay creates a new relay manager.
@@ -43,21 +52,50 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	in := make(chan string, 8)
+	out := make(chan string, 8)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Reader: WebSocket → in channel
+	go func() {
+		defer close(in)
+		for {
+			_, msg, err := conn.Read(ctx)
+			if err != nil {
+				return
+			}
+			select {
+			case in <- string(msg):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Writer: out channel → WebSocket
+	go func() {
+		for {
+			select {
+			case cmd, ok := <-out:
+				if !ok {
+					return
+				}
+				conn.Write(ctx, websocket.MessageText, []byte(cmd))
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	stream := Stream{In: in, Out: out}
+
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
-	if exists && slot.conn != nil {
-		r.mu.Unlock()
-		conn.Close(websocket.StatusNormalClosure, "session already connected")
-		slog.Warn("relay duplicate connection", "session", sessionID)
-		return
-	}
 	if exists {
-		// Placeholder created by WaitForConn — fill in the connection.
-		slot.conn = conn
-		slot.done = make(chan struct{})
+		slot.stream = stream
 		close(slot.ready)
 	} else {
-		slot = &relaySlot{conn: conn, ready: make(chan struct{}), done: make(chan struct{})}
+		slot = &relaySlot{stream: stream, ready: make(chan struct{}), done: make(chan struct{}), cancel: cancel}
 		close(slot.ready)
 		r.sessions[sessionID] = slot
 	}
@@ -65,17 +103,16 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 
 	slog.Info("relay engine connected", "session", sessionID)
 
-	// Block until the match is over. Do NOT read from the connection —
-	// the match executor uses it exclusively via WaitForConn.
 	<-slot.done
+	cancel()
 	conn.Close(websocket.StatusNormalClosure, "match done")
 }
 
 // ErrRelayTimeout is returned when waiting for a coach times out.
 var ErrRelayTimeout = errors.New("relay timeout")
 
-// WaitForConn blocks until a coach connects for the given session.
-func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, error) {
+// WaitForStream blocks until a coach connects and returns a bidirectional stream.
+func (r *Relay) WaitForStream(sessionID string, timeoutSec int) (Stream, error) {
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if !exists {
@@ -87,27 +124,17 @@ func (r *Relay) WaitForConn(sessionID string, timeoutSec int) (*websocket.Conn, 
 	select {
 	case <-slot.ready:
 		r.mu.Lock()
-		c := slot.conn
+		s := slot.stream
 		r.mu.Unlock()
-		return c, nil
+		return s, nil
 	case <-time.After(time.Duration(timeoutSec) * time.Second):
 		r.mu.Lock()
-		// Clean up placeholder if still empty (coach never connected).
-		if slot.conn == nil {
+		if slot.stream.In == nil && slot.stream.Out == nil {
 			delete(r.sessions, sessionID)
 		}
 		r.mu.Unlock()
-		return nil, ErrRelayTimeout
+		return Stream{}, ErrRelayTimeout
 	}
-}
-
-// GetConn returns the connection for a session if available.
-func (r *Relay) GetConn(sessionID string) *websocket.Conn {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	slot, ok := r.sessions[sessionID]
-	if !ok || slot.conn == nil { return nil }
-	return slot.conn
 }
 
 // Cleanup signals the handler to stop and removes the session.
