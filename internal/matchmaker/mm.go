@@ -131,7 +131,21 @@ func (m *MatchMaker) tick() {
 			allAIs = append(allAIs, availAI{ai: ai, coach: c})
 		}
 	}
-	if len(allAIs) < 2 { return }
+	if len(allAIs) < 2 {
+		slog.Info("matchmaker not enough AIs", "available", len(allAIs), "coaches", len(coaches))
+		for _, c := range coaches {
+			rows, _ := m.DB.Query("SELECT engine_name, engine_version, instances_running, max_instances FROM coach_ais WHERE coach_id=?", c.ID)
+			if rows != nil {
+				for rows.Next() {
+					var name, ver string; var running, max int
+					rows.Scan(&name, &ver, &running, &max)
+					slog.Info("  coach ai", "coach", c.CoachID, "ai", name+":"+ver, "running", running, "max", max)
+				}
+				rows.Close()
+			}
+		}
+		return
+	}
 
 	// Build feasible pairs with priorities
 	type pair struct {
