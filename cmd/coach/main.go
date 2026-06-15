@@ -239,7 +239,12 @@ func main() {
 
 			// Watch for completion in background
 			go func(sid string, aid int) {
-				re.cmd.Wait()
+				err := re.cmd.Wait()
+				if err != nil {
+					slog.Warn("engine exited with error", "session", sid, "err", err)
+				} else {
+					slog.Info("engine exited", "session", sid)
+				}
 				mu.Lock()
 				delete(running, sid)
 				mu.Unlock()
@@ -417,13 +422,17 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 
 	engCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(engCtx, parts[0], parts[1:]...)
-	cmd.Dir = filepath.Dir(parts[0]) // run from engine's directory
-	cmd.Stderr = os.Stderr
+	cmd.Dir = filepath.Dir(parts[0])
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 
+	slog.Info("launching engine", "binary", parts[0], "args", strings.Join(parts[1:], " "), "dir", cmd.Dir, "session", sessionID)
+
 	if err := cmd.Start(); err != nil {
 		cancel()
+		slog.Error("engine start failed", "binary", parts[0], "err", err, "stderr", stderrBuf.String())
 		return nil, fmt.Errorf("start: %w", err)
 	}
 
