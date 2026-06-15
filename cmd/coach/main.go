@@ -190,11 +190,24 @@ func main() {
 	var mu sync.Mutex
 	running := make(map[string]*runningEngine) // key: sessionID
 
-	go heartbeatLoop(ctx, client, cfg, &mu, running, loadAndRegister)
+	go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("heartbeat loop panicked", "panic", r)
+				}
+			}()
+			heartbeatLoop(ctx, client, cfg, &mu, running, loadAndRegister)
+		}()
 
 	// Task polling loop
 	slog.Info("starting task poll loop")
+	lastReReg := time.Now()
 	for ctx.Err() == nil {
+		// Re-register every 5 minutes as heartbeat-independent fallback
+		if time.Since(lastReReg) > 5*time.Minute {
+			loadAndRegister()
+			lastReReg = time.Now()
+		}
 		tasks := pollTasks(client, cfg)
 		for _, t := range tasks {
 			ai := findAI(cfg, t.EngineName, t.EngineVersion)
