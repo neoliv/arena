@@ -19,9 +19,9 @@ type Handler struct {
 	Token         string
 	Relay         *Relay
 	ValidateToken func(string) bool
-	matchmaker        MatchMakerFunc
-	heartbeatHook     func()
-	ServerGen         string // random ID regenerated on server restart
+	matchmaker    MatchMakerFunc
+	heartbeatHook func()
+	ServerGen     string // random ID regenerated on server restart
 	rateMu        sync.Mutex
 	rateWindows   map[string][]time.Time
 }
@@ -179,7 +179,6 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 			slog.Error("register coach ai", "name", ai.Name, "version", ai.Version, "err", err)
 			continue
 		}
-		// Also upsert into engines table with changelog info
 		_, err = h.DB.Exec(`INSERT INTO engines (name, version, created, changelog_short, changelog_full, engine_id, engine_manifest) VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(name, version) DO UPDATE SET created=excluded.created, changelog_short=excluded.changelog_short, changelog_full=excluded.changelog_full, engine_id=excluded.engine_id, engine_manifest=excluded.engine_manifest`,
 			ai.Name, ai.Version, ai.Created, ai.ChangelogShort, ai.ChangelogFull, ai.EngineID, ai.EngineManifest)
@@ -302,6 +301,7 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 		row := h.DB.QueryRow("SELECT id, COALESCE(session1_id,''), COALESCE(session2_id,''), coach1_ai_id, coach2_ai_id, status FROM match_assignments WHERE id=?", assignmentID)
 		if err := row.Scan(&a.ID, &a.Session1ID, &a.Session2ID, &a.Coach1AIID, &a.Coach2AIID, &a.Status); err == nil {
 			if a.Session1ID != "" && a.Session2ID != "" && a.Status == "ready" {
+				slog.Info("both sessions ready, starting match", "assignment", assignmentID)
 				h.DB.Exec("UPDATE match_assignments SET status='in_progress' WHERE id=? AND status='ready'", assignmentID)
 				h.matchmaker(assignmentID)
 			}

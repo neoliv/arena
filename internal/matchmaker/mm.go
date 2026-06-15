@@ -117,6 +117,17 @@ func (m *MatchMaker) tick() {
 		return
 	}
 	slog.Info("matchmaker tick", "coaches", len(coaches))
+	for _, c := range coaches {
+		rows, _ := m.DB.Query("SELECT engine_name, engine_version, instances_running, max_instances, is_available FROM coach_ais WHERE coach_id=?", c.ID)
+		if rows != nil {
+			for rows.Next() {
+				var n, v string; var run, max, avail int
+				rows.Scan(&n, &v, &run, &max, &avail)
+				slog.Info("  ai", "coach", c.CoachID, "name", n, "ver", v, "running", run, "max", max, "avail", avail)
+			}
+			rows.Close()
+		}
+	}
 
 	// Collect all available AIs from all coaches
 	type availAI struct {
