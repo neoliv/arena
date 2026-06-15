@@ -34,6 +34,9 @@ type gameResult struct {
 	Moves        []gameMove
 }
 
+// wsSend sends a GTP command and returns the first non-blank response.
+// Blank lines (edax double-newline bug) are drained so they don't shift
+// the conversation.
 func wsSend(stream coach.Stream, cmd string) (string, error) {
 	select {
 	case stream.Out <- cmd:
@@ -41,14 +44,18 @@ func wsSend(stream coach.Stream, cmd string) (string, error) {
 		return "", fmt.Errorf("write timeout: %s", cmd)
 	}
 
-	select {
-	case resp, ok := <-stream.In:
-		if !ok {
-			return "", fmt.Errorf("stream closed")
+	for {
+		select {
+		case resp, ok := <-stream.In:
+			if !ok {
+				return "", fmt.Errorf("stream closed")
+			}
+			if strings.TrimSpace(resp) != "" {
+				return resp, nil
+			}
+		case <-time.After(5 * time.Second):
+			return "", fmt.Errorf("read timeout: %s", cmd)
 		}
-		return resp, nil
-	case <-time.After(5 * time.Second):
-		return "", fmt.Errorf("read timeout: %s", cmd)
 	}
 }
 
@@ -77,7 +84,8 @@ func playGames(ctx context.Context, black, white coach.Stream, numGames int, gam
 func playOneGame(ctx context.Context, black, white coach.Stream, opening string, gameTimeSec float64, bName, wName string) gameResult {
 	gr := gameResult{Black: bName, White: wName, OpeningLine: opening}
 
-	// Initialize both engines
+	// Init: standard GTP only. Time control is set by the coach
+	// via CLI flags (%game_time% substitution in player YAML).
 	for _, s := range []coach.Stream{black, white} {
 		if _, err := wsSend(s, "boardsize 8"); err != nil {
 			slog.Error("init failed", "cmd", "boardsize 8", "err", err)
@@ -89,21 +97,14 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			gr.Result = "0-1"
 			return gr
 		}
-		if _, err := wsSend(s, fmt.Sprintf("game_time %.1f", gameTimeSec)); err != nil {
-			slog.Error("init failed", "cmd", "game_time", "err", err)
-			gr.Result = "0-1"
-			return gr
-		}
 	}
 
-	// Play opening moves synchronously, checking each response.
-	// If either engine rejects a move, boards diverge and the game
-	// is meaningless — abort immediately.
+	// Play opening moves synchronously (standard GTP play command).
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
-		color := "B"
+		color := "b"
 		if i%2 == 1 {
-			color = "W"
+			color = "w"
 		}
 		cmd := "play " + color + " " + mv
 		for _, s := range []coach.Stream{black, white} {
@@ -113,15 +114,26 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			}
 		}
 		for _, s := range []coach.Stream{black, white} {
-			select {
-			case resp := <-s.In:
-				if strings.HasPrefix(resp, "?") {
-					slog.Warn("opening move rejected", "move", mv, "color", color, "response", resp)
+			// Drain blank lines (edax double-newline bug) and
+			// check the response.
+			var resp string
+			for {
+				select {
+				case r := <-s.In:
+					if strings.TrimSpace(r) != "" {
+						resp = r
+					} else {
+						continue // skip blank
+					}
+				case <-time.After(3 * time.Second):
+					slog.Error("opening ack timeout", "move", mv)
 					gr.Result = "0-1"
 					return gr
 				}
-			case <-time.After(3 * time.Second):
-				slog.Error("opening ack timeout", "move", mv)
+				break
+			}
+			if strings.HasPrefix(resp, "?") {
+				slog.Warn("opening move rejected", "move", mv, "color", color, "response", resp)
 				gr.Result = "0-1"
 				return gr
 			}
@@ -129,13 +141,13 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	}
 
 	moveNum := len(moves)
-	sideToMove := "B"
+	sideToMove := "b"
 	if moveNum%2 == 1 {
-		sideToMove = "W"
+		sideToMove = "w"
 	}
 	consecutivePasses := 0
-
 	timeLimit := gameTimeSec * 1.05
+
 	for {
 		if gr.BlackTimeS >= timeLimit {
 			gr.Result = "0-1"
@@ -147,14 +159,14 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		current := black
-		if sideToMove == "W" {
+		if sideToMove == "w" {
 			current = white
 		}
 
 		t0 := time.Now()
 		resp, err := wsSend(current, "genmove "+sideToMove)
 		elapsed := time.Since(t0).Seconds()
-		if sideToMove == "B" {
+		if sideToMove == "b" {
 			gr.BlackTimeS += elapsed
 		} else {
 			gr.WhiteTimeS += elapsed
@@ -162,7 +174,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 		if err != nil {
 			slog.Error("genmove failed", "side", sideToMove, "err", err)
-			if sideToMove == "B" {
+			if sideToMove == "b" {
 				gr.Result = "0-1"
 			} else {
 				gr.Result = "1-0"
@@ -173,12 +185,13 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		resp = strings.TrimSpace(strings.TrimPrefix(resp, "= "))
 		parts := strings.Fields(resp)
 		if len(parts) == 0 {
+			slog.Warn("empty genmove response", "side", sideToMove)
 			break
 		}
 		mv := strings.ToUpper(parts[0])
 		if mv != "PASS" && mv != "RESIGN" && (len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8') {
 			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
-			if sideToMove == "B" {
+			if sideToMove == "b" {
 				gr.Result = "0-1"
 			} else {
 				gr.Result = "1-0"
@@ -187,7 +200,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		if mv == "RESIGN" {
-			if sideToMove == "B" {
+			if sideToMove == "b" {
 				gr.Result = "0-1"
 			} else {
 				gr.Result = "1-0"
@@ -199,23 +212,22 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			if consecutivePasses >= 2 {
 				break
 			}
-			sideToMove = map[string]string{"B": "W", "W": "B"}[sideToMove]
+			sideToMove = map[string]string{"b": "w", "w": "b"}[sideToMove]
 			continue
 		}
 		consecutivePasses = 0
 		moveNum++
 
-		// Tell the OTHER engine what was played, using the color
-		// that just moved (before the flip).
 		playedColor := sideToMove
-		sideToMove = map[string]string{"B": "W", "W": "B"}[sideToMove]
+		sideToMove = map[string]string{"b": "w", "w": "b"}[sideToMove]
 		other := black
-		if playedColor == "B" {
+		if playedColor == "b" {
 			other = white
 		}
 		wsSend(other, "play "+playedColor+" "+mv)
 
-		// Gather stats from the engine that just moved
+		// Gather optional stats. Engines that don't support this
+		// respond "? unknown command" — we ignore the error.
 		statsResp, _ := wsSend(current, "stats")
 		statsResp = strings.TrimPrefix(strings.TrimSpace(statsResp), "= ")
 		var nodes, nps int64
@@ -226,7 +238,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		fmt.Sscanf(statsResp, "nodes %d depth %d time_ms %f timeout %t score %d nps %d branching %d empties %d",
 			&nodes, &depth, &tm, &timeout, &score, &nps, &branch, &empties)
 
-		if playedColor == "B" {
+		if playedColor == "b" {
 			gr.BlackNodes += nodes
 			if depth > gr.BlackDepth {
 				gr.BlackDepth = depth
@@ -248,15 +260,18 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
+	// Determine result. final_score is computed from the result
+	// rather than sent as a GTP command (not all engines support it).
 	if gr.Result == "" {
 		gr.Result = "1/2"
-		finalResp, _ := wsSend(black, "final_score")
-		finalResp = strings.TrimPrefix(strings.TrimSpace(finalResp), "= ")
-		if strings.HasPrefix(finalResp, "B+") {
-			fmt.Sscanf(finalResp, "B+%d", &gr.FinalScore)
-		} else if strings.HasPrefix(finalResp, "W+") {
-			fmt.Sscanf(finalResp, "W+%d", &gr.FinalScore)
-		}
+	}
+	switch gr.Result {
+	case "1-0":
+		gr.FinalScore = 64
+	case "0-1":
+		gr.FinalScore = -64
+	default:
+		gr.FinalScore = 0
 	}
 
 	return gr
@@ -277,14 +292,9 @@ func parseMoveList(line string) []string {
 }
 
 func defaultBook() []string {
-	return []string{
-		"f5d6c3d3c4e3f4c5",
-		"f5f6e6f4e3d6c5c4",
-		"e6f6f5e3d3c5c4d6",
-		"e6f4d6c5f5e3c4d3",
-		"d3c5f6e3c4f5e6f4",
-		"d3c4f5d6c3e3f4c5",
-		"c4e3f5e6f4c5d6f6",
-		"c4c3d3c5f4e3f5d6",
-	}
+	// Empty book: games start from the standard Othello position.
+	// This avoids opening legality issues while we stabilize the
+	// GTP communication. Restore the 8-ply book once all engines
+	// are verified to handle it correctly.
+	return []string{""}
 }
