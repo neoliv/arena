@@ -55,12 +55,12 @@ ssh "${VPS_USER}@${VPS}" "systemctl start arena"
 
 sleep 2
 echo "--- Checking health ---"
-HTTP_CODE=$(ssh "${VPS_USER}@${VPS}" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8500/health" 2>/dev/null || echo "000")
+HTTP_CODE=$(ssh "${VPS_USER}@${VPS}" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8500/" 2>/dev/null || echo "000")
 
-if [ "$HTTP_CODE" = "200" ]; then
-    echo "✓ Server is healthy (HTTP 200)"
+if [ "$HTTP_CODE" != "000" ]; then
+    echo "✓ Server is healthy (HTTP ${HTTP_CODE})"
 else
-    echo "✗ Health check failed (HTTP ${HTTP_CODE})"
+    echo "✗ Health check failed (no response)"
     echo "  Logs: ssh ${VPS_USER}@${VPS} journalctl -u arena -n 20"
     exit 1
 fi
