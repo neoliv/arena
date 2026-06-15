@@ -21,7 +21,7 @@ var SharedCSS = sharedCSS
 
 const sharedCSS = `<style>
 :root{--bg:#fafafa;--fg:#222;--muted:#666;--border:#ddd;--hover:#f0f0f5;--th-bg:#f0f0f0;--link:#385;--link-hover:#263;--nav-hl:#1a5c3a;--win-bg:#dfd;--win-fg:#060;--loss-bg:#fdd;--loss-fg:#600;--draw-bg:#ffd;--draw-fg:#660;color-scheme:light}
-@media(prefers-color-scheme:dark){:root{--bg:#1a1a2e;--fg:#e8e6e3;--muted:#a9a7a3;--border:#333;--hover:#252540;--th-bg:#22223a;--link:#7a7;--link-hover:#9b9;--nav-hl:#3a5;--win-bg:#1a3a1a;--win-fg:#7f7;--loss-bg:#3a1a1a;--loss-fg:#f77;--draw-bg:#3a3a1a;--draw-fg:#ee7;color-scheme:dark}}
+@media(prefers-color-scheme:dark){:root{--bg:#1a1a2e;--fg:#e8e6e3;--muted:#a9a7a3;--border:#333;--hover:#252540;--th-bg:#22223a;--link:#7a7;--link-hover:#9b9;--nav-hl:#284;--win-bg:#1a3a1a;--win-fg:#7f7;--loss-bg:#3a1a1a;--loss-fg:#f77;--draw-bg:#3a3a1a;--draw-fg:#ee7;color-scheme:dark}}
 body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:1em;color:var(--fg);background:var(--bg)}
 h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
