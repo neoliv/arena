@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/neoliv/arena/internal/api"
 	"github.com/neoliv/arena/internal/backup"
@@ -162,7 +163,8 @@ handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	})
 
 	slog.Info("listening", "addr", *addr)
-	if err := http.ListenAndServe(*addr, handler); err != nil {
+	srv := &http.Server{Addr: *addr, Handler: handler, ReadTimeout: 15 * time.Second, ReadHeaderTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
+	if err := srv.ListenAndServe(); err != nil {
 		slog.Error("serve", "err", err)
 		os.Exit(1)
 	}

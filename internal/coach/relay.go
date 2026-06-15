@@ -45,7 +45,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	}
 
 	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
+		OriginPatterns: []string{"arena.arsac.org", "localhost"},
 	})
 	if err != nil {
 		slog.Error("ws accept", "err", err)
@@ -95,7 +95,14 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	slot, exists := r.sessions[sessionID]
 	if exists {
 		slot.stream = stream
-		close(slot.ready)
+		if slot.ready != nil {
+			select {
+			case <-slot.ready:
+				// already closed, don't close again
+			default:
+				close(slot.ready)
+			}
+		}
 	} else {
 		slot = &relaySlot{stream: stream, ready: make(chan struct{}), done: make(chan struct{}), cancel: cancel}
 		close(slot.ready)
@@ -105,7 +112,11 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 
 	slog.Info("relay engine connected", "session", sessionID)
 
-	<-slot.done
+	select {
+	case <-slot.done:
+	case <-time.After(10 * time.Minute):
+		slog.Warn("relay timed out waiting for cleanup", "session", sessionID)
+	}
 	cancel()
 	conn.Close(websocket.StatusNormalClosure, "match done")
 }

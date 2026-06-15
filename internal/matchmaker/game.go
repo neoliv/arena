@@ -148,6 +148,12 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 		mv := strings.ToUpper(parts[0])
+		// Validate move format (A-H, 1-8) — reject obviously invalid moves.
+		if mv != "PASS" && mv != "RESIGN" && (len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8') {
+			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
+			if sideToMove == "B" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+			break
+		}
 
 		if mv == "RESIGN" {
 			if sideToMove == "B" {

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
+	crand "crypto/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -243,7 +244,21 @@ func (m *MatchMaker) tick() {
 
 // OnBothReady is called when both coaches report ready for an assignment.
 func (m *MatchMaker) OnBothReady(assignmentID int) {
-	go m.executeMatch(assignmentID)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("match execution panicked", "assignment", assignmentID, "panic", r)
+				m.DB.UpdateAssignmentStatus(assignmentID, "failed", "internal error")
+				// Clean up relay sessions if possible
+				var a db.AssignmentRow
+				if err := m.DB.QueryRow("SELECT COALESCE(session1_id,''), COALESCE(session2_id,'') FROM match_assignments WHERE id=?", assignmentID).Scan(&a.Session1ID, &a.Session2ID); err == nil {
+					if a.Session1ID != "" { m.Relay.Cleanup(a.Session1ID) }
+					if a.Session2ID != "" { m.Relay.Cleanup(a.Session2ID) }
+				}
+			}
+		}()
+		m.executeMatch(assignmentID)
+	}()
 }
 
 // HandleStatus is a debug endpoint showing matchmaker state.
@@ -283,7 +298,7 @@ func (m *MatchMaker) hoursSinceLastMatch(e1, e2 int) float64 {
 
 func randomSessionID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	crand.Read(b)
 	return fmt.Sprintf("%x", b)
 }
 

@@ -369,7 +369,8 @@ func (s *Server) HandleListGames(w http.ResponseWriter, r *http.Request) {
 func (s *Server) HandleCreateBisect(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EngineName             string    `json:"engine_name"`
-		GoodCommit, BadCommit  string    `json:"good_commit" json:"bad_commit"`
+		GoodCommit  string `json:"good_commit"`
+	BadCommit   string `json:"bad_commit"`
 		RefEngine              engineRef `json:"ref_engine"`
 		GamesPerStep           int       `json:"games_per_step"`
 	}

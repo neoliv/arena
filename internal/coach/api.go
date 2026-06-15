@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/neoliv/arena/internal/db"
@@ -20,6 +21,8 @@ type Handler struct {
 	ValidateToken func(string) bool
 	matchmaker    MatchMakerFunc
 	ServerGen     string // random ID regenerated on server restart
+	rateMu        sync.Mutex
+	rateWindows   map[string][]time.Time
 }
 
 type MatchMakerFunc func(assignmentID int)
@@ -107,6 +110,27 @@ func (h *Handler) checkAuthOrOpen(r *http.Request) bool {
 	return h.checkAuth(r)
 }
 
+// checkRate returns true if the request should be allowed.
+// Limits: 60 requests per 30 seconds per coach (lenient, allows bursts).
+func (h *Handler) checkRate(coachID string) bool {
+	h.rateMu.Lock()
+	defer h.rateMu.Unlock()
+	if h.rateWindows == nil { h.rateWindows = make(map[string][]time.Time) }
+	now := time.Now()
+	cutoff := now.Add(-30 * time.Second)
+	recent := h.rateWindows[coachID]
+	valid := recent[:0]
+	for _, t := range recent {
+		if t.After(cutoff) { valid = append(valid, t) }
+	}
+	if len(valid) >= 60 {
+		return false
+	}
+	valid = append(valid, now)
+	h.rateWindows[coachID] = valid
+	return true
+}
+
 func genSessionID() string {
 	var b [8]byte
 	rand.Read(b[:])
@@ -126,6 +150,7 @@ func jsonErr(w http.ResponseWriter, msg string, code int) {
 
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAuthOrOpen(r) { jsonErr(w, "unauthorized", http.StatusUnauthorized); return }
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, "invalid JSON", http.StatusBadRequest); return
@@ -166,6 +191,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAuthOrOpen(r) { jsonErr(w, "unauthorized", http.StatusUnauthorized); return }
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<18)
 	var req heartbeatReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, "invalid JSON", http.StatusBadRequest); return
@@ -244,6 +270,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAuthOrOpen(r) { jsonErr(w, "unauthorized", http.StatusUnauthorized); return }
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	idStr := r.PathValue("id")
 	assignmentID, err := strconv.Atoi(idStr)
 	if err != nil { jsonErr(w, "invalid id", http.StatusBadRequest); return }
@@ -258,11 +285,15 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 	reason := req.Reason
 	if status == "" { jsonErr(w, "status required", http.StatusBadRequest); return }
 
+	// Verify coach owns this assignment
+	var ownerCoachID int
+	if err := h.DB.QueryRow("SELECT c.id FROM coaches c JOIN coach_ais ca ON ca.coach_id=c.id WHERE (ca.id=(SELECT coach1_ai_id FROM match_assignments WHERE id=?) OR ca.id=(SELECT coach2_ai_id FROM match_assignments WHERE id=?)) AND c.coach_id=?", assignmentID, assignmentID, req.CoachID).Scan(&ownerCoachID); err != nil {
+		jsonErr(w, "not your assignment", http.StatusForbidden); return
+	}
 	if err := h.DB.UpdateAssignmentStatus(assignmentID, status, reason); err != nil {
 		slog.Error("task status", "err", err)
 		jsonErr(w, "db error", http.StatusInternalServerError); return
 	}
-
 	if status == "ready" && h.matchmaker != nil {
 		var a db.AssignmentRow
 		row := h.DB.QueryRow("SELECT id, COALESCE(session1_id,''), COALESCE(session2_id,''), coach1_ai_id, coach2_ai_id, status FROM match_assignments WHERE id=?", assignmentID)
