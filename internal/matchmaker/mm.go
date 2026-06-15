@@ -457,7 +457,9 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 				buf.WriteString("(?,?,?,?,?,?,?,?,?)")
 				args = append(args, gameID, mi+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score, mv.NPS)
 			}
-			m.DB.Exec(buf.String(), args...)
+			if _, err := m.DB.Exec(buf.String(), args...); err != nil {
+				slog.Error("store game_moves", "err", err)
+			}
 		}
 	}
 

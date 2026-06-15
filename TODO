@@ -13,11 +13,8 @@ Design ideas to comment upon:
 
 
 
+- How can you make sure we won't get the 'stuck' games syndrome again? The game had clearly overrun their time budget but were still shown as "in progress". Offer design solution to make sure the game flow is robust.
 
-
-- When the "Disconnect" link is in hover mode, Use read instead of green as bg.
-
-- On the game details. When no moves are recorded, make it clearly visible. Having an empty 'per ply' section is not enough, an explicit mesage is required.
 
 - build new complete coach-adapters/ for other AIs in agent/othello-refs/ (eg: egaroucid). As for edax, create 4 playrs of various strength.
 
