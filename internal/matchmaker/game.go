@@ -27,7 +27,7 @@ type gameResult struct {
 func wsSend(stream coach.Stream, cmd string) (string, error) {
 	select {
 	case stream.Out <- cmd:
-	case <-time.After(30 * time.Second):
+	case <-time.After(5 * time.Second):
 		return "", fmt.Errorf("write timeout: %s", cmd)
 	}
 
@@ -37,7 +37,7 @@ func wsSend(stream coach.Stream, cmd string) (string, error) {
 			return "", fmt.Errorf("stream closed")
 		}
 		return resp, nil
-	case <-time.After(30 * time.Second):
+	case <-time.After(5 * time.Second):
 		return "", fmt.Errorf("read timeout: %s", cmd)
 	}
 }
