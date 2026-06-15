@@ -236,10 +236,11 @@ func main() {
 
 			acceptTask(client, cfg, t.AssignmentID)
 			aiCopy := *ai
-			if secs := parseGameTime(t.TimeControl); secs > 0 {
-				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%game_time%", fmt.Sprintf("%.0f", secs), -1)
+			gameSecs := parseGameTime(t.TimeControl)
+			if gameSecs > 0 {
+				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%game_time%", fmt.Sprintf("%.0f", gameSecs), -1)
 			}
-			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir)
+			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir, gameSecs, t.NumGames)
 			if err != nil {
 				slog.Error("launch engine", "ai", ai.Name, "err", err)
 				failTask(client, cfg, t.AssignmentID, "launch failed: "+err.Error())
@@ -469,7 +470,7 @@ func failTask(client *http.Client, cfg config, id int, reason string) {
 
 // ── Engine lifecycle ─────────────────────────────────────────────────────
 
-func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, sessionID, logDir string) (*runningEngine, error) {
+func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, sessionID, logDir string, gameTimeSec float64, numGames int) (*runningEngine, error) {
 	parts := strings.Fields(ai.RunCmd)
 	if len(parts) == 0 { return nil, fmt.Errorf("empty run command") }
 
@@ -538,25 +539,90 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
 
+	// GTP-aware timing: track genmove wall-clock time and enforce
+	// the time budget. If the engine exceeds gameTimeSec * 1.05
+	// total thinking time, kill it. The arena no longer sends
+	// game_time GTP commands — time enforcement is coach-side.
+	var timingMu sync.Mutex
+	var genmoveStart time.Time
+	var totalThinkMs int64
+	budgetMs := int64(gameTimeSec * 1000 * 105 / 100) // 5% margin per game
+	if numGames > 0 {
+		budgetMs = int64(gameTimeSec * 1000 * 105 / 100 * float64(numGames))
+	}
+	engineTimedOut := false
+
+	// stdout → WS: track genmove response timing
 	go func() {
 		defer conn.Close(websocket.StatusNormalClosure, "done")
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
+			line := scanner.Text()
+			timingMu.Lock()
+			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && len(strings.TrimPrefix(line, "= ")) > 0 {
+				elapsed := time.Since(genmoveStart).Milliseconds()
+				totalThinkMs += elapsed
+				genmoveStart = time.Time{}
+				if totalThinkMs > budgetMs {
+					engineTimedOut = true
+					timingMu.Unlock()
+					slog.Warn("engine time budget exceeded", "session", sessionID, "total_ms", totalThinkMs, "budget_ms", budgetMs)
+					cmd.Process.Kill()
+					return
+				}
+			}
+			timingMu.Unlock()
 			if err := conn.Write(context.Background(), websocket.MessageText, scanner.Bytes()); err != nil {
 				break
 			}
 		}
 	}()
+
+	// WS → stdin: detect genmove commands to start the clock
 	go func() {
 		defer stdin.Close()
 		for {
 			_, msg, err := conn.Read(context.Background())
 			if err != nil { break }
-			io.WriteString(stdin, string(msg)+"\n")
+			cmdStr := string(msg)
+			if strings.HasPrefix(cmdStr, "genmove") {
+				timingMu.Lock()
+				genmoveStart = time.Now()
+				timingMu.Unlock()
+			}
+			io.WriteString(stdin, cmdStr+"\n")
 		}
 	}()
 
-	return &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID, stderrBuf: &stderrBuf}, nil
+	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID, stderrBuf: &stderrBuf}
+
+	// Watchdog: if the engine doesn't respond at all within
+	// 2x the per-game budget, kill it.
+	if gameTimeSec > 0 {
+		wdSec := int(gameTimeSec * 2)
+		if numGames > 0 {
+			wdSec = int(gameTimeSec * 2 * float64(numGames))
+		}
+		if wdSec < 10 {
+			wdSec = 10
+		}
+		go func() {
+			select {
+			case <-engCtx.Done():
+				return
+			case <-time.After(time.Duration(wdSec) * time.Second):
+			}
+			timingMu.Lock()
+			timedOut := engineTimedOut
+			timingMu.Unlock()
+			if !timedOut {
+				slog.Warn("engine watchdog expired", "session", sessionID, "seconds", wdSec)
+				cmd.Process.Kill()
+			}
+		}()
+	}
+
+	return re, nil
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

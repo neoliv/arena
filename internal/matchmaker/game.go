@@ -34,9 +34,6 @@ type gameResult struct {
 	Moves        []gameMove
 }
 
-// wsSend sends a GTP command and returns the first non-blank response.
-// Blank lines (edax double-newline bug) are drained so they don't shift
-// the conversation.
 func wsSend(stream coach.Stream, cmd string) (string, error) {
 	select {
 	case stream.Out <- cmd:
@@ -84,8 +81,6 @@ func playGames(ctx context.Context, black, white coach.Stream, numGames int, gam
 func playOneGame(ctx context.Context, black, white coach.Stream, opening string, gameTimeSec float64, bName, wName string) gameResult {
 	gr := gameResult{Black: bName, White: wName, OpeningLine: opening}
 
-	// Init: standard GTP only. Time control is set by the coach
-	// via CLI flags (%game_time% substitution in player YAML).
 	for _, s := range []coach.Stream{black, white} {
 		if _, err := wsSend(s, "boardsize 8"); err != nil {
 			slog.Error("init failed", "cmd", "boardsize 8", "err", err)
@@ -99,7 +94,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Play opening moves synchronously (standard GTP play command).
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
 		color := "b"
@@ -114,8 +108,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			}
 		}
 		for _, s := range []coach.Stream{black, white} {
-			// Drain blank lines (edax double-newline bug) and
-			// check the response.
 			var resp string
 			for {
 				select {
@@ -123,7 +115,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 					if strings.TrimSpace(r) != "" {
 						resp = r
 					} else {
-						continue // skip blank
+						continue
 					}
 				case <-time.After(3 * time.Second):
 					slog.Error("opening ack timeout", "move", mv)
@@ -226,33 +218,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		wsSend(other, "play "+playedColor+" "+mv)
 
-		// Gather optional stats. Engines that don't support this
-		// respond "? unknown command" — we ignore the error.
-		statsResp, _ := wsSend(current, "stats")
-		statsResp = strings.TrimPrefix(strings.TrimSpace(statsResp), "= ")
-		var nodes, nps int64
-		var depth, branch, empties int
-		var tm float64
-		var timeout bool
-		var score int
-		fmt.Sscanf(statsResp, "nodes %d depth %d time_ms %f timeout %t score %d nps %d branching %d empties %d",
-			&nodes, &depth, &tm, &timeout, &score, &nps, &branch, &empties)
-
-		if playedColor == "b" {
-			gr.BlackNodes += nodes
-			if depth > gr.BlackDepth {
-				gr.BlackDepth = depth
-			}
-		} else {
-			gr.WhiteNodes += nodes
-			if depth > gr.WhiteDepth {
-				gr.WhiteDepth = depth
-			}
-		}
 		gr.Moves = append(gr.Moves, gameMove{
 			Side: playedColor, Move: mv,
-			Nodes: nodes, Depth: depth, TimeMs: tm,
-			Score: score, NPS: nps,
 		})
 
 		if moveNum > 120 {
@@ -260,8 +227,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Determine result. final_score is computed from the result
-	// rather than sent as a GTP command (not all engines support it).
 	if gr.Result == "" {
 		gr.Result = "1/2"
 	}
@@ -292,9 +257,5 @@ func parseMoveList(line string) []string {
 }
 
 func defaultBook() []string {
-	// Empty book: games start from the standard Othello position.
-	// This avoids opening legality issues while we stabilize the
-	// GTP communication. Restore the 8-ply book once all engines
-	// are verified to handle it correctly.
 	return []string{""}
 }
