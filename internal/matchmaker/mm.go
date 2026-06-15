@@ -406,7 +406,18 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 	return matchID, nil
 }
 
-// Simplified Elo recomputation — copied from api.go pattern.
+// recomputeElo recalculates Elo ratings from scratch for a single engine.
+//
+// Elo constants (standard chess values, adapted for Othello):
+//   - Initial rating: 1500 (baseline for all new players)
+//   - K-factor: 32 for first 20 games (provisional), 16 thereafter
+//     Higher K means faster adaptation to true strength. Othello is
+//     lower-variance than chess (each game is a single data point, not
+//     30-40 moves of incremental information), so we use the same
+//     provisional period (20 games) as standard Elo.
+//   - Scale: 400 (a 400-point difference predicts ~91% win rate)
+//     This is the standard chess value, consistent with most Elo systems.
+//   - Expected score formula: 1 / (1 + 10^((opponent - player) / 400))
 func (m *MatchMaker) recomputeElo(engineID int) {
 	m.DB.Exec("DELETE FROM elo_history WHERE engine_id=?", engineID)
 
