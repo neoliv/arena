@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// CoachRow represents a row in the coaches table.
 type CoachRow struct {
 	ID         int
 	CoachID    string
@@ -19,24 +18,22 @@ type CoachRow struct {
 	LastSeen   string
 }
 
-// CoachAIRow represents a row in the coach_ais table.
 type CoachAIRow struct {
-	ID                 int
-	CoachID            int
-	EngineName         string
-	EngineVersion      string
-	CoresPerInstance   int
+	ID                  int
+	CoachID             int
+	EngineName          string
+	EngineVersion       string
+	CoresPerInstance    int
 	MemoryMBPerInstance int
-	MaxInstances       int
-	InstancesRunning   int
-	RunCmd             string
-	BuildCmd           string
-	Created            string
-	ChangelogShort     string
-	ChangelogFull      string
+	MaxInstances        int
+	InstancesRunning    int
+	RunCmd              string
+	BuildCmd            string
+	Created             string
+	ChangelogShort      string
+	ChangelogFull       string
 }
 
-// AssignmentRow represents a row in the match_assignments table.
 type AssignmentRow struct {
 	ID            int
 	Engine1ID     int
@@ -53,7 +50,6 @@ type AssignmentRow struct {
 	RetryAfter    string
 }
 
-// UpsertCoach inserts or updates a coach entry.
 func (db *DB) UpsertCoach(coachID, version, label string, cores, memoryMB int) (int, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec(`INSERT INTO coaches (coach_id, version, label, cores_total, memory_mb_total, last_seen, updated_at)
@@ -71,7 +67,6 @@ func (db *DB) UpsertCoach(coachID, version, label string, cores, memoryMB int) (
 	return id, err
 }
 
-// UpsertCoachAI inserts or updates a coach AI entry.
 func (db *DB) UpsertCoachAI(coachID int, name, version, created, changelogShort, changelogFull string, cores, memMB, maxInst int, runCmd, buildCmd, engineID, engineManifest string) (int, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if created == "" { created = now }
@@ -98,31 +93,23 @@ func (db *DB) UpsertCoachAI(coachID int, name, version, created, changelogShort,
 	return id, err
 }
 
-// UpdateCoachHeartbeat updates last_seen and per-AI instance counts.
 func (db *DB) UpdateCoachHeartbeat(coachID int, aiUpdates map[string]int) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec("UPDATE coaches SET last_seen=?, updated_at=? WHERE id=?", now, now, coachID)
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	for key, running := range aiUpdates {
 		parts := strings.SplitN(key, ":", 2)
 		if len(parts) != 2 { continue }
 		_, err := db.Exec("UPDATE coach_ais SET instances_running=?, is_available=1, updated_at=? WHERE coach_id=? AND engine_name=? AND engine_version=?",
 			running, now, coachID, parts[0], parts[1])
-		if err != nil {
-			slog.Warn("update ai instances", "key", key, "err", err)
-		}
+		if err != nil { slog.Warn("update ai instances", "key", key, "err", err) }
 	}
 	return nil
 }
 
-// GetOnlineCoaches returns coaches seen within the given seconds.
 func (db *DB) GetOnlineCoaches(withinSec int) ([]CoachRow, error) {
 	rows, err := db.Query("SELECT id, coach_id, COALESCE(label,''), COALESCE(version,''), cores_total, memory_mb_total, last_seen FROM coaches WHERE last_seen >= datetime('now',?||' seconds')", fmt.Sprintf("-%d", withinSec))
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return nil, err }
 	defer rows.Close()
 	var out []CoachRow
 	for rows.Next() {
@@ -135,23 +122,15 @@ func (db *DB) GetOnlineCoaches(withinSec int) ([]CoachRow, error) {
 	return out, nil
 }
 
-// GetAvailableAIs returns AIs with free capacity, accounting for both running instances and pending assignments.
 func (db *DB) GetAvailableAIs(coachID int) ([]CoachAIRow, error) {
 	rows, err := db.Query(`SELECT ca.id, ca.coach_id, ca.engine_name, ca.engine_version,
 		ca.cores_per_instance, ca.memory_mb_per_instance, ca.max_instances, ca.instances_running,
 		COALESCE(ca.run_cmd,''), COALESCE(ca.build_cmd,''),
 		COALESCE(ca.created,''), COALESCE(ca.changelog_short,''), COALESCE(ca.changelog_full,'')
 		FROM coach_ais ca JOIN coaches c ON c.id=ca.coach_id
-		WHERE ca.is_available=1 AND ca.coach_id=?
-		AND (ca.instances_running + COALESCE((
-			SELECT COUNT(*) FROM match_assignments
-			WHERE (coach1_ai_id=ca.id OR coach2_ai_id=ca.id)
-			AND status IN ('pending','assigned','accepted','ready')
-		), 0)) < ca.max_instances
+		WHERE ca.is_available=1 AND ca.coach_id=? AND ca.instances_running < ca.max_instances
 		ORDER BY ca.id`, coachID)
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return nil, err }
 	defer rows.Close()
 	var out []CoachAIRow
 	for rows.Next() {
@@ -166,7 +145,6 @@ func (db *DB) GetAvailableAIs(coachID int) ([]CoachAIRow, error) {
 	return out, nil
 }
 
-// GetPendingAssignments returns assignments for a specific coach_ai that are pending or assigned.
 func (db *DB) GetPendingAssignments(coachAIID int) ([]AssignmentRow, error) {
 	rows, err := db.Query(`SELECT id, engine1_id, engine2_id, coach1_ai_id, coach2_ai_id,
 		COALESCE(time_control,'{}'), num_games, COALESCE(session1_id,''), COALESCE(session2_id,''),
@@ -174,9 +152,7 @@ func (db *DB) GetPendingAssignments(coachAIID int) ([]AssignmentRow, error) {
 		FROM match_assignments
 		WHERE (coach1_ai_id=? OR coach2_ai_id=?) AND status IN ('pending','assigned')
 		ORDER BY id LIMIT 5`, coachAIID, coachAIID)
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return nil, err }
 	defer rows.Close()
 	var out []AssignmentRow
 	for rows.Next() {
@@ -191,18 +167,14 @@ func (db *DB) GetPendingAssignments(coachAIID int) ([]AssignmentRow, error) {
 	return out, nil
 }
 
-// CreateAssignment inserts a new match assignment.
 func (db *DB) CreateAssignment(e1ID, e2ID, c1AIID, c2AIID int, timeControl string, numGames int, session1, session2 string) (int, error) {
 	res, err := db.Exec(`INSERT INTO match_assignments (engine1_id, engine2_id, coach1_ai_id, coach2_ai_id, time_control, num_games, session1_id, session2_id, status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, e1ID, e2ID, c1AIID, c2AIID, timeControl, numGames, session1, session2)
-	if err != nil {
-		return 0, fmt.Errorf("create assignment: %w", err)
-	}
+	if err != nil { return 0, fmt.Errorf("create assignment: %w", err) }
 	id, _ := res.LastInsertId()
 	return int(id), nil
 }
 
-// UpdateAssignmentStatus updates the status of an assignment.
 func (db *DB) UpdateAssignmentStatus(id int, status, reason string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	extraCols := ""
@@ -211,24 +183,20 @@ func (db *DB) UpdateAssignmentStatus(id int, status, reason string) error {
 		extraCols = ", in_progress_at=?"
 		extraVals = ", " + now
 	}
-	_, err := db.Exec("UPDATE match_assignments SET status=?, decline_reason=?, updated_at=?"+extraCols+" WHERE id=?",
-		status, reason, now+extraVals, id)
+	_, err := db.Exec("UPDATE match_assignments SET status=?, decline_reason=?"+extraCols+" WHERE id=?",
+		status, reason+extraVals, id)
 	return err
 }
 
-// RetryExpiredAssignments returns expired retry assignments to pending.
 func (db *DB) RetryExpiredAssignments() error {
-	_, err := db.Exec(`UPDATE match_assignments SET status='pending', retry_count=retry_count+1, updated_at=?
-		WHERE status='retry' AND retry_count < 5 AND retry_after <= datetime('now')`, time.Now().UTC().Format(time.RFC3339))
-	if err != nil {
-		return err
-	}
+	_, err := db.Exec(`UPDATE match_assignments SET status='pending', retry_count=retry_count+1
+		WHERE status='retry' AND retry_count < 5 AND retry_after <= datetime('now')`)
+	if err != nil { return err }
 	_, err = db.Exec(`UPDATE match_assignments SET status='failed', decline_reason='max retries exceeded'
 		WHERE status='retry' AND retry_count >= 5`)
 	return err
 }
 
-// FailStaleAssignments marks assignments as failed if coaches are offline.
 func (db *DB) FailStaleAssignments() error {
 	_, err := db.Exec(`UPDATE match_assignments SET status='failed', decline_reason='coach offline'
 		WHERE status IN ('assigned','accepted','in_progress')
@@ -237,21 +205,18 @@ func (db *DB) FailStaleAssignments() error {
 	return err
 }
 
-// GetEngineID returns the engine ID for a given name and version.
 func (db *DB) GetEngineID(name, version string) (int, error) {
 	var id int
 	err := db.QueryRow("SELECT id FROM engines WHERE name=? AND version=?", name, version).Scan(&id)
 	return id, err
 }
 
-// GetEngineIDByName looks up the latest engine version by name.
 func (db *DB) GetEngineIDByName(name string) (int, error) {
 	var id int
 	err := db.QueryRow("SELECT id FROM engines WHERE name=? ORDER BY created_at DESC LIMIT 1", name).Scan(&id)
 	return id, err
 }
 
-// GetAssignmentBySession returns an assignment by session ID.
 func (db *DB) GetAssignmentBySession(sessionID string) (*AssignmentRow, error) {
 	var a AssignmentRow
 	err := db.QueryRow(`SELECT id, engine1_id, engine2_id, coach1_ai_id, coach2_ai_id,
@@ -261,11 +226,7 @@ func (db *DB) GetAssignmentBySession(sessionID string) (*AssignmentRow, error) {
 		&a.ID, &a.Engine1ID, &a.Engine2ID, &a.Coach1AIID, &a.Coach2AIID,
 		&a.TimeControl, &a.NumGames, &a.Session1ID, &a.Session2ID,
 		&a.Status, &a.DeclineReason, &a.RetryCount, &a.RetryAfter)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
+	if err == sql.ErrNoRows { return nil, nil }
+	if err != nil { return nil, err }
 	return &a, nil
 }
