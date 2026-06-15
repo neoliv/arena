@@ -90,6 +90,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /matches", h.RequireLogin(h.handleMatches))
 	mux.HandleFunc("GET /matches/{id}", h.RequireLogin(h.handleMatch))
 	mux.HandleFunc("GET /games", h.RequireLogin(h.handleGames))
+		mux.HandleFunc("GET /games/{id}", h.RequireLogin(h.handleGameDetail))
 	mux.HandleFunc("GET /engines/{name}", h.RequireLogin(h.handleEngine))
 	mux.HandleFunc("GET /versions", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/players", http.StatusMovedPermanently) }))
 	mux.HandleFunc("GET /players", h.RequireLogin(h.handleVersions))
@@ -301,7 +302,7 @@ func (h *Handler) handleMatch(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, pageHead+navHTML)
 	fmt.Fprintf(w, "<h1>Match #%s</h1><table><tr><th>#</th><th>Black</th><th>White</th><th>Result</th><th>Score</th><th>Opening</th></tr>", id)
 	rows, _ := h.DB.Query(`SELECT g.game_number, (SELECT name||' '||version FROM engines WHERE id=g.black_id), (SELECT name||' '||version FROM engines WHERE id=g.white_id), g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,'') FROM games g WHERE g.match_id=? ORDER BY g.game_number`, id)
-	if rows != nil { defer rows.Close(); for rows.Next() { var num, s int; var blk, wht, r, o string; rows.Scan(&num, &blk, &wht, &r, &s, &o); badge := ""; if r == "1-0" { badge = `<span class="badge win">W</span>` } else if r == "0-1" { badge = `<span class="badge loss">L</span>` } else { badge = `<span class="badge draw">D</span>` }; fmt.Fprintf(w, `<tr><td>%d</td><td>%s</td><td>%s</td><td>%s %s</td><td>%+d</td><td>%s</td></tr>`, num, blk, wht, r, badge, s, o) } }
+	if rows != nil { defer rows.Close(); for rows.Next() { var num, s int; var blk, wht, r, o string; rows.Scan(&num, &blk, &wht, &r, &s, &o); badge := ""; if r == "1-0" { badge = `<span class="badge win">W</span>` } else if r == "0-1" { badge = `<span class="badge loss">L</span>` } else { badge = `<span class="badge draw">D</span>` }; fmt.Fprintf(w, `<tr><td><a href="/games/%d">%d</a></td><td>%s</td><td>%s</td><td>%s %s</td><td>%+d</td><td>%s</td></tr>`, num, num, blk, wht, r, badge, s, o) } }
 	io.WriteString(w, "</table>")
 }
 
@@ -342,9 +343,53 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 	h.DB.QueryRow("SELECT COUNT(*) FROM games").Scan(&completedCount)
 	fmt.Fprintf(w, `<h2>Completed %d</h2><table><tr><th onclick="st(this.closest('table'),0,true)">ID</th><th onclick="st(this.closest('table'),1,false)">Black</th><th onclick="st(this.closest('table'),2,false)">White</th><th onclick="st(this.closest('table'),3,false)">Result</th><th onclick="st(this.closest('table'),4,true)">Score</th><th onclick="st(this.closest('table'),5,false)">Opening</th></tr>`, completedCount)
 	gRows, _ := h.DB.Query(`SELECT g.id, (SELECT name||' '||version FROM engines WHERE id=g.black_id), (SELECT name||' '||version FROM engines WHERE id=g.white_id), g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,'') FROM games g ORDER BY g.id DESC LIMIT 100`)
-	if gRows != nil { defer gRows.Close(); for gRows.Next() { var id, s int; var blk, wht, r, o string; gRows.Scan(&id, &blk, &wht, &r, &s, &o); fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%+d</td><td>%s</td></tr>`, id, blk, wht, r, s, o) } }
+	if gRows != nil { defer gRows.Close(); for gRows.Next() { var id, s int; var blk, wht, r, o string; gRows.Scan(&id, &blk, &wht, &r, &s, &o); fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/games/%d">%d</a></td><td>%s</td><td>%s</td><td>%s</td><td>%+d</td><td>%s</td></tr>`, id, id, blk, wht, r, s, o) } }
 	io.WriteString(w, "</table>")
 }
+
+func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.WriteString(w, pageHead+navHTML)
+	fmt.Fprintf(w, "<h1>Game #%s</h1>", id)
+
+	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth int
+	var result, opening, bName, bVer, wName, wVer string
+	var bTime, wTime float64
+	var bElo, wElo float64
+	err := h.DB.QueryRow(
+		"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
+			"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
+			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), eb.name, eb.version, ew.name, ew.version, "+
+			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
+			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0) "+
+			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE g.id=?",
+		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &bName, &bVer, &wName, &wVer, &bElo, &wElo)
+	if err != nil {
+		io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
+		return
+	}
+
+	badge := `<span class="badge draw">D</span>`
+	if result == "1-0" {
+		badge = `<span class="badge win">W</span>`
+	} else if result == "0-1" {
+		badge = `<span class="badge loss">L</span>`
+	}
+	fmt.Fprintf(w, `<table class="stats-table">`)
+	fmt.Fprintf(w, `<tr><td>Match</td><td><a href="/matches/%d">#%d</a> (game %d)</td></tr>`, mid, mid, gnum)
+	fmt.Fprintf(w, `<tr><td>Black</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small></td></tr>`, bName, bName, bVer, bElo)
+	fmt.Fprintf(w, `<tr><td>White</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small></td></tr>`, wName, wName, wVer, wElo)
+	fmt.Fprintf(w, `<tr><td>Result</td><td>%s %s</td></tr>`, result, badge)
+	fmt.Fprintf(w, `<tr><td>Score</td><td>%+d</td></tr>`, finalScore)
+	fmt.Fprintf(w, `<tr><td>Opening</td><td>%s</td></tr>`, opening)
+	fmt.Fprintf(w, `<tr><td>Black time</td><td>%.1fs</td></tr>`, bTime)
+	fmt.Fprintf(w, `<tr><td>White time</td><td>%.1fs</td></tr>`, wTime)
+	fmt.Fprintf(w, `<tr><td>Black stats</td><td>%d nodes / depth %d</td></tr>`, blackNodes, blackDepth)
+	fmt.Fprintf(w, `<tr><td>White stats</td><td>%d nodes / depth %d</td></tr></table>`, whiteNodes, whiteDepth)
+	io.WriteString(w, pageFoot)
+}
+
 
 func (h *Handler) handleEngine(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
