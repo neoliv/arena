@@ -25,8 +25,8 @@ const sharedCSS = `<style>
 body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:1em;color:var(--fg);background:var(--bg)}
 h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
-nav a{display:inline-block;margin-right:.4em;text-decoration:none;color:var(--fg);font-size:1.1em;font-weight:600;padding:.4em .9em;border-radius:5px;border:1px solid var(--border);transition:all .15s}
-nav a:hover{background:var(--link);color:#fff;border-color:var(--link)}
+nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:var(--fg);font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--border);background:rgba(56,136,85,0.06);transition:all .15s}
+nav a:hover{background:var(--link-hover);color:#fff;border-color:var(--link-hover)}
 table{border-collapse:collapse;width:100%;margin-bottom:2em}
 th,td{text-align:left;padding:.4em .6em;border-bottom:1px solid var(--border)}
 th{font-weight:600;background:var(--th-bg);cursor:pointer;user-select:none;position:relative;padding-right:18px}th:hover{background:var(--hover)}td{white-space:nowrap}.sort-ind{position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:1.2em;font-weight:900;color:var(--fg)}
@@ -60,7 +60,7 @@ t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind"
 const filterBox = `<input type="search" id="filterBox" placeholder="Filter…" oninput="filter()" autofocus>`
 
 const navHTML = `<nav>
-<a href="/">Rankings</a> <a href="/charts">Charts</a>
+<a href="/">Ranks</a> <a href="/charts">Charts</a>
 <a href="/matches">Matches</a> <a href="/games">Games</a> <a href="/players">Players</a> <a href="/coaches">Coaches</a>
 <a href="/health">Health</a> <a href="/admin">Admin</a>
 <span style="float:right"><a href="/logout">Disconnect</a></span>
@@ -83,7 +83,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("POST /login", h.handleLogin)
 	mux.HandleFunc("GET /logout", h.HandleLogout)
-	mux.HandleFunc("GET /{$}", h.RequireLogin(h.handleRankings))
+	mux.HandleFunc("GET /{$}", h.RequireLogin(h.handleRanks))
 	// charts route handled below
 	mux.HandleFunc("GET /graphs", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/charts?tab="+r.URL.Query().Get("tab"), http.StatusMovedPermanently) }))
 	mux.HandleFunc("GET /charts", h.RequireLogin(h.handleGraphs))
@@ -109,7 +109,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	}))
 }
 
-func (h *Handler) handleRankings(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleRanks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Player Rankings</h1>`+filterBox+`<table><tr><th onclick="st(this.closest('table'),0,true)">#</th><th onclick="st(this.closest('table'),1,false)">Player</th><th onclick="st(this.closest('table'),2,true)">Elo</th><th onclick="st(this.closest('table'),3,true)">+/-</th><th onclick="st(this.closest('table'),4,true)">Games</th><th onclick="st(this.closest('table'),5,false)">W/L/D</th><th onclick="st(this.closest('table'),6,false)">Trend</th></tr>`)
 	rows, err := h.DB.Query(`SELECT e.id, e.name, e.version, COALESCE(e.engine_id,''), COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 1500.0), (SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id) as g, (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='1-0') OR (white_id=e.id AND result='0-1')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='0-1') OR (white_id=e.id AND result='1-0')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id OR white_id=e.id) AND result='1/2') FROM engines e ORDER BY 4 DESC`)
