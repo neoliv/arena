@@ -24,7 +24,8 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
-	conn.SetMaxOpenConns(2) // allow concurrent reads with one writer
+	conn.SetMaxOpenConns(4) // allow concurrent reads during writes
+	conn.SetMaxIdleConns(2)
 	if err := conn.Ping(); err != nil {
 		return nil, fmt.Errorf("ping: %w", err)
 	}
