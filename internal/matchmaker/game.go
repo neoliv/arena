@@ -96,14 +96,16 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Play opening moves synchronously — wait for each ack so responses
-	// don't leak into the genmove phase and get misinterpreted as moves.
+	// Play opening moves synchronously, checking each response.
+	// If either engine rejects a move, boards diverge and the game
+	// is meaningless — abort immediately.
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
 		color := "B"
-		if i%2 == 1 { color = "W" }
+		if i%2 == 1 {
+			color = "W"
+		}
 		cmd := "play " + color + " " + mv
-		// Send to both engines, then read one ack from each.
 		for _, s := range []coach.Stream{black, white} {
 			select {
 			case s.Out <- cmd:
@@ -112,15 +114,25 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		for _, s := range []coach.Stream{black, white} {
 			select {
-			case <-s.In:
+			case resp := <-s.In:
+				if strings.HasPrefix(resp, "?") {
+					slog.Warn("opening move rejected", "move", mv, "color", color, "response", resp)
+					gr.Result = "0-1"
+					return gr
+				}
 			case <-time.After(3 * time.Second):
+				slog.Error("opening ack timeout", "move", mv)
+				gr.Result = "0-1"
+				return gr
 			}
 		}
 	}
 
 	moveNum := len(moves)
 	sideToMove := "B"
-	if moveNum%2 == 1 { sideToMove = "W" }
+	if moveNum%2 == 1 {
+		sideToMove = "W"
+	}
 	consecutivePasses := 0
 
 	timeLimit := gameTimeSec * 1.05
@@ -164,10 +176,13 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 		mv := strings.ToUpper(parts[0])
-		// Validate move format (A-H, 1-8) — reject obviously invalid moves.
 		if mv != "PASS" && mv != "RESIGN" && (len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8') {
 			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
-			if sideToMove == "B" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+			if sideToMove == "B" {
+				gr.Result = "0-1"
+			} else {
+				gr.Result = "1-0"
+			}
 			break
 		}
 
@@ -189,16 +204,18 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		consecutivePasses = 0
 		moveNum++
+
+		// Tell the OTHER engine what was played, using the color
+		// that just moved (before the flip).
+		playedColor := sideToMove
 		sideToMove = map[string]string{"B": "W", "W": "B"}[sideToMove]
-
-		// Tell the other engine
-		other := white
-		if sideToMove == "W" {
-			other = black
+		other := black
+		if playedColor == "B" {
+			other = white
 		}
-		wsSend(other, "play "+sideToMove+" "+mv)
+		wsSend(other, "play "+playedColor+" "+mv)
 
-		// Gather stats
+		// Gather stats from the engine that just moved
 		statsResp, _ := wsSend(current, "stats")
 		statsResp = strings.TrimPrefix(strings.TrimSpace(statsResp), "= ")
 		var nodes, nps int64
@@ -209,7 +226,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		fmt.Sscanf(statsResp, "nodes %d depth %d time_ms %f timeout %t score %d nps %d branching %d empties %d",
 			&nodes, &depth, &tm, &timeout, &score, &nps, &branch, &empties)
 
-		if sideToMove == "B" {
+		if playedColor == "B" {
 			gr.BlackNodes += nodes
 			if depth > gr.BlackDepth {
 				gr.BlackDepth = depth
@@ -221,7 +238,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			}
 		}
 		gr.Moves = append(gr.Moves, gameMove{
-			Side: sideToMove, Move: mv,
+			Side: playedColor, Move: mv,
 			Nodes: nodes, Depth: depth, TimeMs: tm,
 			Score: score, NPS: nps,
 		})
@@ -231,9 +248,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Get final score
 	if gr.Result == "" {
-		gr.Result = "1/2" // two passes = draw
+		gr.Result = "1/2"
 		finalResp, _ := wsSend(black, "final_score")
 		finalResp = strings.TrimPrefix(strings.TrimSpace(finalResp), "= ")
 		if strings.HasPrefix(finalResp, "B+") {
