@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
@@ -328,8 +329,19 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	// Play each game alternating colors
 	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
 
-	// Store results
-	matchID, err := m.storeResults(a, games, e1Name, e1Ver, e2Name, e2Ver)
+	// Store results (retry on DB lock)
+	var matchID int
+	for attempt := 0; attempt < 5; attempt++ {
+		matchID, err = m.storeResults(a, games, e1Name, e1Ver, e2Name, e2Ver)
+		if err == nil {
+			break
+		}
+		if strings.Contains(err.Error(), "locked") {
+			time.Sleep(time.Duration(500*(attempt+1)) * time.Millisecond)
+			continue
+		}
+		break
+	}
 	if err != nil {
 		slog.Error("executeMatch store results", "err", err)
 		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "store results: "+err.Error())
