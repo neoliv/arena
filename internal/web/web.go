@@ -27,6 +27,7 @@ h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
 nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:var(--fg);font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--nav-hl);background:rgba(56,136,85,0.06);transition:all .15s}
 nav a:hover{background:var(--nav-hl);color:#fff;border-color:var(--nav-hl)}
+nav a.logout:hover{background:#c33;border-color:#c33;color:#fff}
 nav a.active,.chart-tabs a.active{background:var(--nav-hl);color:#fff}
 	.chart-tab{transition:all .15s}.chart-tab:hover{background:var(--nav-hl)!important;color:#fff!important}
 table{border-collapse:collapse;width:100%;margin-bottom:2em}
@@ -65,7 +66,7 @@ const navHTML = `<nav>
 <a href="/">Ranks</a> <a href="/charts">Charts</a>
 <a href="/matches">Matches</a> <a href="/games">Games</a> <a href="/players">Players</a> <a href="/coaches">Coaches</a>
 <a href="/health">Health</a> <a href="/admin">Admin</a>
-<span style="float:right"><a href="/logout">Disconnect</a></span>
+<span style="float:right"><a class="logout" href="/logout">Disconnect</a></span>
 </nav>`
 
 const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + `</head><body>`
@@ -446,6 +447,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
 			}
 			io.WriteString(w, "</table>")
+		} else {
+			io.WriteString(w, "<p style=\"color:var(--muted);font-style:italic\">No per-move data — engines may not support move stats.</p>")
 		}
 	}
 	io.WriteString(w, pageFoot)
