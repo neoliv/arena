@@ -447,9 +447,16 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth)
 		if err != nil { return matchID, err }
 		gameID, _ := res.LastInsertId()
-		for mi, mv := range g.Moves {
-			m.DB.Exec(`INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score, nps) VALUES (?,?,?,?,?,?,?,?,?)`,
-				gameID, mi+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score, mv.NPS)
+		if len(g.Moves) > 0 {
+			var buf strings.Builder
+			var args []any
+			buf.WriteString("INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score, nps) VALUES ")
+			for mi, mv := range g.Moves {
+				if mi > 0 { buf.WriteString(", ") }
+				buf.WriteString("(?,?,?,?,?,?,?,?,?)")
+				args = append(args, gameID, mi+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score, mv.NPS)
+			}
+			m.DB.Exec(buf.String(), args...)
 		}
 	}
 
@@ -457,8 +464,12 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 	m.DB.Exec("UPDATE matches SET wins_1=?, wins_2=?, draws=? WHERE id=?", wins1, wins2, draws, matchID)
 
 	// Recompute Elo
+	t0 := time.Now()
 	m.recomputeElo(e1ID)
+	slog.Info("recomputeElo timing", "engine", e1ID, "took", time.Since(t0).String())
+	t0 = time.Now()
 	m.recomputeElo(e2ID)
+	slog.Info("recomputeElo timing", "engine", e2ID, "took", time.Since(t0).String())
 
 	return matchID, nil
 }
