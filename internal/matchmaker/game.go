@@ -96,17 +96,15 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Play opening moves
+	// Play opening moves (fire-and-forget — don't wait for responses)
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
 		color := "B"
-		if i%2 == 1 {
-			color = "W"
-		}
+		if i%2 == 1 { color = "W" }
 		for _, s := range []coach.Stream{black, white} {
-			if _, err := wsSend(s, "play "+color+" "+mv); err != nil {
-				slog.Error("play failed", "move", mv, "err", err)
-				return gr
+			select {
+			case s.Out <- "play " + color + " " + mv:
+			default:
 			}
 		}
 	}

@@ -381,7 +381,14 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	if totalGames == 0 { totalGames = 2 }
 
 	// Play each game alternating colors
-	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
+	done := make(chan []gameResult, 1)
+	go func() { done <- playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec) }()
+	var games []gameResult
+	select {
+	case games = <-done:
+	case <-time.After(3 * time.Minute):
+		slog.Warn("match timed out", "assignment", assignmentID)
+	}
 
 	// Store results (retry on DB lock)
 	var matchID int

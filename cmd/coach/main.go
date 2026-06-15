@@ -208,6 +208,11 @@ func main() {
 			}
 
 			mu.Lock()
+			if _, exists := running[t.SessionID]; exists {
+				mu.Unlock()
+				slog.Warn("duplicate session, skipping", "session", t.SessionID)
+				continue
+			}
 			usedCores, usedMem := 0, 0
 			instCount := 0
 			for _, re := range running {
