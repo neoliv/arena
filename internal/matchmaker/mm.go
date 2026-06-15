@@ -324,7 +324,7 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 
 	// Play games
 	var gameTimeSec float64 = 60
-	json.Unmarshal([]byte(a.TimeControl), &map[string]any{"seconds": &gameTimeSec})
+	var tc struct{ Seconds float64 `json:"seconds"` }; json.Unmarshal([]byte(a.TimeControl), &tc); gameTimeSec = tc.Seconds
 
 	totalGames := a.NumGames
 	if totalGames == 0 { totalGames = 2 }

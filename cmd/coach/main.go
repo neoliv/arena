@@ -168,21 +168,21 @@ func main() {
 	loadAndRegister()
 
 	// Heartbeat + SIGHUP goroutines
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
+	sighup := make(chan os.Signal, 1)
+	signal.Notify(sighup, syscall.SIGHUP)
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				signal.Stop(sighup)
 				return
-			default:
+			case <-sighup:
+				slog.Info("SIGHUP received, reloading config")
+				loadAndRegister()
 			}
-			s, err := signal.NotifyContext(context.Background(), syscall.SIGHUP)
-			if err != nil { return }
-			<-s.Done()
-			slog.Info("SIGHUP received, reloading config")
-			loadAndRegister()
 		}
 	}()
 

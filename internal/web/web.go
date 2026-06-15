@@ -331,7 +331,7 @@ func (h *Handler) handleEngine(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, pageHead+navHTML)
-	fmt.Fprintf(w, "<h1>%s</h1>", name)
+	fmt.Fprintf(w, "<h1>%s</h1>", htmlEscape(name))
 	// Show manifest for the latest version
 	var manifest string
 	h.DB.QueryRow("SELECT COALESCE(engine_manifest,'') FROM engines WHERE name=? ORDER BY created_at DESC LIMIT 1", name).Scan(&manifest)
