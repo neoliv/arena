@@ -56,6 +56,7 @@ type MatchMaker struct {
 	}
 	Config Config
 	ticker *time.Ticker
+	wakeup chan struct{} // signals when a match completes
 }
 
 // New creates a new MatchMaker.
@@ -76,6 +77,7 @@ func New(database *db.DB, relay interface {
 		Relay:  relay,
 		Config: cfg,
 		ticker: time.NewTicker(interval),
+		wakeup: make(chan struct{}, 8),
 	}
 }
 
@@ -84,7 +86,11 @@ func (m *MatchMaker) Run() {
 	slog.Info("matchmaker started")
 	// Clear stale assignments from previous server run.
 	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='server restarted' WHERE status IN ('pending','assigned','accepted','ready','in_progress','declined')")
-	for range m.ticker.C {
+	for {
+		select {
+		case <-m.ticker.C:
+		case <-m.wakeup:
+		}
 		m.tick()
 	}
 }
@@ -243,6 +249,11 @@ func (m *MatchMaker) tick() {
 }
 
 // OnBothReady is called when both coaches report ready for an assignment.
+// NotifyNewPlayers wakes the scheduler when new players may be available.
+func (m *MatchMaker) NotifyNewPlayers() {
+	select { case m.wakeup <- struct{}{}: default: }
+}
+
 func (m *MatchMaker) OnBothReady(assignmentID int) {
 	go func() {
 		defer func() {
@@ -372,6 +383,8 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	// Cleanup relay sessions
 	m.Relay.Cleanup(a.Session1ID)
 	m.Relay.Cleanup(a.Session2ID)
+	// Signal that a slot may have opened up
+	select { case m.wakeup <- struct{}{}: default: }
 }
 
 func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name, e1Ver, e2Name, e2Ver string) (int, error) {
