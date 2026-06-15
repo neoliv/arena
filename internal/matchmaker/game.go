@@ -227,16 +227,13 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 	// Get final score
 	if gr.Result == "" {
+		gr.Result = "1/2" // two passes = draw
 		finalResp, _ := wsSend(black, "final_score")
 		finalResp = strings.TrimPrefix(strings.TrimSpace(finalResp), "= ")
 		if strings.HasPrefix(finalResp, "B+") {
 			fmt.Sscanf(finalResp, "B+%d", &gr.FinalScore)
-			gr.Result = "1-0"
 		} else if strings.HasPrefix(finalResp, "W+") {
 			fmt.Sscanf(finalResp, "W+%d", &gr.FinalScore)
-			gr.Result = "0-1"
-		} else {
-			gr.Result = "1/2"
 		}
 	}
 
