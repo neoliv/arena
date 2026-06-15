@@ -25,6 +25,7 @@ type gameResult struct {
 }
 
 func wsSend(stream coach.Stream, cmd string) (string, error) {
+	slog.Info("wsSend sending", "cmd", cmd)
 	select {
 	case stream.Out <- cmd:
 	case <-time.After(10 * time.Second):
@@ -34,8 +35,10 @@ func wsSend(stream coach.Stream, cmd string) (string, error) {
 	select {
 	case resp, ok := <-stream.In:
 		if !ok {
+			slog.Info("wsSend stream closed", "cmd", cmd)
 			return "", fmt.Errorf("stream closed")
 		}
+		slog.Info("wsSend got response", "cmd", cmd, "resp", resp[:min(20, len(resp))])
 		return resp, nil
 	case <-time.After(10 * time.Second):
 		return "", fmt.Errorf("read timeout: %s", cmd)
