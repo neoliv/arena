@@ -350,6 +350,64 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		io.WriteString(w, pageHead+navHTML)
+		fmt.Fprintf(w, "<h1>Game #%s</h1>", id)
+
+		var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth int
+		var result, opening, bName, bVer, wName, wVer string
+		var bTime, wTime float64
+		var bElo, wElo float64
+		err := h.DB.QueryRow(
+			"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
+				"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
+				"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), eb.name, eb.version, ew.name, ew.version, "+
+				"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
+				"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0) "+
+				"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE g.id=?",
+			id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &bName, &bVer, &wName, &wVer, &bElo, &wElo)
+		if err != nil {
+			io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
+			return
+		}
+
+		badge := `<span class="badge draw">D</span>`
+		if result == "1-0" {
+			badge = `<span class="badge win">W</span>`
+		} else if result == "0-1" {
+			badge = `<span class="badge loss">L</span>`
+		}
+
+		bNPS := float64(blackNodes) / max(bTime, 0.001)
+		wNPS := float64(whiteNodes) / max(wTime, 0.001)
+		maxTime := max(bTime, wTime) * 1.2
+		maxNodes := float64(max(blackNodes, whiteNodes)) * 1.2
+
+		bar := func(v, total float64, color string) string {
+			if total == 0 { return "0" }
+			pct := int(v / total * 100)
+			if pct > 100 { pct = 100 }
+			return fmt.Sprintf(`<span style="display:inline-block;width:%dpx;height:10px;background:%s;border-radius:3px;vertical-align:middle;margin-right:4px"></span>%.1f`, pct*2, color, v)
+		}
+
+		fmt.Fprintf(w, `<table class="stats-table">`)
+		fmt.Fprintf(w, `<tr><td>Match</td><td><a href="/matches/%d">#%d</a> (game %d)</td></tr>`, mid, mid, gnum)
+		fmt.Fprintf(w, `<tr><td>Black</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small></td></tr>`, bName, bName, bVer, bElo)
+		fmt.Fprintf(w, `<tr><td>White</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small></td></tr>`, wName, wName, wVer, wElo)
+		fmt.Fprintf(w, `<tr><td>Result</td><td>%s %s</td></tr>`, result, badge)
+		fmt.Fprintf(w, `<tr><td>Score</td><td>%+d</td></tr>`, finalScore)
+		if opening != "" { fmt.Fprintf(w, `<tr><td>Opening</td><td>%s</td></tr>`, opening) }
+		fmt.Fprintf(w, `<tr><td>Black time</td><td>%s</td></tr>`, bar(bTime, maxTime, "#4caf50"))
+		fmt.Fprintf(w, `<tr><td>White time</td><td>%s</td></tr>`, bar(wTime, maxTime, "#4caf50"))
+		fmt.Fprintf(w, `<tr><td>Black nodes</td><td>%s</td></tr>`, bar(float64(blackNodes), maxNodes, "#2196f3"))
+		fmt.Fprintf(w, `<tr><td>White nodes</td><td>%s</td></tr>`, bar(float64(whiteNodes), maxNodes, "#2196f3"))
+		fmt.Fprintf(w, `<tr><td>Black NPS</td><td>%.0f / depth %d</td></tr>`, bNPS, blackDepth)
+		fmt.Fprintf(w, `<tr><td>White NPS</td><td>%.0f / depth %d</td></tr></table>`, wNPS, whiteDepth)
+		io.WriteString(w, pageFoot)
+	}
+
+func (h *Handler) OLD_handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, pageHead+navHTML)
