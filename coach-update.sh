@@ -30,8 +30,9 @@ reload() {
 }
 $RELOAD_ONLY && { echo "=== Reload config ==="; reload; exit 0; }
 
-# Log everything to arena/coach-update.log
-exec > >(tee -a "$SCRIPT_DIR/coach-update.log") 2>&1
+# Log under agent/arena/log/
+mkdir -p "$SCRIPT_DIR/log"
+exec > >(tee -a "$SCRIPT_DIR/log/coach-update.log") 2>&1
 echo "=== Arena Coach Update === ($(date))"
 
 # 0. Ensure coach tree exists
@@ -167,5 +168,5 @@ else
     reload
 fi
 echo ""; echo "=== Done ==="
-echo "Log saved to: $SCRIPT_DIR/coach-update.log"
+echo "Log saved to: $SCRIPT_DIR/log/coach-update.log"
 $DRY_RUN && echo "(dry run — no changes made)"

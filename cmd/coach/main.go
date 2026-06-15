@@ -75,13 +75,13 @@ func main() {
 	handleShortFlags("coach")
 	flag.Parse()
 
-	// Log to ~/dev/agent/arena/coach.log (readable from sandbox)
-	logDir := filepath.Join(os.Getenv("HOME"), "dev", "agent", "arena")
+	// All logs under ~/dev/agent/arena/log/ (shared FS between host and sandbox)
+	logDir := filepath.Join(os.Getenv("HOME"), "dev", "agent", "arena", "log")
 	os.MkdirAll(logDir, 0755)
 	if lf, err := os.Create(filepath.Join(logDir, "coach.log")); err == nil {
 		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
-	slog.Info("coach starting", "pid", os.Getpid())
+	slog.Info("coach starting", "pid", os.Getpid(), "log_dir", logDir)
 
 	if *showVer {
 		fmt.Print(version.PrintVersion("coach"))
@@ -225,7 +225,7 @@ func main() {
 			// Accept and launch
 			acceptTask(client, cfg, t.AssignmentID)
 
-			re, err := launchEngine(ctx, *ai, cfg.ArenaURL, t.RelayPath, t.SessionID)
+			re, err := launchEngine(ctx, *ai, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir)
 			if err != nil {
 				slog.Error("launch engine", "ai", ai.Name, "err", err)
 				failTask(client, cfg, t.AssignmentID, "launch failed: "+err.Error())
@@ -420,7 +420,7 @@ func failTask(client *http.Client, cfg config, id int, reason string) {
 
 // ── Engine lifecycle ─────────────────────────────────────────────────────
 
-func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, sessionID string) (*runningEngine, error) {
+func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, sessionID, logDir string) (*runningEngine, error) {
 	parts := strings.Fields(ai.RunCmd)
 	if len(parts) == 0 { return nil, fmt.Errorf("empty run command") }
 
@@ -428,7 +428,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	cmd := exec.CommandContext(engCtx, parts[0], parts[1:]...)
 	cmd.Dir = filepath.Dir(parts[0])
 	var stderrBuf bytes.Buffer
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+	engineLogDir := filepath.Join(logDir, "engines")
+	os.MkdirAll(engineLogDir, 0755)
+	errLog, _ := os.Create(filepath.Join(engineLogDir, sessionID+".err"))
+	stderrWriters := io.MultiWriter(os.Stderr, &stderrBuf)
+	if errLog != nil { stderrWriters = io.MultiWriter(stderrWriters, errLog) }
+	cmd.Stderr = stderrWriters
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 
