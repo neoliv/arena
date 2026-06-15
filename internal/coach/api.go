@@ -24,6 +24,7 @@ type Handler struct {
 	ServerGen     string // random ID regenerated on server restart
 	rateMu        sync.Mutex
 	rateWindows   map[string][]time.Time
+	launchMu      sync.Mutex // serializes both-ready check to prevent double OnBothReady
 }
 
 type MatchMakerFunc func(assignmentID int)
@@ -95,6 +96,13 @@ type taskStatusReq struct {
 	Status       string `json:"status"`
 	Reason       string `json:"reason,omitempty"`
 	SessionID    string `json:"session_id,omitempty"`
+}
+
+func NewHandler(database *db.DB, token string, relay *Relay, validateToken func(string) bool, serverGen string) *Handler {
+	return &Handler{
+		DB: database, Token: token, Relay: relay, ValidateToken: validateToken,
+		ServerGen: serverGen,
+	}
 }
 
 func (h *Handler) checkAuth(r *http.Request) bool {
@@ -311,15 +319,24 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if status == "ready" && h.matchmaker != nil {
+		// Serialize with a mutex so that when both coaches report
+		// ready near-simultaneously, only one triggers the match.
+		// The second call reads status='in_progress' (set by the
+		// first) and skips naturally. No persistent map needed.
+		h.launchMu.Lock()
 		var a db.AssignmentRow
 		row := h.DB.QueryRow("SELECT id, COALESCE(session1_id,''), COALESCE(session2_id,''), coach1_ai_id, coach2_ai_id, status FROM match_assignments WHERE id=?", assignmentID)
 		if err := row.Scan(&a.ID, &a.Session1ID, &a.Session2ID, &a.Coach1AIID, &a.Coach2AIID, &a.Status); err == nil {
 			if a.Session1ID != "" && a.Session2ID != "" && a.Status == "ready" {
 				slog.Info("both sessions ready, starting match", "assignment", assignmentID)
 				h.DB.Exec("UPDATE match_assignments SET status='in_progress' WHERE id=? AND status='ready'", assignmentID)
+				h.launchMu.Unlock()
 				h.matchmaker(assignmentID)
+				jsonOK(w, map[string]string{"status": status})
+				return
 			}
 		}
+		h.launchMu.Unlock()
 	}
 
 	jsonOK(w, map[string]string{"status": status})

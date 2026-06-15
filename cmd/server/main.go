@@ -120,7 +120,7 @@ func main() {
 	relay := coach.NewRelay()
 	var serverGen [8]byte
 	rand.Read(serverGen[:])
-	coachHandler := &coach.Handler{DB: database, Token: *token, Relay: relay, ValidateToken: validateToken, ServerGen: hex.EncodeToString(serverGen[:])}
+	coachHandler := coach.NewHandler(database, *token, relay, validateToken, hex.EncodeToString(serverGen[:]))
 	mux.HandleFunc("POST /api/coach/register", coachHandler.HandleRegister)
 	mux.HandleFunc("POST /api/coach/heartbeat", coachHandler.HandleHeartbeat)
 	mux.HandleFunc("GET /api/coach/tasks", coachHandler.HandleTasks)
