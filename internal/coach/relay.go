@@ -94,6 +94,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if exists {
+		if slot.cancel != nil { slot.cancel() }
 		slot.stream = stream
 		if slot.ready != nil {
 			select {

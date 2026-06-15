@@ -167,6 +167,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 	registered := 0
 	for _, ai := range req.AIs {
+		if registered >= 64 { break }
 		if ai.Name == "" || ai.Version == "" { continue }
 		cores := ai.ResourceCores
 		if cores == 0 { cores = 1 }
