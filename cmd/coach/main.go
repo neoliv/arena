@@ -60,10 +60,11 @@ type aiConfig struct {
 
 
 type runningEngine struct {
-	ai       aiConfig
-	cmd      *exec.Cmd
-	cancel   context.CancelFunc
+	ai        aiConfig
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
 	sessionID string
+	stderrBuf *bytes.Buffer
 }
 
 func main() {
@@ -240,8 +241,11 @@ func main() {
 			// Watch for completion in background
 			go func(sid string, aid int) {
 				err := re.cmd.Wait()
+				stderrOut := strings.TrimSpace(re.stderrBuf.String())
 				if err != nil {
-					slog.Warn("engine exited with error", "session", sid, "err", err)
+					slog.Warn("engine exited with error", "session", sid, "err", err, "stderr", stderrOut)
+				} else if stderrOut != "" {
+					slog.Info("engine exited", "session", sid, "stderr", stderrOut)
 				} else {
 					slog.Info("engine exited", "session", sid)
 				}
@@ -469,7 +473,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		}
 	}()
 
-	return &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID}, nil
+	return &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID, stderrBuf: &stderrBuf}, nil
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
