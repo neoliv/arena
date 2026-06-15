@@ -109,11 +109,20 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
+	// Drain opening move responses so they don't block genmove responses
+	for _, s := range []coach.Stream{black, white} {
+		for {
+			select {
+			case <-s.In:
+			default:
+				break
+			}
+		}
+	}
+
 	moveNum := len(moves)
 	sideToMove := "B"
-	if moveNum%2 == 1 {
-		sideToMove = "W"
-	}
+	if moveNum%2 == 1 { sideToMove = "W" }
 	consecutivePasses := 0
 
 	timeLimit := gameTimeSec * 1.05

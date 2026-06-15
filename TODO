@@ -17,6 +17,8 @@ Design ideas to comment upon:
 
 - When the "Disconnect" link is in hover mode, Use read instead of green as bg.
 
+- On the game details. When no moves are recorded, make it clearly visible. Having an empty 'per ply' section is not enough, an explicit mesage is required.
+
 - build new complete coach-adapters/ for other AIs in agent/othello-refs/ (eg: egaroucid). As for edax, create 4 playrs of various strength.
 
 arena: Explain how the stats are affected to the proper player.
