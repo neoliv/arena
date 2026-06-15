@@ -109,13 +109,14 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Drain opening move responses so they don't block genmove responses
+	// Drain buffered opening move responses (break needs label to exit for loop)
 	for _, s := range []coach.Stream{black, white} {
+	drain:
 		for {
 			select {
 			case <-s.In:
 			default:
-				break
+				break drain
 			}
 		}
 	}
