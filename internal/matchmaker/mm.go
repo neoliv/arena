@@ -37,9 +37,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		TimeControls: []TimeControl{
-			{Seconds: 30, Weight: 4.0, Label: "blitz"},
-			{Seconds: 60, Weight: 2.0, Label: "standard"},
-			{Seconds: 120, Weight: 1.0, Label: "tournament"},
+			{Seconds: 30, Weight: 1.0, Label: "blitz"},
 		},
 		ProvisionalGames: 20,
 		GamesPerMatch:    2,

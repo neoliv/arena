@@ -16,11 +16,21 @@ requires more fixes. The most failure-prone files:
 For a single targeted change, Edit is fine. For a function rewrite or multiple
 insertions, use Read + Write.
 
+## Scripts
+
+```bash
+./arena-deploy.sh          # build, deploy to VPS, clean logs, health check
+./arena-check.sh [--watch] # quick server health check
+./arena-logs.sh            # pull server/caddy/journal logs to local log/
+~/bin/coach-update         # rebuild all engines + coach on host (run on host)
+```
+
 ## Deploy
 
 ```bash
-./deploy.sh              # builds server, scp to arena.arsac.org, health check
+./arena-deploy.sh          # builds server, scp to VPS, clears old logs, health check
 ```
+All logs end up in `log/` — shared between host and sandbox at the same path.
 
 The health check hits `/health` which requires login (303 redirect = success).
 
