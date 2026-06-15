@@ -110,7 +110,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *Handler) handleRankings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Engine Rankings</h1>`+filterBox+`<table><tr><th>#</th><th>Engine</th><th>Elo</th><th>+/-</th><th>Games</th><th>W/L/D</th><th>Trend</th></tr>`)
+	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Player Rankings</h1>`+filterBox+`<table><tr><th>#</th><th>Player</th><th>Elo</th><th>+/-</th><th>Games</th><th>W/L/D</th><th>Trend</th></tr>`)
 	rows, err := h.DB.Query(`SELECT e.id, e.name, e.version, COALESCE(e.engine_id,''), COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 1500.0), (SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id) as g, (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='1-0') OR (white_id=e.id AND result='0-1')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='0-1') OR (white_id=e.id AND result='1-0')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id OR white_id=e.id) AND result='1/2') FROM engines e ORDER BY 4 DESC`)
 	if err != nil || rows == nil { io.WriteString(w, "</table>"); return }
 	defer rows.Close()
