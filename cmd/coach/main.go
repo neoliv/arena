@@ -237,6 +237,7 @@ func main() {
 			mu.Unlock()
 
 			readyTask(client, cfg, t.AssignmentID, t.SessionID)
+				sendHeartbeat(client, cfg, &mu, running)
 
 			// Watch for completion in background
 			go func(sid string, aid int) {
@@ -252,6 +253,7 @@ func main() {
 				mu.Lock()
 				delete(running, sid)
 				mu.Unlock()
+				sendHeartbeat(client, cfg, &mu, running)
 			}(t.SessionID, t.AssignmentID)
 		}
 		select {
@@ -322,6 +324,37 @@ func register(client *http.Client, cfg config) error {
 		return fmt.Errorf("register: %s (%s)", resp.Status, errResp["error"])
 	}
 	return nil
+}
+
+// sendHeartbeat sends an immediate resource update to the server.
+func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, running map[string]*runningEngine) {
+	mu.Lock()
+	var ais []map[string]any
+	counts := map[string]int{}
+	usedCores, usedMem := 0, 0
+	for _, re := range running {
+		key := re.ai.Name + ":" + re.ai.Version
+		counts[key]++
+		usedCores += re.ai.Cores
+		usedMem += re.ai.MemoryMB
+	}
+	for _, ai := range cfg.AIs {
+		key := ai.Name + ":" + ai.Version
+		count := counts[key]
+		ais = append(ais, map[string]any{
+			"name": ai.Name, "version": ai.Version,
+			"current_matches": count, "max_concurrency": ai.MaxInstances,
+		})
+	}
+	mu.Unlock()
+	body := map[string]any{
+		"coach_id": cfg.CoachID, "token": cfg.Token,
+		"ais_available": ais,
+		"resources": map[string]int{"cores_used": usedCores, "memory_mb_used": usedMem},
+	}
+	resp, err := postJSON(client, cfg, "/api/coach/heartbeat", body)
+	if err != nil { return }
+	resp.Body.Close()
 }
 
 func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *sync.Mutex, running map[string]*runningEngine, reload func()) {
