@@ -404,6 +404,41 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<tr><td>White nodes</td><td>%s</td></tr>`, bar(float64(whiteNodes), maxNodes, "#2196f3"))
 		fmt.Fprintf(w, `<tr><td>Black NPS</td><td>%.0f / depth %d</td></tr>`, bNPS, blackDepth)
 		fmt.Fprintf(w, `<tr><td>White NPS</td><td>%.0f / depth %d</td></tr></table>`, wNPS, whiteDepth)
+
+		// Per-move chart
+		mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, nps FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
+		if mRows != nil {
+			defer mRows.Close()
+			type moveRow struct{ num int; side, move string; nodes int; depth int; timeMs float64; nps int }
+			var moves []moveRow
+			maxTime := 0.0
+			for mRows.Next() {
+				var m moveRow
+				mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.nps)
+				moves = append(moves, m)
+				if m.timeMs > maxTime { maxTime = m.timeMs }
+			}
+			if len(moves) > 0 {
+				io.WriteString(w, `<h3>Per-Move Stats</h3><div style="display:flex;align-items:flex-end;gap:1px;height:120px;margin-bottom:1em;overflow-x:auto">`)
+				for _, m := range moves {
+					h := 0
+					if maxTime > 0 { h = int(m.timeMs / maxTime * 100) }
+					if h < 2 { h = 2 }
+					color := "#4caf50"
+					if m.side == "W" { color = "#eee" }
+					if h > 0 {
+						fmt.Fprintf(w, `<div title="%s %s: %.0fms %d nodes" style="min-width:6px;height:%dpx;background:%s;border-radius:1px;flex-shrink:0"></div>`, m.side, m.move, m.timeMs, m.nodes, h, color)
+					}
+				}
+				io.WriteString(w, `</div><div style="font-size:9px;color:var(--muted);display:flex;gap:1px;overflow-x:auto;margin-bottom:1em">`)
+				for i, m := range moves {
+					if i%2 == 0 {
+						fmt.Fprintf(w, `<span style="min-width:12px;flex-shrink:0;text-align:center">%s</span>`, m.move)
+					}
+				}
+				io.WriteString(w, `</div>`)
+			}
+		}
 		io.WriteString(w, pageFoot)
 	}
 

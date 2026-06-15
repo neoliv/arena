@@ -10,6 +10,15 @@ import (
 	"github.com/neoliv/arena/internal/coach"
 )
 
+type gameMove struct {
+	Side   string
+	Move   string
+	Nodes  int64
+	Depth  int
+	TimeMs float64
+	Score  int
+	NPS    int64
+}
 type gameResult struct {
 	Black        string
 	White        string
@@ -22,6 +31,7 @@ type gameResult struct {
 	WhiteNodes   int64
 	BlackDepth   int
 	WhiteDepth   int
+	Moves        []gameMove
 }
 
 func wsSend(stream coach.Stream, cmd string) (string, error) {
@@ -204,6 +214,11 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 				gr.WhiteDepth = depth
 			}
 		}
+		gr.Moves = append(gr.Moves, gameMove{
+			Side: sideToMove, Move: mv,
+			Nodes: nodes, Depth: depth, TimeMs: tm,
+			Score: score, NPS: nps,
+		})
 
 		if moveNum > 120 {
 			break

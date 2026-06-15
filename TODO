@@ -1,10 +1,6 @@
 ### Prompts
 
-
-
-- On the game details page. Show charts with: time per ply (bar?). eval per ply (bar?) NpS per ply, ... all available metrics for this game. Use a slightly colored backgroud to mark book/middle/ES engine phases whan avallable. On the bottom axis put the ply number and move played one below the other. eg: C3 and 38 below.
-
-- On the player page I see that edax players show "unknown" for the created date. Use the date of the git version pulled to build the engine binary. btw does edax have a --version that can be used in manifest or other places where it's useful? (same question for all other engines)
+- improve the edax adapter to collect at least the time per ply metric (the adapter can compute this without having to look at the engin source)
 
 - build new complete coach-adapters/ for other AIs in agent/othello-refs/ (eg: egaroucid). As for edax, create 4 playrs of various strength.
 

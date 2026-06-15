@@ -52,6 +52,8 @@ func (db *DB) Migrate() error {
 		"ALTER TABLE engines ADD COLUMN changelog_full TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN engine_id TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN engine_manifest TEXT DEFAULT ''",
+			"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0, nps INTEGER DEFAULT 0)",
+			"CREATE INDEX IF NOT EXISTS idx_gm_game ON game_moves(game_id)",
 	} {
 		db.Exec(stmt) // ignore errors — column may already exist
 	}
@@ -168,6 +170,20 @@ CREATE INDEX IF NOT EXISTS idx_games_match ON games(match_id);
 CREATE INDEX IF NOT EXISTS idx_games_black ON games(black_id);
 CREATE INDEX IF NOT EXISTS idx_games_white ON games(white_id);
 CREATE INDEX IF NOT EXISTS idx_elo_engine ON elo_history(engine_id);
+
+CREATE TABLE IF NOT EXISTS game_moves (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id    INTEGER REFERENCES games(id),
+    move_num   INTEGER NOT NULL,
+    side       TEXT NOT NULL,
+    move       TEXT NOT NULL DEFAULT '',
+    nodes      INTEGER DEFAULT 0,
+    depth      INTEGER DEFAULT 0,
+    time_ms    REAL DEFAULT 0,
+    score      INTEGER DEFAULT 0,
+    nps        INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_gm_game ON game_moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_elo_created ON elo_history(created_at);
 
 CREATE TABLE IF NOT EXISTS coaches (
