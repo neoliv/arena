@@ -120,8 +120,6 @@ func (h *Handler) checkAuthOrOpen(r *http.Request) bool {
 	return h.checkAuth(r)
 }
 
-// checkRate returns true if the request should be allowed.
-// Limits: 60 requests per 30 seconds per coach (lenient, allows bursts).
 func (h *Handler) checkRate(coachID string) bool {
 	h.rateMu.Lock()
 	defer h.rateMu.Unlock()
@@ -312,18 +310,18 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 		retryAfter := time.Now().Add(time.Duration(delay) * time.Second).UTC().Format(time.RFC3339)
 		h.DB.Exec("UPDATE match_assignments SET status='retry', decline_reason=?, retry_after=? WHERE id=?",
 			reason, retryAfter, assignmentID)
-	} else {
-		if err := h.DB.UpdateAssignmentStatus(assignmentID, status, reason); err != nil {
-			slog.Error("task status", "err", err)
-			jsonErr(w, "db error", http.StatusInternalServerError); return
-		}
-	}
-	if status == "ready" && h.matchmaker != nil {
-		// Serialize with a mutex so that when both coaches report
-		// ready near-simultaneously, only one triggers the match.
-		// The second call reads status='in_progress' (set by the
-		// first) and skips naturally. No persistent map needed.
+	} else if status == "ready" && h.matchmaker != nil {
+		// Serialize the full check+update under a mutex. The
+		// UpdateAssignmentStatus("ready") call would overwrite
+		// 'in_progress' back to 'ready' if placed outside the lock,
+		// causing duplicate match execution when both coaches
+		// report ready simultaneously.
 		h.launchMu.Lock()
+		var curStatus string
+		h.DB.QueryRow("SELECT status FROM match_assignments WHERE id=?", assignmentID).Scan(&curStatus)
+		if curStatus != "in_progress" && curStatus != "completed" && curStatus != "failed" {
+			h.DB.UpdateAssignmentStatus(assignmentID, "ready", "")
+		}
 		var a db.AssignmentRow
 		row := h.DB.QueryRow("SELECT id, COALESCE(session1_id,''), COALESCE(session2_id,''), coach1_ai_id, coach2_ai_id, status FROM match_assignments WHERE id=?", assignmentID)
 		if err := row.Scan(&a.ID, &a.Session1ID, &a.Session2ID, &a.Coach1AIID, &a.Coach2AIID, &a.Status); err == nil {
@@ -337,6 +335,11 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		h.launchMu.Unlock()
+	} else {
+		if err := h.DB.UpdateAssignmentStatus(assignmentID, status, reason); err != nil {
+			slog.Error("task status", "err", err)
+			jsonErr(w, "db error", http.StatusInternalServerError); return
+		}
 	}
 
 	jsonOK(w, map[string]string{"status": status})
