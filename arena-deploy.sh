@@ -43,6 +43,18 @@ ssh "${VPS_USER}@${VPS}" "truncate -s 0 /var/log/caddy/arena.log 2>/dev/null || 
 ssh "${VPS_USER}@${VPS}" "truncate -s 0 /var/log/arena/server.log"
 echo "  logs reset"
 
+# ── Clear DB ─────────────────────────────────────────────────────────────
+
+echo "--- Clearing DB (keeping tokens + sessions) ---"
+DB="/opt/arena/arena.db"
+ssh "${VPS_USER}@${VPS}" "cp '$DB' '$DB.bak-deploy-\$(date +%Y%m%d-%H%M%S)'"
+for t in bisect_steps bisections coach_ais coaches elo_history engines game_moves games match_assignments matches speed_stats; do
+    count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")
+    ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"DELETE FROM $t\""
+    echo "  cleared $t ($count rows)"
+done
+echo "  DB cleared"
+
 # ── Copy binary ──────────────────────────────────────────────────────────
 
 echo "--- Copying binary ---"
