@@ -20,13 +20,13 @@ import (
 var SharedCSS = sharedCSS
 
 const sharedCSS = `<style>
-:root{--bg:#fafafa;--fg:#222;--muted:#666;--border:#ddd;--hover:#f0f0f5;--th-bg:#f0f0f0;--link:#385;--link-hover:#263;--win-bg:#dfd;--win-fg:#060;--loss-bg:#fdd;--loss-fg:#600;--draw-bg:#ffd;--draw-fg:#660;color-scheme:light}
-@media(prefers-color-scheme:dark){:root{--bg:#1a1a2e;--fg:#e8e6e3;--muted:#a9a7a3;--border:#333;--hover:#252540;--th-bg:#22223a;--link:#7a7;--link-hover:#9b9;--win-bg:#1a3a1a;--win-fg:#7f7;--loss-bg:#3a1a1a;--loss-fg:#f77;--draw-bg:#3a3a1a;--draw-fg:#ee7;color-scheme:dark}}
+:root{--bg:#fafafa;--fg:#222;--muted:#666;--border:#ddd;--hover:#f0f0f5;--th-bg:#f0f0f0;--link:#385;--link-hover:#263;--nav-hl:#1a5c3a;--win-bg:#dfd;--win-fg:#060;--loss-bg:#fdd;--loss-fg:#600;--draw-bg:#ffd;--draw-fg:#660;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#1a1a2e;--fg:#e8e6e3;--muted:#a9a7a3;--border:#333;--hover:#252540;--th-bg:#22223a;--link:#7a7;--link-hover:#9b9;--nav-hl:#3a5;--win-bg:#1a3a1a;--win-fg:#7f7;--loss-bg:#3a1a1a;--loss-fg:#f77;--draw-bg:#3a3a1a;--draw-fg:#ee7;color-scheme:dark}}
 body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:1em;color:var(--fg);background:var(--bg)}
 h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
-nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:var(--fg);font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--border);background:rgba(56,136,85,0.06);transition:all .15s}
-nav a:hover{background:var(--link-hover);color:#fff;border-color:var(--link-hover)}
+nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:var(--fg);font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--nav-hl);background:rgba(56,136,85,0.06);transition:all .15s}
+nav a:hover{background:var(--nav-hl);color:#fff;border-color:var(--nav-hl)}
 table{border-collapse:collapse;width:100%;margin-bottom:2em}
 th,td{text-align:left;padding:.4em .6em;border-bottom:1px solid var(--border)}
 th{font-weight:600;background:var(--th-bg);cursor:pointer;user-select:none;position:relative;padding-right:18px}th:hover{background:var(--hover)}td{white-space:nowrap}.sort-ind{position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:1.2em;font-weight:900;color:var(--fg)}
