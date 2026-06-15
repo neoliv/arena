@@ -24,7 +24,7 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
-	conn.SetMaxOpenConns(1) // SQLite serializes writes
+	conn.SetMaxOpenConns(2) // allow concurrent reads with one writer
 	if err := conn.Ping(); err != nil {
 		return nil, fmt.Errorf("ping: %w", err)
 	}
