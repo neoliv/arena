@@ -54,6 +54,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	if exists {
 		// Placeholder created by WaitForConn — fill in the connection.
 		slot.conn = conn
+		slot.done = make(chan struct{})
 		close(slot.ready)
 	} else {
 		slot = &relaySlot{conn: conn, ready: make(chan struct{}), done: make(chan struct{})}
