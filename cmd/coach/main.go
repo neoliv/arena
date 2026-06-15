@@ -58,7 +58,6 @@ type aiConfig struct {
 	RunCmd         string `yaml:"-"` // resolved full command
 }
 
-
 type runningEngine struct {
 	ai        aiConfig
 	cmd       *exec.Cmd
@@ -75,7 +74,6 @@ func main() {
 	handleShortFlags("coach")
 	flag.Parse()
 
-	// All logs under ~/dev/agent/arena/log/ (shared FS between host and sandbox)
 	logDir := filepath.Join(os.Getenv("HOME"), "dev", "agent", "arena", "log")
 	os.MkdirAll(logDir, 0755)
 	if lf, err := os.Create(filepath.Join(logDir, "coach.log")); err == nil {
@@ -87,7 +85,6 @@ func main() {
 		fmt.Print(version.PrintVersion("coach"))
 		return
 	}
-	// Build set of allowed AI names (empty = all)
 	allowedAIs := make(map[string]bool)
 	if *aisFilter != "" {
 		for _, name := range strings.Split(*aisFilter, ",") {
@@ -118,26 +115,28 @@ func main() {
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	// Determine engines directory
 	enginesDir := cfg.EnginesDir
 	if enginesDir == "" {
 		enginesDir = *playersDir
 	}
 	if enginesDir == "players.d" {
-		enginesDir = "~/coach/engines" // default location
+		enginesDir = "~/coach/engines"
 	}
 	if strings.HasPrefix(enginesDir, "~/") {
 		enginesDir = filepath.Join(os.Getenv("HOME"), enginesDir[2:])
 	}
 	slog.Info("scanning for players", "engines_dir", enginesDir)
 
-	// Register
+	var mu sync.Mutex           // protects running map
+	var cfgMu sync.RWMutex      // protects cfg.AIs slice
+	running := make(map[string]*runningEngine)
+
 	loadAndRegister := func() {
 		var ais []aiConfig
 		matches, err := filepath.Glob(filepath.Join(enginesDir, "*", "players.d", "*.yaml"))
 		if err == nil {
 			for _, yamlPath := range matches {
-				engineDir := filepath.Dir(filepath.Dir(yamlPath)) // engines/<id>/
+				engineDir := filepath.Dir(filepath.Dir(yamlPath))
 				aiData, err := os.ReadFile(yamlPath)
 				if err != nil { slog.Warn("read ai config", "file", yamlPath, "err", err); continue }
 				var ai aiConfig
@@ -146,29 +145,31 @@ func main() {
 				}
 				if ai.Name == "" || ai.Version == "" { continue }
 				if len(allowedAIs) > 0 && !allowedAIs[ai.Name] { continue }
-				// Resolve binary path relative to engine dir if not absolute
 				if ai.Binary != "" && !strings.HasPrefix(ai.Binary, "/") {
 					ai.Binary = filepath.Join(engineDir, ai.Binary)
 				}
-				// Construct full run command from binary + args
 				ai.RunCmd = strings.TrimSpace(ai.Binary + " " + ai.Args)
-				// Compute engine_id: hash binary + companion data
 				ai.EngineID, ai.EngineManifest = computeEngineIdentity(ai)
 				ais = append(ais, ai)
 			}
 		}
 		if len(ais) == 0 { slog.Error("no players found in " + enginesDir + "/*/players.d/*.yaml"); return }
 		slog.Info("loaded AIs", "count", len(ais))
+		cfgMu.Lock()
 		cfg.AIs = ais
-		slog.Info("registering with arena", "url", cfg.ArenaURL, "ais", len(cfg.AIs)); for _, a := range cfg.AIs { slog.Info("  player", "name", a.Name, "version", a.Version, "binary", a.Binary, "args", a.Args, "engine_id", a.EngineID[:min(16,len(a.EngineID))]) }; if err := register(client, cfg); err != nil {
+		cfgMu.Unlock()
+		slog.Info("registering with arena", "url", cfg.ArenaURL, "ais", len(ais))
+		for _, a := range ais {
+			slog.Info("  player", "name", a.Name, "version", a.Version, "binary", a.Binary, "args", a.Args, "engine_id", a.EngineID[:min(16,len(a.EngineID))])
+		}
+		if err := register(client, cfg, &cfgMu); err != nil {
 			slog.Error("REGISTRATION FAILED", "err", err)
 		} else {
-			slog.Info("REGISTRATION SUCCEEDED", "ais", len(cfg.AIs))
+			slog.Info("REGISTRATION SUCCEEDED", "ais", len(ais))
 		}
 	}
 	loadAndRegister()
 
-	// Heartbeat + SIGHUP goroutines
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
@@ -187,37 +188,26 @@ func main() {
 		}
 	}()
 
-	var mu sync.Mutex
-	running := make(map[string]*runningEngine) // key: sessionID
+	go heartbeatLoop(ctx, client, cfg, &mu, &cfgMu, running, loadAndRegister)
 
-	go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("heartbeat loop panicked", "panic", r)
-				}
-			}()
-			heartbeatLoop(ctx, client, cfg, &mu, running, loadAndRegister)
-		}()
-
-	// Task polling loop
 	slog.Info("starting task poll loop")
-	lastReReg := time.Now().Add(-5 * time.Minute) // trigger first re-reg immediately
+	lastReReg := time.Now().Add(-5 * time.Minute)
 	for ctx.Err() == nil {
-		// Re-register every 5 minutes as heartbeat-independent fallback
 		if time.Since(lastReReg) > 5*time.Minute {
 			loadAndRegister()
 			lastReReg = time.Now()
 		}
 		tasks := pollTasks(client, cfg)
 		for _, t := range tasks {
+			cfgMu.RLock()
 			ai := findAI(cfg, t.EngineName, t.EngineVersion)
+			cfgMu.RUnlock()
 			if ai == nil {
 				slog.Warn("task for unknown AI", "name", t.EngineName, "version", t.EngineVersion)
 				continue
 			}
 
 			mu.Lock()
-			// Resource check
 			usedCores, usedMem := 0, 0
 			instCount := 0
 			for _, re := range running {
@@ -235,9 +225,7 @@ func main() {
 			}
 			mu.Unlock()
 
-			// Accept and launch
 			acceptTask(client, cfg, t.AssignmentID)
-
 			re, err := launchEngine(ctx, *ai, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir)
 			if err != nil {
 				slog.Error("launch engine", "ai", ai.Name, "err", err)
@@ -250,9 +238,8 @@ func main() {
 			mu.Unlock()
 
 			readyTask(client, cfg, t.AssignmentID, t.SessionID)
-				sendHeartbeat(client, cfg, &mu, running)
+			sendHeartbeat(client, cfg, &mu, &cfgMu, running)
 
-			// Watch for completion in background
 			go func(sid string, aid int) {
 				err := re.cmd.Wait()
 				stderrOut := strings.TrimSpace(re.stderrBuf.String())
@@ -266,7 +253,7 @@ func main() {
 				mu.Lock()
 				delete(running, sid)
 				mu.Unlock()
-				sendHeartbeat(client, cfg, &mu, running)
+				sendHeartbeat(client, cfg, &mu, &cfgMu, running)
 			}(t.SessionID, t.AssignmentID)
 		}
 		select {
@@ -276,7 +263,6 @@ func main() {
 		}
 	}
 
-	// Cleanup
 	mu.Lock()
 	for _, re := range running {
 		re.cancel()
@@ -299,7 +285,7 @@ func postJSON(client *http.Client, cfg config, path string, body any) (*http.Res
 	return client.Do(req)
 }
 
-func register(client *http.Client, cfg config) error {
+func register(client *http.Client, cfg config, cfgMu *sync.RWMutex) error {
 	type aiReg struct {
 		Name             string `json:"name"`
 		Version          string `json:"version"`
@@ -318,6 +304,7 @@ func register(client *http.Client, cfg config) error {
 		"coach_id": cfg.CoachID, "token": cfg.Token, "label": cfg.Label, "version": version.Version,
 		"resources": map[string]int{"cores": totalCores(cfg), "memory_mb": totalMem(cfg)},
 	}
+	cfgMu.RLock()
 	var ais []aiReg
 	for _, a := range cfg.AIs {
 		cores := a.Cores; if cores == 0 { cores = 1 }
@@ -325,6 +312,7 @@ func register(client *http.Client, cfg config) error {
 		maxInst := a.MaxInstances; if maxInst == 0 { maxInst = 1 }
 		ais = append(ais, aiReg{a.Name, a.Version, a.Created, a.ChangelogShort, a.ChangelogFull, a.BuildCmd, a.RunCmd, a.EngineID, a.EngineManifest, cores, mem, maxInst})
 	}
+	cfgMu.RUnlock()
 	body["ais"] = ais
 	resp, err := postJSON(client, cfg, "/api/coach/register", body)
 	if err != nil { return fmt.Errorf("register POST failed: %w", err) }
@@ -339,8 +327,7 @@ func register(client *http.Client, cfg config) error {
 	return nil
 }
 
-// sendHeartbeat sends an immediate resource update to the server.
-func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, running map[string]*runningEngine) {
+func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, cfgMu *sync.RWMutex, running map[string]*runningEngine) {
 	mu.Lock()
 	var ais []map[string]any
 	counts := map[string]int{}
@@ -351,6 +338,8 @@ func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, running map[
 		usedCores += re.ai.Cores
 		usedMem += re.ai.MemoryMB
 	}
+	mu.Unlock()
+	cfgMu.RLock()
 	for _, ai := range cfg.AIs {
 		key := ai.Name + ":" + ai.Version
 		count := counts[key]
@@ -359,7 +348,7 @@ func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, running map[
 			"current_matches": count, "max_concurrency": ai.MaxInstances,
 		})
 	}
-	mu.Unlock()
+	cfgMu.RUnlock()
 	body := map[string]any{
 		"coach_id": cfg.CoachID, "token": cfg.Token,
 		"ais_available": ais,
@@ -370,7 +359,7 @@ func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, running map[
 	resp.Body.Close()
 }
 
-func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *sync.Mutex, running map[string]*runningEngine, reload func()) {
+func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *sync.Mutex, cfgMu *sync.RWMutex, running map[string]*runningEngine, reload func()) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	var lastServerGen string
@@ -380,7 +369,6 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 		case <-ticker.C:
 		}
 		mu.Lock()
-		var ais []map[string]any
 		counts := map[string]int{}
 		usedCores, usedMem := 0, 0
 		for _, re := range running {
@@ -389,6 +377,9 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 			usedCores += re.ai.Cores
 			usedMem += re.ai.MemoryMB
 		}
+		mu.Unlock()
+		cfgMu.RLock()
+		var ais []map[string]any
 		for _, ai := range cfg.AIs {
 			key := ai.Name + ":" + ai.Version
 			count := counts[key]
@@ -397,7 +388,7 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 				"current_matches": count, "max_concurrency": ai.MaxInstances,
 			})
 		}
-		mu.Unlock()
+		cfgMu.RUnlock()
 		body := map[string]any{
 			"coach_id": cfg.CoachID, "token": cfg.Token,
 			"ais_available": ais,
@@ -490,7 +481,6 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		return nil, fmt.Errorf("start: %w", err)
 	}
 
-	// Connect to WebSocket relay
 	wsURL := strings.Replace(arenaURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 	wsURL += relayPath
@@ -504,7 +494,6 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
 
-	// Bridge: engine stdout -> WebSocket, WebSocket -> engine stdin
 	go func() {
 		defer conn.Close(websocket.StatusNormalClosure, "done")
 		scanner := bufio.NewScanner(stdout)
@@ -539,7 +528,7 @@ func findAI(cfg config, name, version string) *aiConfig {
 
 func totalCores(cfg config) int {
 	if cfg.MaxCores > 0 { return cfg.MaxCores }
-	return 1 // conservative default
+	return 1
 }
 
 func computeEngineIdentity(ai aiConfig) (string, string) {
@@ -554,7 +543,6 @@ func computeEngineIdentity(ai aiConfig) (string, string) {
 	fmt.Fprintf(&manifest, "Resources: %d core(s), %d MB\n\n", ai.Cores, ai.MemoryMB)
 
 	hasher := sha256.New()
-	// Hash the binary
 	if data, err := os.ReadFile(binPath); err == nil {
 		info, _ := os.Stat(binPath)
 		h := sha256.Sum256(data)
@@ -565,7 +553,6 @@ func computeEngineIdentity(ai aiConfig) (string, string) {
 		fmt.Fprintf(&manifest, "Binary: %s (not found)\n\n", binPath)
 	}
 
-	// Hash companion data (look in same dir as binary, and ../data, ../Lib, ../Database)
 	dirs := []string{filepath.Dir(binPath), filepath.Join(filepath.Dir(binPath), "..", "data"),
 		filepath.Join(filepath.Dir(binPath), "..", "Lib"), filepath.Join(filepath.Dir(binPath), "..", "Database")}
 	seen := map[string]bool{}
@@ -605,7 +592,7 @@ func niceSize(n int64) string {
 
 func totalMem(cfg config) int {
 	if cfg.MaxRAMMB > 0 { return cfg.MaxRAMMB }
-	return 256 // conservative default
+	return 256
 }
 
 func handleShortFlags(name string) {
