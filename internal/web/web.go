@@ -437,9 +437,18 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				io.WriteString(w, `</div>`)
+			// Move list table
+			io.WriteString(w, `<table><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
+			for _, m := range moves {
+				side := "Black"
+				if m.side == "W" { side = "White" }
+				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
 			}
+			io.WriteString(w, "</table>")
 		}
-		io.WriteString(w, pageFoot)
+	}
+	io.WriteString(w, pageFoot)
 	}
 
 func (h *Handler) OLD_handleGameDetail(w http.ResponseWriter, r *http.Request) {
