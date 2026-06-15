@@ -27,6 +27,7 @@ h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
 nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:var(--fg);font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--nav-hl);background:rgba(56,136,85,0.06);transition:all .15s}
 nav a:hover{background:var(--nav-hl);color:#fff;border-color:var(--nav-hl)}
+nav a.active,.chart-tabs a.active{background:var(--nav-hl);color:#fff}
 table{border-collapse:collapse;width:100%;margin-bottom:2em}
 th,td{text-align:left;padding:.4em .6em;border-bottom:1px solid var(--border)}
 th{font-weight:600;background:var(--th-bg);cursor:pointer;user-select:none;position:relative;padding-right:18px}th:hover{background:var(--hover)}td{white-space:nowrap}.sort-ind{position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:1.2em;font-weight:900;color:var(--fg)}
@@ -37,7 +38,7 @@ a{color:var(--link)}
 .loss{background:var(--loss-bg);color:var(--loss-fg)}
 .draw{background:var(--draw-bg);color:var(--draw-fg)}
 .bar{display:inline-block;height:12px;background:var(--link);border-radius:3px}
-input,select{background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:.2em .5em;border-radius:4px}
+input,select{background:var(--bg);color:var(--fg);border:1px solid var(--nav-hl);margin-right:.3em;padding:.35em .7em;background:rgba(56,136,85,0.06);padding:.2em .5em;border-radius:4px}
 #filterBox{width:100%;max-width:300px;padding:.4em .6em;margin-bottom:1em;font-size:1em;border:1px solid var(--muted);border-radius:4px;outline:none;transition:border-color .2s}#filterBox:focus{border-color:var(--link)}
 .stats-table{width:auto;min-width:400px}.stats-table td:first-child{width:140px;font-weight:600;color:var(--muted)}tr.critical td:last-child{color:#f44336;font-weight:600}tr.warning td:last-child{color:#ff9800;font-weight:600}
 .stats-table{width:auto;min-width:400px}.stats-table td:first-child{width:140px;font-weight:600;color:var(--muted)}tr.critical td:last-child{color:#f44336;font-weight:600}tr.warning td:last-child{color:#ff9800;font-weight:600}
@@ -140,12 +141,12 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tab := r.URL.Query().Get("tab")
 	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Graphs</h1>`+filterBox+`
-		<div style="margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em">
-		<a href="?tab=elo" style="display:inline-block;margin-right:.4em;padding:.4em .9em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab==""||tab=="elo"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab==""||tab=="elo"{return"var(--link)"}else{return"transparent"}}()+`">Elo</a>
-		<a href="?tab=speed" style="display:inline-block;margin-right:.4em;padding:.4em .9em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="speed"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="speed"{return"var(--link)"}else{return"transparent"}}()+`">Speed</a>
-		<a href="?tab=games" style="display:inline-block;margin-right:.4em;padding:.4em .9em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="games"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="games"{return"var(--link)"}else{return"transparent"}}()+`">Games</a>
-		<a href="?tab=timeout" style="display:inline-block;margin-right:.4em;padding:.4em .9em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="timeout"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="timeout"{return"var(--link)"}else{return"transparent"}}()+`">Timeouts</a>
-		<a href="?tab=performance" style="display:inline-block;margin-right:.4em;padding:.4em .9em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="performance"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="performance"{return"var(--link)"}else{return"transparent"}}()+`">Performance</a>
+		<div style="margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em;display:flex;gap:.3em;flex-wrap:wrap">
+		<a href="?tab=elo" style="display:inline-block;margin-right:.3em;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);margin-right:.3em;padding:.35em .7em;background:rgba(56,136,85,0.06);color:`+func()string{if tab==""||tab=="elo"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab==""||tab=="elo"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Elo</a>
+		<a href="?tab=speed" style="display:inline-block;margin-right:.3em;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);margin-right:.3em;padding:.35em .7em;background:rgba(56,136,85,0.06);color:`+func()string{if tab=="speed"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="speed"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Speed</a>
+		<a href="?tab=games" style="display:inline-block;margin-right:.3em;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);margin-right:.3em;padding:.35em .7em;background:rgba(56,136,85,0.06);color:`+func()string{if tab=="games"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="games"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Games</a>
+		<a href="?tab=timeout" style="display:inline-block;margin-right:.3em;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);margin-right:.3em;padding:.35em .7em;background:rgba(56,136,85,0.06);color:`+func()string{if tab=="timeout"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="timeout"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Timeouts</a>
+		<a href="?tab=performance" style="display:inline-block;margin-right:.3em;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="performance"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="performance"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Performance</a>
 		</div>`)
 
 	switch tab {
