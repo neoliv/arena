@@ -138,6 +138,7 @@ func main() {
 
 	mm := matchmaker.New(database, relay, mmCfg)
 	coachHandler.SetMatchMaker(mm.OnBothReady)
+		coachHandler.SetHeartbeatHook(mm.NotifyNewPlayers)
 	mux.HandleFunc("GET /api/matchmaker/status", mm.HandleStatus)
 	go mm.Run()
 

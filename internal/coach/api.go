@@ -20,7 +20,7 @@ type Handler struct {
 	Relay         *Relay
 	ValidateToken func(string) bool
 	matchmaker        MatchMakerFunc
-	registrationHook  func()
+	heartbeatHook     func()
 	ServerGen         string // random ID regenerated on server restart
 	rateMu        sync.Mutex
 	rateWindows   map[string][]time.Time
@@ -29,7 +29,7 @@ type Handler struct {
 type MatchMakerFunc func(assignmentID int)
 
 func (h *Handler) SetMatchMaker(fn MatchMakerFunc) { h.matchmaker = fn }
-func (h *Handler) SetRegistrationHook(fn func())  { h.registrationHook = fn }
+func (h *Handler) SetHeartbeatHook(fn func())      { h.heartbeatHook = fn }
 
 type registerReq struct {
 	CoachID   string `json:"coach_id"`
@@ -189,7 +189,6 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		registered++
 	}
 	jsonOK(w, map[string]any{"status": "registered", "ais_registered": registered})
-	if h.registrationHook != nil { h.registrationHook() }
 }
 
 func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +215,7 @@ func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "db error", http.StatusInternalServerError); return
 	}
 	jsonOK(w, map[string]any{"ok": true, "server_gen": h.ServerGen})
+	if h.heartbeatHook != nil { h.heartbeatHook() }
 }
 
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
