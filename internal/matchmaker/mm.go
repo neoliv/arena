@@ -43,7 +43,7 @@ func DefaultConfig() Config {
 		},
 		ProvisionalGames: 20,
 		GamesPerMatch:    2,
-		TickInterval:     60 * time.Second,
+		TickInterval:     15 * time.Second,
 	}
 }
 
