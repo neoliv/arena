@@ -255,18 +255,22 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			
 			var score int
 			var coachMs float64
-			select {
-			case statsLine := <-current.In:
-				// Resilient parsing: try full format, fall back to
-				// simpler ones. Missing fields stay at zero.
-				if s := strings.TrimSpace(statsLine); strings.HasPrefix(s, "#") {
-					n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t",
-						&coachMs, &nodes, &depth, &score, &timeout)
-					if n == 0 {
-						fmt.Sscanf(s, "# time_ms %f", &coachMs)
+			// Drain blanks (edax double-newline) then read stats.
+			for {
+				select {
+				case statsLine := <-current.In:
+					s := strings.TrimSpace(statsLine)
+					if s == "" { continue }
+					if strings.HasPrefix(s, "#") {
+						n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t",
+							&coachMs, &nodes, &depth, &score, &timeout)
+						if n == 0 {
+							fmt.Sscanf(s, "# time_ms %f", &coachMs)
+						}
 					}
+				default:
 				}
-			default:
+				break
 			}
 			if coachMs <= 0 {
 				coachMs = elapsed * 1000
