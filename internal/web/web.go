@@ -426,23 +426,26 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, `</nav>`)
 
 				// Render chart based on selected tab
+				fmtVal := func(v float64) string {
+					switch {
+					case v >= 1e9: return fmt.Sprintf("%.1fG", v/1e9)
+					case v >= 1e6: return fmt.Sprintf("%.0fM", v/1e6)
+					case v >= 1e3: return fmt.Sprintf("%.0fk", v/1e3)
+					default: return fmt.Sprintf("%.0f", v)
+					}
+				}
 				renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
 					if tab == "" { tab = "time" }
 					if metric != tab { return }
 					io.WriteString(w, fmt.Sprintf(`<div style="background:#1a3a1a;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;position:relative;overflow-x:auto;width:%s">`, chartW))
 					io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+30))
-					// Y-axis labels
 					for pct := 0; pct <= 100; pct += 25 {
 						y := chartH - pct*chartH/100 + 4
 						val := maxVal * float64(pct) / 100.0
-						var label string
-						if val >= 1000 { label = fmt.Sprintf("%.0fk", val/1000) } else { label = fmt.Sprintf("%.0f", val) }
-						fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="9">%s %s</text>`, y, label, unit)
+						fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="9">%s%s</text>`, y, fmtVal(val), unit)
 						fmt.Fprintf(w, `<line x1="30" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 					}
-					// X-axis label
 					fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="10">%s</text>`, chartH+34, yLabel)
-					// Bars with parity handling
 					for i, m := range moves {
 						var val float64
 						switch metric {
@@ -455,11 +458,10 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						if h < 2 { h = 2 }
 						color := "#2c5a2c"
 						if m.side == "w" { color = "#eee" }
-						// Parity check: if previous move was same side, skip label
 						showLabel := true
 						if i > 0 && moves[i-1].side == m.side { showLabel = false }
 						x := 32 + i*6
-						fmt.Fprintf(w, `<rect x="%d" y="%d" width="5" height="%d" fill="%s" rx="1"><title>%s %s: %.0f%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, val, unit, m.nodes)
+						fmt.Fprintf(w, `<rect x="%d" y="%d" width="5" height="%d" fill="%s" rx="1"><title>%s %s: %s%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, fmtVal(val), unit, m.nodes)
 						if showLabel {
 							fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="7" text-anchor="middle">%s</text>`, x+2, chartH+16, color, m.move)
 						}
