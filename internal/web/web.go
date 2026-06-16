@@ -451,7 +451,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						switch metric {
 						case "time": val = m.timeMs
 						case "nodes": val = float64(m.nodes)
-						case "nps": val = float64(m.nps)
+						case "nps": if m.timeMs > 0 { val = float64(m.nodes) / m.timeMs * 1000 }
 						}
 						h := 0
 						if maxVal > 0 { h = int(val / maxVal * float64(chartH)) }

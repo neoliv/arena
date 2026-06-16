@@ -11,13 +11,12 @@ import (
 )
 
 type gameMove struct {
-	Side   string
-	Move   string
-	Nodes  int64
-	Depth  int
-	TimeMs float64
-	Score  int
-	NPS    int64
+	Side      string
+	Move      string
+	Nodes     int64
+	Depth     int
+	TimeMs    float64 // wall-clock from arena genmove timing
+	Branching int
 }
 type gameResult struct {
 	Black        string
@@ -94,8 +93,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Track the board independently so we can validate moves and
-	// detect game end without relying on engines to report passes.
 	board := newBoard()
 
 	moves := parseMoveList(opening)
@@ -131,7 +128,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	consecutivePasses := 0
 	timeLimit := gameTimeSec * 1.05
 
-	// Determine which player moves first based on opening length.
 	sideToMove := "b"
 	curPlayer := board.black
 	oppPlayer := board.white
@@ -141,7 +137,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	}
 
 	for {
-		// Time enforcement from arena-side (backup to coach-side).
 		if gr.BlackTimeS >= timeLimit {
 			gr.Result = "0-1"
 			break
@@ -151,12 +146,10 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-		// Check if the game is over on our board.
 		if board.isOver() {
 			break
 		}
 
-		// If the current player has no legal moves, force a pass.
 		legal := board.legalMoves(curPlayer)
 		if legal == 0 {
 			consecutivePasses++
@@ -200,7 +193,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		mv := strings.ToUpper(parts[0])
 
-		// Handle RESIGN.
 		if mv == "RESIGN" {
 			if sideToMove == "b" {
 				gr.Result = "0-1"
@@ -210,7 +202,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-		// Handle PASS.
 		if mv == "PASS" {
 			consecutivePasses++
 			if consecutivePasses >= 2 {
@@ -220,7 +211,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			continue
 		}
 
-		// Validate the move against our board.
 		if len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8' {
 			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
 			if sideToMove == "b" {
@@ -241,7 +231,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-		// Apply move and tell the other engine.
 		board = board.applyMove(curPlayer, sq)
 		other := black
 		if sideToMove == "w" {
@@ -258,17 +247,21 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-		// Optional stats.
-		var nodes, nps int64
+		// Read optional stats emitted by the engine after genmove.
+		// Only nodes, depth, timeout, and branching are accepted.
+		// Time is measured by the arena (wall-clock above).
+		var nodes int64
 		var depth int
-		var tm float64
+		var timeout bool
+		var branching int
 		statsResp, _ := wsSend(current, "stats")
 		statsResp = strings.TrimPrefix(strings.TrimSpace(statsResp), "= ")
-		fmt.Sscanf(statsResp, "nodes %d depth %d time_ms %f timeout %*s score %*d nps %d branching %*d empties %*d",
-			&nodes, &depth, &tm, &nps)
+		fmt.Sscanf(statsResp, "nodes %d depth %d timeout %t branching %d", &nodes, &depth, &timeout, &branching)
+
+		elapsedMs := elapsed * 1000
 		gr.Moves = append(gr.Moves, gameMove{
 			Side: sideToMove, Move: mv,
-			Nodes: nodes, Depth: depth, TimeMs: tm, NPS: nps,
+			Nodes: nodes, Depth: depth, TimeMs: elapsedMs, Branching: branching,
 		})
 
 		sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
@@ -278,7 +271,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Determine result from final board state.
 	if gr.Result == "" {
 		bCount := popcount(board.black)
 		wCount := popcount(board.white)
