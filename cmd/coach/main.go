@@ -607,10 +607,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 			wdSec = 10
 		}
 		go func() {
+			timer := time.NewTimer(time.Duration(wdSec) * time.Second)
+			defer timer.Stop()
 			select {
 			case <-engCtx.Done():
 				return
-			case <-time.After(time.Duration(wdSec) * time.Second):
+			case <-timer.C:
 			}
 			timingMu.Lock()
 			timedOut := engineTimedOut
