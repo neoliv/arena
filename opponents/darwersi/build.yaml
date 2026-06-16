@@ -5,7 +5,7 @@
 #   amoeba:  d=4,  ES=60  (near-pure static eval, ~800 nodes/move)
 #   worm:    d=6,  ES=50  (shallow search, ~20K nodes/move)
 #   rodent:  d=10, ES=44  (competent, ~300K nodes/move) — default
-#   octopus: d=14, ES=36  (deep search, early endgame, ~2M nodes/move)
+#   octopus: d=16, ES=36  (deep search, early endgame, ~8M nodes/move)
 #
 # Version scheme: d<max-depth>-es<end-search-ply>
 # Name scheme:   darwersi-<strength-tier>
@@ -28,8 +28,8 @@
 #   cores: 1; memory_mb: 8; max_concurrency: 4
 
 # - name: "darwersi-octopus"
-#   version: "d14-es36"
-#   run: "path/to/darwersi-gtp --name darwersi-octopus --max-depth 14 --end-search 36"
+#   version: "d16-es36"
+#   run: "path/to/darwersi-gtp --name darwersi-octopus --max-depth 16 --end-search 36"
 #   cores: 1; memory_mb: 8; max_concurrency: 4
 
 # Base (no tier, default d10-es44):
