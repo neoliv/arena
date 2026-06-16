@@ -257,10 +257,14 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			var coachMs float64
 			select {
 			case statsLine := <-current.In:
-				statsLine = strings.TrimSpace(statsLine)
-				if strings.HasPrefix(statsLine, "#") {
-					fmt.Sscanf(statsLine, "# time_ms %f nodes %d depth %d score %d timeout %t branching %d",
+				// Resilient parsing: try full format, fall back to
+				// simpler ones. Missing fields stay at zero.
+				if s := strings.TrimSpace(statsLine); strings.HasPrefix(s, "#") {
+					n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t branching %d",
 						&coachMs, &nodes, &depth, &score, &timeout, &branching)
+					if n == 0 {
+						fmt.Sscanf(s, "# time_ms %f", &coachMs)
+					}
 				}
 			default:
 			}
