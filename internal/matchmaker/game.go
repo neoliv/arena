@@ -278,9 +278,9 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 			gr.Moves = append(gr.Moves, gameMove{
 				Side: sideToMove, Move: mv,
-				Nodes: nodes, Depth: depth, TimeMs: coachMs,
+				Nodes: nodes, Depth: depth, TimeMs: coachMs, Score: score,
 			})
-			slog.Info("move stored", "side", sideToMove, "move", mv, "nodes", nodes, "depth", depth, "ms", coachMs, "total", len(gr.Moves))
+			slog.Info("move stored", "side", sideToMove, "move", mv, "nodes", nodes, "depth", depth, "score", score, "ms", coachMs, "total", len(gr.Moves))
 
 		sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
 
