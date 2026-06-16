@@ -70,7 +70,8 @@ const navHTML = `<nav>
 <span style="float:right"><a class="logout" href="/logout">Disconnect</a></span>
 </nav>`
 
-const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + `</head><body>`
+const htmxScript = `<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGxOGrUEVMQQBW1EE4IqOmxPxVJzZSoS0rIYgJOlhNYG8YP4iWm4kq6FDoGsEdJj" crossorigin="anonymous"></script>`
+const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + htmxScript + `</head><body>`
 const pageFoot = `</body></html>`
 
 // chartColors are chalk/pastel hues visible on both light and dark backgrounds.
@@ -115,7 +116,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *Handler) handleRanks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Player Rankings</h1>`+filterBox+`<table><tr><th onclick="st(this.closest('table'),0,true)">#</th><th onclick="st(this.closest('table'),1,false)">Player</th><th onclick="st(this.closest('table'),2,true)">Elo</th><th onclick="st(this.closest('table'),3,true)">+/-</th><th onclick="st(this.closest('table'),4,true)">Games</th><th onclick="st(this.closest('table'),5,false)">W/L/D</th><th onclick="st(this.closest('table'),6,false)">Trend</th></tr>`)
+	io.WriteString(w, pageHead+navHTML+`<div hx-get="." hx-trigger="every 30s" hx-swap="outerHTML">`+searchJS+`<h1>Player Rankings</h1>`+filterBox+`<table><tr><th onclick="st(this.closest('table'),0,true)">#</th><th onclick="st(this.closest('table'),1,false)">Player</th><th onclick="st(this.closest('table'),2,true)">Elo</th><th onclick="st(this.closest('table'),3,true)">+/-</th><th onclick="st(this.closest('table'),4,true)">Games</th><th onclick="st(this.closest('table'),5,false)">W/L/D</th><th onclick="st(this.closest('table'),6,false)">Trend</th></tr>`)
 	rows, err := h.DB.Query(`SELECT e.id, e.name, e.version, COALESCE(e.engine_id,''), COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 1500.0), (SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id) as g, (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='1-0') OR (white_id=e.id AND result='0-1')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='0-1') OR (white_id=e.id AND result='1-0')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id OR white_id=e.id) AND result='1/2') FROM engines e ORDER BY 4 DESC`)
 	if err != nil || rows == nil { io.WriteString(w, "</table>"); return }
 	defer rows.Close()
@@ -137,7 +138,7 @@ func (h *Handler) handleRanks(w http.ResponseWriter, r *http.Request) {
 		if e.Games > 0 { wr = fmt.Sprintf("%d/%d/%d", e.W, e.L, e.D) } else { wr = "—" }
 		fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">%s</small></td><td>%.0f</td><td>±%.0f</td><td>%d</td><td>%s</td><td>%s</td></tr>`, i+1, e.Name, e.Name, e.Version, e.EngineID[:min(8,len(e.EngineID))], e.Elo, ci, e.Games, wr, trend)
 	}
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +277,7 @@ func (h *Handler) renderSpeedGraph(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleMatches(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Matches</h1>`+filterBox)
+	io.WriteString(w, pageHead+navHTML+`<div hx-get="." hx-trigger="every 30s" hx-swap="outerHTML">`+searchJS+`<h1>Matches</h1>`+filterBox)
 
 	var inProgressCount int
 	h.DB.QueryRow("SELECT COUNT(*) FROM match_assignments WHERE status='in_progress'").Scan(&inProgressCount)
