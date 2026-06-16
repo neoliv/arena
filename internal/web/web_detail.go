@@ -192,7 +192,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					if pct == 100 {
 						val = maxVal
 					}
-					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="11">%s%s</text>`, y, fmtVal(val), unit)
+					tickColor := "#6a6"; if metric == "score" { tickColor = "#6bc4ff" }
+				fmt.Fprintf(w, `<text x="0" y="%d" fill="%s" font-size="11">%s%s</text>`, y, tickColor, fmtVal(val), unit)
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 				}
 				if metric == "diff" || metric == "score" {
