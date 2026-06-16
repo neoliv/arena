@@ -225,6 +225,19 @@ func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		slog.Error("heartbeat", "err", err)
 		jsonErr(w, "db error", http.StatusInternalServerError); return
 	}
+	// Clean stale in-progress assignments for AIs with 0 current matches.
+	for key, running := range aiUpdates {
+		if running == 0 {
+			parts := strings.SplitN(key, ":", 2)
+			if len(parts) == 2 {
+				h.DB.Exec(`UPDATE match_assignments SET status='failed', decline_reason='coach restarted'
+					WHERE status IN ('in_progress','assigned','accepted','ready')
+					AND (coach1_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=? AND engine_name=? AND engine_version=?)
+					  OR coach2_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=? AND engine_name=? AND engine_version=?))`,
+					coachID, parts[0], parts[1], coachID, parts[0], parts[1])
+			}
+		}
+	}
 	jsonOK(w, map[string]any{"ok": true, "server_gen": h.ServerGen})
 	if h.heartbeatHook != nil { h.heartbeatHook() }
 }
