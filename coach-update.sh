@@ -123,12 +123,15 @@ for f in "$BUILDS_DIR"/*.yaml; do
 
     cd "$source"
     # Try make coach-build first, then ./coach-build.sh
-    make coach-build 2>/dev/null || true
+    make coach-build > "$SCRIPT_DIR/log/.build-${name}.log" 2>&1 || true
     if [ ! -d coach-engine ] && [ -f coach-build.sh ]; then
-        bash coach-build.sh 2>&1 | tail -1 || true
+        bash coach-build.sh >> "$SCRIPT_DIR/log/.build-${name}.log" 2>&1 || true
     fi
     if [ ! -d coach-engine ]; then
-        echo "   ERROR: no coach-build target found (tried make and coach-build.sh)"
+        echo "   ERROR: build failed for $name"
+        echo "   Last 10 lines:"
+        tail -10 "$SCRIPT_DIR/log/.build-${name}.log" 2>/dev/null || true
+        echo "   Full log: $SCRIPT_DIR/log/.build-${name}.log"
         continue
     fi
 
