@@ -91,7 +91,7 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 		if len(data) < 2 { continue }
 		pts := ""
 		for _, pt := range data { pts += fmt.Sprintf("%.1f,%.1f ", pt.x, pt.y) }
-		fmt.Fprintf(w, `<polyline class="filter-item" fill="none" stroke="%s" stroke-width="2" points="%s"/>`, chartColors[i%8], strings.TrimSpace(pts))
+		fmt.Fprintf(w, `<g class="filter-item"><title>%s</title><polyline fill="none" stroke="%s" stroke-width="2" points="%s"/></g>`, engineNames[i], chartColors[i%8], strings.TrimSpace(pts))
 	}
 	io.WriteString(w, `</g></svg>`)
 	// Legend with filter support
