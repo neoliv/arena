@@ -478,10 +478,11 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	cmd := exec.CommandContext(engCtx, parts[0], parts[1:]...)
 	cmd.Dir = filepath.Dir(parts[0])
 	var stderrBuf bytes.Buffer
+	stderrPipeR, stderrPipeW := io.Pipe()
 	engineLogDir := filepath.Join(logDir, "engines")
 	os.MkdirAll(engineLogDir, 0755)
 	errLog, _ := os.Create(filepath.Join(engineLogDir, sessionID+".err"))
-	stderrWriters := io.MultiWriter(os.Stderr, &stderrBuf)
+	stderrWriters := io.MultiWriter(os.Stderr, &stderrBuf, stderrPipeW)
 	if errLog != nil { stderrWriters = io.MultiWriter(stderrWriters, errLog) }
 	cmd.Stderr = stderrWriters
 	stdin, _ := cmd.StdinPipe()
@@ -523,6 +524,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	case <-time.After(3 * time.Second):
 		cmd.Process.Kill()
 		cancel()
+		stderrPipeW.Close()
 		return nil, fmt.Errorf("health check timeout")
 	}
 
@@ -534,10 +536,35 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	conn, _, err := websocket.Dial(wsCtx, wsURL, &websocket.DialOptions{})
 	wsCancel()
 	if err != nil {
+		stderrPipeW.Close()
 		cmd.Process.Kill()
 		cancel()
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
+
+	// Parse edax search-log from stderr, inject stats as GTP comments.
+	go func() {
+		defer stderrPipeR.Close()
+		scanner := bufio.NewScanner(stderrPipeR)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.Contains(line, "BEST MOVE FOUND") {
+				continue
+			}
+			var nodes int64
+			var depth, score int
+			if _, err := fmt.Sscanf(line, "%*d> => BEST MOVE FOUND! level = %d@", &depth); err == nil {
+				if idx := strings.Index(line, "score = "); idx >= 0 {
+					fmt.Sscanf(line[idx:], "score = %d", &score)
+				}
+				if idx := strings.Index(line, "nodes = "); idx >= 0 {
+					fmt.Sscanf(line[idx:], "nodes = %d N", &nodes)
+				}
+				comment := fmt.Sprintf("# nodes %d depth %d score %d", nodes, depth, score)
+				conn.Write(context.Background(), websocket.MessageText, []byte(comment))
+			}
+		}
+	}()
 
 	// GTP-aware timing: track genmove wall-clock time and enforce
 	// the time budget. If the engine exceeds gameTimeSec * 1.05
