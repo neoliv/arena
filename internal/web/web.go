@@ -26,7 +26,7 @@ const sharedCSS = `<style>
 body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:1em;color:var(--fg);background:var(--bg)}
 h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
-nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:var(--fg);font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--nav-hl);background:rgba(56,136,85,0.06);transition:all .15s}
+nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:#e8e6e3;font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--nav-hl);background:rgba(56,136,85,0.06);transition:all .15s}
 nav a:hover{background:var(--nav-hl);color:#fff;border-color:var(--nav-hl)}
 nav a.logout:hover{background:#c33;border-color:#c33;color:#fff}
 nav a.active,.chart-tabs a.active{background:var(--nav-hl);color:#fff}
@@ -426,7 +426,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, "</table>")
 
 				// Chart tabs
-				io.WriteString(w, `<nav class="chart-tabs" style="margin-top:1.5em;margin-bottom:1em">`)
+				io.WriteString(w, `<nav class="chart-tabs" style="margin-top:1em;margin-bottom:1em">`)
 				for _, t := range []struct{ key, label string }{ {"time","Time"}, {"nodes","Nodes"}, {"nps","NpS"} } {
 					sel := `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
 					if tab != t.key { sel = `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--fg);background:rgba(56,136,85,0.06)"` }
@@ -438,7 +438,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
 					if tab == "" { tab = "time" }
 					if metric != tab { return }
-					io.WriteString(w, fmt.Sprintf(`<div style="background:#1a2e1a;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;position:relative;overflow-x:auto;width:%s">`, chartW))
+					io.WriteString(w, fmt.Sprintf(`<div style="background:#1a3a1a;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;position:relative;overflow-x:auto;width:%s">`, chartW))
 					io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+30))
 					// Y-axis labels
 					for pct := 0; pct <= 100; pct += 25 {
