@@ -22,7 +22,7 @@ var SharedCSS = sharedCSS
 
 const sharedCSS = `<style>
 :root{--bg:#fafafa;--fg:#222;--muted:#666;--border:#ddd;--hover:#f0f0f5;--th-bg:#f0f0f0;--link:#385;--link-hover:#263;--nav-hl:#1a5c3a;--bg2:#fff;--accent:var(--nav-hl);--win-bg:#dfd;--win-fg:#060;--loss-bg:#fdd;--loss-fg:#600;--draw-bg:#ffd;--draw-fg:#660;color-scheme:light}
-@media(prefers-color-scheme:dark){:root{--bg:#1a1a2e;--fg:#e8e6e3;--muted:#a9a7a3;--border:#333;--hover:#252540;--th-bg:#22223a;--link:#7a7;--link-hover:#9b9;--nav-hl:#284;--bg2:#252540;--accent:var(--nav-hl);--win-bg:#1a3a1a;--win-fg:#7f7;--loss-bg:#3a1a1a;--loss-fg:#f77;--draw-bg:#3a3a1a;--draw-fg:#ee7;color-scheme:dark}}
+@media(prefers-color-scheme:dark){:root{--bg:#1a1a2e;--fg:#e8e6e3;--muted:#a9a7a3;--border:#333;--hover:#252540;--th-bg:#22223a;--link:#7a7;--link-visited:#4a4;--link-hover:#9b9;--nav-hl:#284;--bg2:#252540;--accent:var(--nav-hl);--win-bg:#1a3a1a;--win-fg:#7f7;--loss-bg:#3a1a1a;--loss-fg:#f77;--draw-bg:#3a3a1a;--draw-fg:#ee7;color-scheme:dark}}
 body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:1em;color:var(--fg);background:var(--bg)}
 h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
@@ -35,7 +35,7 @@ table{border-collapse:collapse;width:100%;margin-bottom:2em}
 th,td{text-align:left;padding:.4em .6em;border-bottom:1px solid var(--border)}
 th{font-weight:600;background:var(--th-bg);cursor:pointer;user-select:none;position:relative;padding-right:18px}th:hover{background:var(--hover)}td{white-space:nowrap}.sort-ind{position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:1.2em;font-weight:900;color:var(--fg)}
 tr:hover{background:var(--hover)}
-a{color:var(--link)}
+a{color:var(--link)}a:visited{color:var(--link-visited)}
 .badge{padding:.1em .4em;border-radius:3px;font-size:.85em}
 .win{background:var(--win-bg);color:var(--win-fg)}
 .loss{background:var(--loss-bg);color:var(--loss-fg)}
@@ -384,15 +384,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 
 		bNPS := float64(blackNodes) / max(bTime, 0.001)
 		wNPS := float64(whiteNodes) / max(wTime, 0.001)
-		maxTime := max(bTime, wTime) * 1.2
-		maxNodes := float64(max(blackNodes, whiteNodes)) * 1.2
-
-		bar := func(v, total float64, color string) string {
-			if total == 0 { return "0" }
-			pct := int(v / total * 100)
-			if pct > 100 { pct = 100 }
-			return fmt.Sprintf(`<span style="display:inline-block;width:%dpx;height:10px;background:%s;border-radius:3px;vertical-align:middle;margin-right:4px"></span>%.1f`, pct*2, color, v)
-		}
 
 		fmt.Fprintf(w, `<table class="stats-table">`)
 		fmt.Fprintf(w, `<tr><td>Match</td><td><a href="/matches/%d">#%d</a> (game %d)</td></tr>`, mid, mid, gnum)
@@ -401,59 +392,97 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<tr><td>Result</td><td>%s %s</td></tr>`, result, badge)
 		fmt.Fprintf(w, `<tr><td>Score</td><td>%+d</td></tr>`, finalScore)
 		if opening != "" { fmt.Fprintf(w, `<tr><td>Opening</td><td>%s</td></tr>`, opening) }
-		fmt.Fprintf(w, `<tr><td>Black time</td><td>%s</td></tr>`, bar(bTime, maxTime, "#4caf50"))
-		fmt.Fprintf(w, `<tr><td>White time</td><td>%s</td></tr>`, bar(wTime, maxTime, "#4caf50"))
-		fmt.Fprintf(w, `<tr><td>Black nodes</td><td>%s</td></tr>`, bar(float64(blackNodes), maxNodes, "#2196f3"))
-		fmt.Fprintf(w, `<tr><td>White nodes</td><td>%s</td></tr>`, bar(float64(whiteNodes), maxNodes, "#2196f3"))
 		fmt.Fprintf(w, `<tr><td>Black NPS</td><td>%.0f / depth %d</td></tr>`, bNPS, blackDepth)
 		fmt.Fprintf(w, `<tr><td>White NPS</td><td>%.0f / depth %d</td></tr></table>`, wNPS, whiteDepth)
 
-		// Per-move chart
+		// Per-move data
 		mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, nps FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
 		if mRows != nil {
 			defer mRows.Close()
 			type moveRow struct{ num int; side, move string; nodes int; depth int; timeMs float64; nps int }
 			var moves []moveRow
-			maxTime := 0.0
+			maxTime, maxNodes, maxNPS := 0.0, 0.0, 0.0
 			for mRows.Next() {
 				var m moveRow
 				mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.nps)
 				moves = append(moves, m)
 				if m.timeMs > maxTime { maxTime = m.timeMs }
+				if float64(m.nodes) > maxNodes { maxNodes = float64(m.nodes) }
+				if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
 			}
+
+			// Move transcript at top
 			if len(moves) > 0 {
-				io.WriteString(w, `<h3>Per-Move Stats</h3><div style="display:flex;align-items:flex-end;gap:1px;height:120px;margin-bottom:1em;overflow-x:auto">`)
+				tab := r.URL.Query().Get("tab")
+				chartH := 140
+				chartW := fmt.Sprintf("%d", max(600, len(moves)*8))
+				io.WriteString(w, `<table><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
 				for _, m := range moves {
-					h := 0
-					if maxTime > 0 { h = int(m.timeMs / maxTime * 100) }
-					if h < 2 { h = 2 }
-					color := "#4caf50"
-					if m.side == "W" { color = "#eee" }
-					if h > 0 {
-						fmt.Fprintf(w, `<div title="%s %s: %.0fms %d nodes" style="min-width:6px;height:%dpx;background:%s;border-radius:1px;flex-shrink:0"></div>`, m.side, m.move, m.timeMs, m.nodes, h, color)
-					}
+					side := "Black"
+					if m.side == "W" { side = "White" }
+					fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+						m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
 				}
-				io.WriteString(w, `</div><div style="font-size:9px;color:var(--muted);display:flex;gap:1px;overflow-x:auto;margin-bottom:1em">`)
-				for i, m := range moves {
-					if i%2 == 0 {
-						fmt.Fprintf(w, `<span style="min-width:12px;flex-shrink:0;text-align:center">%s</span>`, m.move)
-					}
+				io.WriteString(w, "</table>")
+
+				// Chart tabs
+				io.WriteString(w, `<nav class="chart-tabs" style="margin-top:1.5em;margin-bottom:1em">`)
+				for _, t := range []struct{ key, label string }{ {"time","Time"}, {"nodes","Nodes"}, {"nps","NpS"} } {
+					sel := `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
+					if tab != t.key { sel = `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--fg);background:rgba(56,136,85,0.06)"` }
+					fmt.Fprintf(w, `<a href="?tab=%s" %s>%s</a>`, t.key, sel, t.label)
 				}
-				io.WriteString(w, `</div>`)
-			// Move list table
-			io.WriteString(w, `<table><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
-			for _, m := range moves {
-				side := "Black"
-				if m.side == "W" { side = "White" }
-				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
-					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
+				io.WriteString(w, `</nav>`)
+
+				// Render chart based on selected tab
+				renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
+					if tab == "" { tab = "time" }
+					if metric != tab { return }
+					io.WriteString(w, fmt.Sprintf(`<div style="background:#1a2e1a;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;position:relative;overflow-x:auto;width:%s">`, chartW))
+					io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+30))
+					// Y-axis labels
+					for pct := 0; pct <= 100; pct += 25 {
+						y := chartH - pct*chartH/100 + 4
+						val := maxVal * float64(pct) / 100.0
+						var label string
+						if val >= 1000 { label = fmt.Sprintf("%.0fk", val/1000) } else { label = fmt.Sprintf("%.0f", val) }
+						fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="9">%s %s</text>`, y, label, unit)
+						fmt.Fprintf(w, `<line x1="30" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
+					}
+					// X-axis label
+					fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="10">%s</text>`, chartH+20, yLabel)
+					// Bars with parity handling
+					for i, m := range moves {
+						var val float64
+						switch metric {
+						case "time": val = m.timeMs
+						case "nodes": val = float64(m.nodes)
+						case "nps": val = float64(m.nps)
+						}
+						h := 0
+						if maxVal > 0 { h = int(val / maxVal * float64(chartH)) }
+						if h < 2 { h = 2 }
+						color := "#222"
+						if m.side == "W" { color = "#eee" }
+						// Parity check: if previous move was same side, skip label
+						showLabel := true
+						if i > 0 && moves[i-1].side == m.side { showLabel = false }
+						x := 32 + i*6
+						fmt.Fprintf(w, `<rect x="%d" y="%d" width="5" height="%d" fill="%s" rx="1"><title>%s %s: %.0f%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, val, unit, m.nodes)
+						if showLabel {
+							fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="7" text-anchor="middle">%s</text>`, x+2, chartH+14, color, m.move)
+						}
+					}
+					io.WriteString(w, `</svg></div>`)
+				}
+				renderChart("time", maxTime, "ms", "Time per move (ms)")
+				renderChart("nodes", maxNodes, "kn", "Nodes explored")
+				renderChart("nps", maxNPS, "kn/s", "Nodes per second")
 			}
-			io.WriteString(w, "</table>")
 		} else {
 			io.WriteString(w, "<p style=\"color:var(--muted);font-style:italic\">No per-move data — engines may not support move stats.</p>")
 		}
-	}
-	io.WriteString(w, pageFoot)
+		io.WriteString(w, pageFoot)
 	}
 
 func (h *Handler) OLD_handleGameDetail(w http.ResponseWriter, r *http.Request) {

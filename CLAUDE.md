@@ -81,21 +81,35 @@ flag (like edax's `-t`) receive the time control at launch rather than via GTP.
 # edax — uses -t flag for time-per-game
 args: "-gtp -t %game_time% -l 5"
 
-# neursi — receives time via GTP game_time command, no substitution needed
-args: ""
+# neursi — uses -t flag for game time
+args: "-t %game_time%"
+
+# darwersi — uses --time flag for game time
+args: "--name dw-rodent --max-depth 8 --end-search 44 --time %game_time%"
 ```
 
 The substitution is a simple `strings.Replace`. If the placeholder is absent,
 nothing changes. The engine process is per-match, so the value is always correct
 for the current time control.
 
-### Darwersi GTP adapter — stdout purity
+### Coach-side time enforcement
 
-The darwersi library (`dwend.c`) used raw `printf()` for debug output (ordering,
-stats, etc.) which contaminated the GTP stdout stream. Fixed by replacing all
-debug `printf` calls with `DWLPrintf(level, ...)` — the library's existing
-level-driven logging API. The GTP adapter (`darwersi-gtp.c`) mutes all library
-debug output with `DWLPrintfLevel = 0`. To debug darwersi, set it to 1.
+The coach now tracks genmove wall-clock time via GTP-aware bridge goroutines.
+If accumulated thinking time exceeds `gameTimeSec * 1.05` (5% margin) per game,
+the engine is killed and the assignment is marked as failed. A watchdog also
+fires if the engine doesn't respond at all within 2x the per-game budget.
+
+This replaces the arena's `game_time` GTP command. Time enforcement is coach-side
+where wall-clock measurement is reliable.
+
+### GTP protocol — standard only
+
+The arena matchmaker only sends standard GTP commands: `boardsize`, `clear_board`,
+`play`, `genmove`, `quit`. The arena-specific extensions (`game_time`, `final_score`,
+`stats`) have been removed:
+- `game_time` → coach-side CLI flag substitution
+- `final_score` → computed from result
+- `stats` → optional, ignored if engine doesn't support it
 
 ## Key files
 
@@ -110,6 +124,18 @@ debug output with `DWLPrintfLevel = 0`. To debug darwersi, set it to 1.
 | `internal/matchmaker/mm.go` | Match scheduling |
 | `deploy.sh` | Build + deploy to VPS |
 | `coach-update.sh` | Build engines + coach binary on host |
+
+## Web UI
+
+Pages use HTMX (`unpkg.com/htmx.org@2.0.4`) for auto-refresh on dynamic content
+(rankings, matches, coaches). No custom JS required — declarative attributes on
+container elements (`hx-get`, `hx-trigger="every 30s"`, `hx-swap="outerHTML"`).
+
+Game detail page has tabbed charts (Time/Nodes/NpS) with dark green background,
+black bars for black moves, white bars for white moves, and proper display of
+parity inversions (when a player moves twice because the opponent has no legal
+moves). Visited links use a darker shade (`--link-visited`) to distinguish from
+unvisited links.
 
 ## Documentation
 
