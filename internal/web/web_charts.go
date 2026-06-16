@@ -77,7 +77,10 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 	getMaxPly := func() float64 { m := 0.0; for _, s := range stats { if float64(s.AvgPly) > m { m = float64(s.AvgPly) } }; return m }
 	io.WriteString(w, drawBars("Average Game Length (plies)", "", getPly, getMaxPly, chartColors[1]))
 	case "timeout":
-		if len(stats) > 0 && stats[0].TotalMoves > 0 {
+		totalTimeouts := 0; for _, s := range stats { totalTimeouts += s.Timeouts }
+		if totalTimeouts == 0 {
+			io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">No timeouts recorded — all engines stay within their time budget.</p>`)
+		} else if stats[0].TotalMoves > 0 {
 		getTO := func(s engineStats) float64 { return float64(s.Timeouts) * 100 / float64(max(s.TotalMoves,1)) }
 		getMaxTO := func() float64 { m := 0.0; for _, s := range stats { v := getTO(s); if v > m { m = v } }; return m }
 		io.WriteString(w, drawBars("Timeout Rate (%)", "%", getTO, getMaxTO, chartColors[2]))
