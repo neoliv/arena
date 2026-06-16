@@ -248,17 +248,19 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 			// Read stats comment injected by the coach after genmove.
-			// Format: "# time_ms <ms> nodes <n> depth <d> timeout <bool> branching <b>"
+			// Format: "# time_ms <ms> nodes <n> depth <d> score <s> timeout <t> branching <b>"
 			var nodes int64
 			var depth int
 			var timeout bool
 			var branching int
+			var score int
 			var coachMs float64
 			select {
 			case statsLine := <-current.In:
 				statsLine = strings.TrimSpace(statsLine)
 				if strings.HasPrefix(statsLine, "#") {
-					fmt.Sscanf(statsLine, "# time_ms %f nodes %d depth %d timeout %t branching %d", &coachMs, &nodes, &depth, &timeout, &branching)
+					fmt.Sscanf(statsLine, "# time_ms %f nodes %d depth %d score %d timeout %t branching %d",
+						&coachMs, &nodes, &depth, &score, &timeout, &branching)
 				}
 			default:
 			}

@@ -609,14 +609,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 			// If engine sent its own stats, enrich with real time.
 			if strings.HasPrefix(line, "= nodes ") {
 				injectLine = "" // engine provided data, skip injection
-				rewritten := fmt.Sprintf("= nodes %%s time_ms %%d%%s",
-					lastElapsedMs, strings.TrimPrefix(line, "= nodes "),
-					func() string {
-						if idx := strings.Index(line, " timeout "); idx >= 0 {
-							return line[idx:]
-						}
-						return ""
-					}())
+				rewritten := fmt.Sprintf("# time_ms %d %s",
+					lastElapsedMs, strings.TrimPrefix(line, "= nodes "))
 				raw = []byte(rewritten)
 				statsSent = true
 			}
