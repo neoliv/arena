@@ -30,12 +30,18 @@ insertions, use Read + Write.
 
 ## Deploy
 
-```bash
-./arena-deploy.sh          # builds server, scp to VPS, clears old logs, health check
-```
-All logs end up in `log/` — shared between host and sandbox at the same path.
+**ALWAYS use the scripts. Never deploy or clear the DB manually.**
 
-The health check hits `/health` which requires login (303 redirect = success).
+```bash
+./arena-deploy.sh --clear-db  # builds server, deploys to VPS, clears logs + DB
+./arena-deploy.sh             # same without DB clear (keep game data)
+./arena-clear-db.sh           # clear game data only (keeps tokens+sessions)
+```
+
+The deploy script does: `systemctl stop`, truncates server logs, scp binary, `systemctl start`,
+health check. Manual `systemctl stop/scp/start` skips log truncation and is forbidden.
+
+`arena-clear-db.sh` also truncates the server log — use it instead of raw `sqlite3 DELETE`.
 
 ## Common Pitfalls
 
