@@ -3,12 +3,16 @@
 # Usage: ./arena-deploy.sh [vps-host] [--clear-db]
 set -euo pipefail
 
-VPS="${1:-arena.arsac.org}"
+VPS="arena.arsac.org"
 VPS_USER="${VPS_USER:-root}"
 BINARY="arena-server"
 CLEAR_DB=false
 for arg in "$@"; do
-    case "$arg" in --clear-db) CLEAR_DB=true ;; esac
+    case "$arg" in
+        --clear-db) CLEAR_DB=true ;;
+        --*) ;;
+        *) VPS="$arg" ;;
+    esac
 done
 
 echo "=== Arena Deploy ==="
