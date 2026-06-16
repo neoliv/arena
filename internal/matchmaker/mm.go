@@ -16,6 +16,7 @@ import (
 
 	"github.com/neoliv/arena/internal/coach"
 	"github.com/neoliv/arena/internal/db"
+	"github.com/neoliv/arena/internal/elo"
 )
 
 // TimeControl configures a time control tier.
@@ -84,7 +85,6 @@ func New(database *db.DB, relay interface {
 // Run starts the scheduler loop. Call as a goroutine.
 func (m *MatchMaker) Run() {
 	slog.Info("matchmaker started")
-	// Clear stale assignments from previous server run.
 	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='server restarted' WHERE status IN ('pending','assigned','accepted','ready','in_progress','declined')")
 	for {
 		select {
@@ -97,18 +97,15 @@ func (m *MatchMaker) Run() {
 
 // tick runs one scheduling cycle.
 func (m *MatchMaker) tick() {
-	// Phase 1: Retry expired assignments
 	if err := m.DB.RetryExpiredAssignments(); err != nil {
 		slog.Error("matchmaker retry", "err", err)
 	}
-	// Phase 2: Fail stale assignments (coaches offline or server restarted)
 	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='timeout' WHERE (status='in_progress' AND in_progress_at < datetime('now','-5 minutes')) OR (status='ready' AND assigned_at < datetime('now','-2 minutes'))")
 	m.DB.Exec("UPDATE match_assignments SET status='retry', decline_reason='accepted timeout', retry_after=datetime('now') WHERE status='accepted' AND assigned_at < datetime('now','-90 seconds')")
 	if err := m.DB.FailStaleAssignments(); err != nil {
 		slog.Error("matchmaker fail stale", "err", err)
 	}
 
-	// Get online coaches
 	coaches, err := m.DB.GetOnlineCoaches(90)
 	if err != nil {
 		slog.Error("matchmaker get online coaches", "err", err)
@@ -130,7 +127,6 @@ func (m *MatchMaker) tick() {
 		}
 	}
 
-	// Collect all available AIs from all coaches
 	type availAI struct {
 		ai     db.CoachAIRow
 		coach  db.CoachRow
@@ -159,23 +155,21 @@ func (m *MatchMaker) tick() {
 		return
 	}
 
-	// Build feasible pairs with priorities
 	type pair struct {
 		a        availAI
 		b        availAI
 		priority float64
+		aEngID   int
+		bEngID   int
 	}
 	var pairs []pair
 	for i := 0; i < len(allAIs); i++ {
 		for j := i + 1; j < len(allAIs); j++ {
 			a, b := allAIs[i], allAIs[j]
-			// Skip same engine (can be re-enabled later)
 			if a.ai.EngineName == b.ai.EngineName && a.ai.EngineVersion == b.ai.EngineVersion {
 				continue
 			}
-			// Resource check
 			if a.coach.ID == b.coach.ID {
-				// Same host: need combined resources
 				usedCores := 0
 				for _, ca := range allAIs {
 					if ca.coach.ID == a.coach.ID {
@@ -186,11 +180,8 @@ func (m *MatchMaker) tick() {
 				if freeCores < a.ai.CoresPerInstance+b.ai.CoresPerInstance {
 					continue
 				}
-			} else {
-				// Different hosts: check each independently (already filtered by GetAvailableAIs)
 			}
 
-			// Elo uncertainty
 			aEngID, _ := m.DB.GetEngineID(a.ai.EngineName, a.ai.EngineVersion)
 			bEngID, _ := m.DB.GetEngineID(b.ai.EngineName, b.ai.EngineVersion)
 			if aEngID == 0 || bEngID == 0 { continue }
@@ -201,7 +192,7 @@ func (m *MatchMaker) tick() {
 			ciB := 400.0 / math.Sqrt(math.Max(float64(bGames), 1))
 			priority := math.Sqrt(ciA*ciA+ciB*ciB) * (1.0 + m.hoursSinceLastMatch(aEngID, bEngID)/48.0)
 
-			pairs = append(pairs, pair{a: a, b: b, priority: priority})
+			pairs = append(pairs, pair{a: a, b: b, priority: priority, aEngID: aEngID, bEngID: bEngID})
 		}
 	}
 
@@ -210,7 +201,6 @@ func (m *MatchMaker) tick() {
 		return
 	}
 
-	// Pick the best pair (highest priority × recency)
 	rand.Shuffle(len(pairs), func(i, j int) { pairs[i], pairs[j] = pairs[j], pairs[i] })
 	var best pair
 	bestPriority := -1.0
@@ -219,17 +209,15 @@ func (m *MatchMaker) tick() {
 	}
 	if best.a.ai.ID == 0 { return }
 
-	// Select time control: weighted random, with uncertainty boost for longer controls.
-	// Higher combined CI → more weight on longer time controls.
-	ciA := 400.0 / math.Sqrt(math.Max(float64(m.countGames(best.a.ai.ID)), 1))
-	ciB := 400.0 / math.Sqrt(math.Max(float64(m.countGames(best.b.ai.ID)), 1))
+	ciA := 400.0 / math.Sqrt(math.Max(float64(m.countGames(best.aEngID)), 1))
+	ciB := 400.0 / math.Sqrt(math.Max(float64(m.countGames(best.bEngID)), 1))
 	combinedCI := (ciA + ciB) / 2.0
-	uncertaintyBoost := combinedCI / 400.0 // 1.0 for new engines, ~0.03 for established
+	uncertaintyBoost := combinedCI / 400.0
 
 	var totalWeight float64
 	var weights []float64
 	for _, tc := range m.Config.TimeControls {
-		w := tc.Weight + tc.Weight*uncertaintyBoost*2 // long games boosted more by uncertainty
+		w := tc.Weight + tc.Weight*uncertaintyBoost*2
 		weights = append(weights, w)
 		totalWeight += w
 	}
@@ -242,7 +230,6 @@ func (m *MatchMaker) tick() {
 	}
 	if chosen.Seconds == 0 { chosen = m.Config.TimeControls[0] }
 
-	// Register players with time-aware version (e.g., "d8-es44" → "d8-es44-30s")
 	timeSuffix := fmt.Sprintf("-%ds", chosen.Seconds)
 	aVerTimed := best.a.ai.EngineVersion + timeSuffix
 	bVerTimed := best.b.ai.EngineVersion + timeSuffix
@@ -274,8 +261,6 @@ func (m *MatchMaker) tick() {
 		"time", chosen.Label, "priority", bestPriority)
 }
 
-// OnBothReady is called when both coaches report ready for an assignment.
-// NotifyNewPlayers wakes the scheduler when new players may be available.
 func (m *MatchMaker) NotifyNewPlayers() {
 	select { case m.wakeup <- struct{}{}: default: }
 }
@@ -286,7 +271,6 @@ func (m *MatchMaker) OnBothReady(assignmentID int) {
 			if r := recover(); r != nil {
 				slog.Error("match execution panicked", "assignment", assignmentID, "panic", r)
 				m.DB.UpdateAssignmentStatus(assignmentID, "failed", "internal error")
-				// Clean up relay sessions if possible
 				var a db.AssignmentRow
 				if err := m.DB.QueryRow("SELECT COALESCE(session1_id,''), COALESCE(session2_id,'') FROM match_assignments WHERE id=?", assignmentID).Scan(&a.Session1ID, &a.Session2ID); err == nil {
 					if a.Session1ID != "" { m.Relay.Cleanup(a.Session1ID) }
@@ -298,7 +282,6 @@ func (m *MatchMaker) OnBothReady(assignmentID int) {
 	}()
 }
 
-// HandleStatus is a debug endpoint showing matchmaker state.
 func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	coaches, _ := m.DB.GetOnlineCoaches(90)
 	var out []map[string]any
@@ -310,7 +293,6 @@ func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
 			"ais": len(ais),
 		})
 	}
-	// Count pending assignments
 	var pending int
 	m.DB.QueryRow("SELECT COUNT(*) FROM match_assignments WHERE status IN ('pending','assigned','accepted','ready','in_progress')").Scan(&pending)
 	w.Header().Set("Content-Type", "application/json")
@@ -339,11 +321,9 @@ func randomSessionID() string {
 	return fmt.Sprintf("%x", b)
 }
 
-// executeMatch runs the actual games over WebSocket relay.
 func (m *MatchMaker) executeMatch(assignmentID int) {
 	ctx := context.Background()
 
-	// Get assignment details
 	var a db.AssignmentRow
 	row := m.DB.QueryRow(`SELECT id, engine1_id, engine2_id, coach1_ai_id, coach2_ai_id,
 		COALESCE(time_control,'{}'), num_games, COALESCE(session1_id,''), COALESCE(session2_id,''), status
@@ -354,11 +334,9 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 		return
 	}
 
-	// Ensure relay sessions are cleaned up on any exit path.
 	defer m.Relay.Cleanup(a.Session1ID)
 	defer m.Relay.Cleanup(a.Session2ID)
 
-	// Wait for both streams
 	blackStream, err := m.Relay.WaitForStream(a.Session1ID, 120)
 	if err != nil {
 		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "timeout waiting for coach 1 (black)")
@@ -370,26 +348,21 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 		return
 	}
 
-	// Mark in progress
 	m.DB.UpdateAssignmentStatus(assignmentID, "in_progress", "")
 
-	// Get engine names for record-keeping
 	var e1Name, e1Ver, e2Name, e2Ver string
 	m.DB.QueryRow("SELECT name, version FROM engines WHERE id=?", a.Engine1ID).Scan(&e1Name, &e1Ver)
 	m.DB.QueryRow("SELECT name, version FROM engines WHERE id=?", a.Engine2ID).Scan(&e2Name, &e2Ver)
 
-	// Play games
 	var gameTimeSec float64 = 60
 	var tc struct{ Seconds float64 `json:"seconds"` }; json.Unmarshal([]byte(a.TimeControl), &tc); gameTimeSec = tc.Seconds
 
 	totalGames := a.NumGames
 	if totalGames == 0 { totalGames = 2 }
 
-	// Play each game alternating colors
 	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
 	slog.Info("playGames completed", "assignment", assignmentID, "games", len(games))
 
-	// Store results (retry on DB lock)
 	var matchID int
 	for attempt := 0; attempt < 5; attempt++ {
 		matchID, err = m.storeResults(a, games, e1Name, e1Ver, e2Name, e2Ver)
@@ -411,14 +384,12 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	slog.Info("matchmaker match complete", "assignment", assignmentID, "match", matchID)
 	m.DB.UpdateAssignmentStatus(assignmentID, "completed", "")
 
-	// Cleanup relay sessions
 	m.Relay.Cleanup(a.Session1ID)
 	m.Relay.Cleanup(a.Session2ID)
 	select { case m.wakeup <- struct{}{}: default: }
 }
 
 func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name, e1Ver, e2Name, e2Ver string) (int, error) {
-	// Auto-register engines if needed
 	e1ID := a.Engine1ID
 	e2ID := a.Engine2ID
 	if e1ID == 0 {
@@ -439,7 +410,6 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 	wins1, wins2, draws := 0, 0, 0
 	for i, g := range games {
 		var blackID, whiteID int
-		// Determine which engine is black/white in this game
 		if i%2 == 0 {
 			blackID, whiteID = e1ID, e2ID
 		} else {
@@ -468,32 +438,15 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 		}
 	}
 
-	// Update match stats
 	m.DB.Exec("UPDATE matches SET wins_1=?, wins_2=?, draws=? WHERE id=?", wins1, wins2, draws, matchID)
 
-	// Recompute Elo
-	t0 := time.Now()
 	m.recomputeElo(e1ID)
-	slog.Info("recomputeElo timing", "engine", e1ID, "took", time.Since(t0).String())
-	t0 = time.Now()
 	m.recomputeElo(e2ID)
-	slog.Info("recomputeElo timing", "engine", e2ID, "took", time.Since(t0).String())
 
 	return matchID, nil
 }
 
-// recomputeElo recalculates Elo ratings from scratch for a single engine.
-//
-// Elo constants (standard chess values, adapted for Othello):
-//   - Initial rating: 1500 (baseline for all new players)
-//   - K-factor: 32 for first 20 games (provisional), 16 thereafter
-//     Higher K means faster adaptation to true strength. Othello is
-//     lower-variance than chess (each game is a single data point, not
-//     30-40 moves of incremental information), so we use the same
-//     provisional period (20 games) as standard Elo.
-//   - Scale: 400 (a 400-point difference predicts ~91% win rate)
-//     This is the standard chess value, consistent with most Elo systems.
-//   - Expected score formula: 1 / (1 + 10^((opponent - player) / 400))
+// recomputeElo rebuilds Elo ratings from scratch using the shared elo.Update.
 func (m *MatchMaker) recomputeElo(engineID int) {
 	m.DB.Exec("DELETE FROM elo_history WHERE engine_id=?", engineID)
 
@@ -514,23 +467,16 @@ func (m *MatchMaker) recomputeElo(engineID int) {
 		if _, ok := ratings[oppID]; !ok { ratings[oppID] = 1500; gamesPlayed[oppID] = 0 }
 
 		rA, rB := ratings[engineID], ratings[oppID]
-		gA, gB := gamesPlayed[engineID], gamesPlayed[oppID]
+		gA := gamesPlayed[engineID]
 
-		kA := 16.0
-		if gA < 20 { kA = 32.0 }
-		kB := 16.0
-		if gB < 20 { kB = 32.0 }
-
-		expectedA := 1.0 / (1.0 + math.Pow(10, (rB-rA)/400.0))
 		var scoreA float64
-		if bid == engineID { // engine is black
+		if bid == engineID {
 			if result == "1-0" { scoreA = 1.0 } else if result == "0-1" { scoreA = 0.0 } else { scoreA = 0.5 }
-		} else { // engine is white
+		} else {
 			if result == "0-1" { scoreA = 1.0 } else if result == "1-0" { scoreA = 0.0 } else { scoreA = 0.5 }
 		}
 
-		nA := rA + kA*(scoreA-expectedA)
-		nB := rB + kB*((1.0-scoreA)-(1.0-expectedA))
+		nA, nB := elo.Update(rA, rB, scoreA, gA)
 
 		wins, losses, draws := 0, 0, 0
 		if scoreA == 1.0 { wins = 1 } else if scoreA == 0.0 { losses = 1 } else { draws = 1 }

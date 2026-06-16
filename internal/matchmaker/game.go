@@ -34,6 +34,8 @@ type gameResult struct {
 	Moves        []gameMove
 }
 
+// wsSend sends a GTP command and returns the first non-blank response.
+// Blank lines (edax double-newline bug) are drained silently.
 func wsSend(stream coach.Stream, cmd string) (string, error) {
 	select {
 	case stream.Out <- cmd:
@@ -94,6 +96,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
+	// Play opening moves using wsSend (reliable, drains blank lines).
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
 		color := "b"
@@ -102,27 +105,11 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		cmd := "play " + color + " " + mv
 		for _, s := range []coach.Stream{black, white} {
-			select {
-			case s.Out <- cmd:
-			default:
-			}
-		}
-		for _, s := range []coach.Stream{black, white} {
-			var resp string
-			for {
-				select {
-				case r := <-s.In:
-					if strings.TrimSpace(r) != "" {
-						resp = r
-					} else {
-						continue
-					}
-				case <-time.After(3 * time.Second):
-					slog.Error("opening ack timeout", "move", mv)
-					gr.Result = "0-1"
-					return gr
-				}
-				break
+			resp, err := wsSend(s, cmd)
+			if err != nil {
+				slog.Error("opening play failed", "move", mv, "err", err)
+				gr.Result = "0-1"
+				return gr
 			}
 			if strings.HasPrefix(resp, "?") {
 				slog.Warn("opening move rejected", "move", mv, "color", color, "response", resp)
@@ -218,8 +205,17 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		wsSend(other, "play "+playedColor+" "+mv)
 
+		// Optional stats.
+		var nodes, nps int64
+		var depth int
+		var tm float64
+		statsResp, _ := wsSend(current, "stats")
+		statsResp = strings.TrimPrefix(strings.TrimSpace(statsResp), "= ")
+		fmt.Sscanf(statsResp, "nodes %d depth %d time_ms %f timeout %*s score %*d nps %d branching %*d empties %*d",
+			&nodes, &depth, &tm, &nps)
 		gr.Moves = append(gr.Moves, gameMove{
 			Side: playedColor, Move: mv,
+			Nodes: nodes, Depth: depth, TimeMs: tm, NPS: nps,
 		})
 
 		if moveNum > 120 {

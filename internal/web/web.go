@@ -15,6 +15,7 @@ import (
 
 	"github.com/neoliv/arena/internal/db"
 	"github.com/neoliv/arena/internal/stats"
+	"github.com/neoliv/arena/internal/version"
 )
 
 var SharedCSS = sharedCSS
@@ -628,7 +629,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	startStr := arenaStart.Format("2006-01-02 15:04")
 	io.WriteString(w, `<h2>Arena Service</h2><table class="stats-table">`)
 	kv := func(k, v, cls string) { fmt.Fprintf(w, `<tr class="%s"><td>%s</td><td>%s</td></tr>`, cls, k, v) }
-	kv("Version", "0.2.0", "")
+	kv("Version", version.Version, "")
 	kv("Online", arenaDur+" ("+startStr+")", "")
 	kv("Goroutines", fmt.Sprintf("%d / %d cores", runtime.NumGoroutine(), runtime.NumCPU()), "")
 	reqRate := stats.Global.ReqPerSec()
