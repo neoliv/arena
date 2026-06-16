@@ -15,8 +15,8 @@ type gameMove struct {
 	Move      string
 	Nodes     int64
 	Depth     int
-	TimeMs    float64 // wall-clock from arena genmove timing
-	
+	TimeMs    float64
+	Score     int
 }
 type gameResult struct {
 	Black        string
