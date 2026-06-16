@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -66,7 +67,10 @@ type runningEngine struct {
 	stderrBuf *bytes.Buffer
 }
 
+var coachSession string
+
 func main() {
+	b := make([]byte, 8); crand.Read(b); coachSession = hex.EncodeToString(b)
 	configPath := flag.String("config", "coach.yaml", "Path to coach config file")
 	playersDir := flag.String("players", "players.d", "Directory containing player .yaml files")
 	showVer    := flag.Bool("version", false, "Print version and exit")
@@ -364,7 +368,7 @@ func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, cfgMu *sync.
 	}
 	cfgMu.RUnlock()
 	body := map[string]any{
-		"coach_id": cfg.CoachID, "token": cfg.Token,
+		"coach_id": cfg.CoachID, "token": cfg.Token, "session_id": coachSession,
 		"ais_available": ais,
 		"resources": map[string]int{"cores_used": usedCores, "memory_mb_used": usedMem},
 	}
@@ -404,7 +408,7 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 		}
 		cfgMu.RUnlock()
 		body := map[string]any{
-			"coach_id": cfg.CoachID, "token": cfg.Token,
+			"coach_id": cfg.CoachID, "token": cfg.Token, "session_id": coachSession,
 			"ais_available": ais,
 			"resources": map[string]int{"cores_used": usedCores, "memory_mb_used": usedMem},
 		}

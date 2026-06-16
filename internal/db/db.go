@@ -41,6 +41,7 @@ func (db *DB) Migrate() error {
 	// Add columns that may not exist in older databases
 	for _, stmt := range []string{
 		"ALTER TABLE coaches ADD COLUMN version TEXT DEFAULT ''",
+		"ALTER TABLE coaches ADD COLUMN session_id TEXT DEFAULT ''",
 		"ALTER TABLE api_tokens ADD COLUMN nickname TEXT DEFAULT ''",
 		"ALTER TABLE coach_ais ADD COLUMN created TEXT DEFAULT ''",
 		"ALTER TABLE coach_ais ADD COLUMN changelog_short TEXT DEFAULT ''",

@@ -64,7 +64,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 			if err != nil {
 				return
 			}
-			slog.Info("relay read", "msg", string(msg)[:min(30, len(string(msg)))])
+			slog.Info("relay read", "msg", string(msg)[:min(60, len(string(msg)))])
 			select {
 			case in <- string(msg):
 			case <-ctx.Done():

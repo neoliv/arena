@@ -58,10 +58,11 @@ type registerReq struct {
 }
 
 type heartbeatReq struct {
-	CoachID     string              `json:"coach_id"`
-	Token       string              `json:"token"`
-	AIsAvailable []heartbeatAI      `json:"ais_available"`
-	Resources   *heartbeatResources `json:"resources"`
+	CoachID      string              `json:"coach_id"`
+	Token        string              `json:"token"`
+	SessionID    string              `json:"session_id"`
+	AIsAvailable []heartbeatAI       `json:"ais_available"`
+	Resources    *heartbeatResources `json:"resources"`
 }
 
 type heartbeatAI struct {
@@ -212,8 +213,19 @@ func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if req.CoachID == "" { jsonErr(w, "coach_id required", http.StatusBadRequest); return }
 
 	var coachID int
-	if err := h.DB.QueryRow("SELECT id FROM coaches WHERE coach_id=?", req.CoachID).Scan(&coachID); err != nil {
+	var lastSession string
+	if err := h.DB.QueryRow("SELECT id, COALESCE(session_id,'') FROM coaches WHERE coach_id=?", req.CoachID).Scan(&coachID, &lastSession); err != nil {
 		jsonErr(w, "coach not registered", http.StatusNotFound); return
+	}
+
+	// Coach restarted (new session) — clean all its stale assignments.
+	if req.SessionID != "" && req.SessionID != lastSession {
+		h.DB.Exec(`UPDATE match_assignments SET status='failed', decline_reason='coach restarted'
+			WHERE status IN ('pending','assigned','accepted','ready','in_progress','retry')
+			AND (coach1_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?)
+			  OR coach2_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?))`,
+			coachID, coachID)
+		h.DB.Exec("UPDATE coaches SET session_id=? WHERE id=?", req.SessionID, coachID)
 	}
 
 	aiUpdates := make(map[string]int)
@@ -224,19 +236,6 @@ func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.UpdateCoachHeartbeat(coachID, aiUpdates); err != nil {
 		slog.Error("heartbeat", "err", err)
 		jsonErr(w, "db error", http.StatusInternalServerError); return
-	}
-	// Clean stale in-progress assignments for AIs with 0 current matches.
-	for key, running := range aiUpdates {
-		if running == 0 {
-			parts := strings.SplitN(key, ":", 2)
-			if len(parts) == 2 {
-				h.DB.Exec(`UPDATE match_assignments SET status='failed', decline_reason='coach restarted'
-					WHERE status IN ('in_progress','assigned','accepted','ready')
-					AND (coach1_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=? AND engine_name=? AND engine_version=?)
-					  OR coach2_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=? AND engine_name=? AND engine_version=?))`,
-					coachID, parts[0], parts[1], coachID, parts[0], parts[1])
-			}
-		}
 	}
 	jsonOK(w, map[string]any{"ok": true, "server_gen": h.ServerGen})
 	if h.heartbeatHook != nil { h.heartbeatHook() }
