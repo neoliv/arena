@@ -571,29 +571,6 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
 
-	// Parse edax search-log from stderr, inject stats as GTP comments.
-	go func() {
-		defer stderrPipeR.Close()
-		scanner := bufio.NewScanner(stderrPipeR)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.Contains(line, "BEST MOVE FOUND") {
-				continue
-			}
-			var nodes int64
-			var depth, score int
-			if _, err := fmt.Sscanf(line, "%*d> => BEST MOVE FOUND! level = %d@", &depth); err == nil {
-				if idx := strings.Index(line, "score = "); idx >= 0 {
-					fmt.Sscanf(line[idx:], "score = %d", &score)
-				}
-				if idx := strings.Index(line, "nodes = "); idx >= 0 {
-					fmt.Sscanf(line[idx:], "nodes = %d N", &nodes)
-				}
-				comment := fmt.Sprintf("# nodes %d depth %d score %d", nodes, depth, score)
-				conn.Write(context.Background(), websocket.MessageText, []byte(comment))
-			}
-		}
-	}()
 
 	// GTP-aware timing: track genmove wall-clock time and enforce
 	// the time budget. If the engine exceeds gameTimeSec * 1.05
