@@ -12,8 +12,8 @@ type othelloBoard struct {
 func newBoard() othelloBoard {
 	// Standard starting position
 	return othelloBoard{
-		black: 1<<27 | 1<<36, // D5, E4
-		white: 1<<28 | 1<<35, // D4, E5
+		black: 1<<28 | 1<<35, // E4, D5
+		white: 1<<27 | 1<<36, // D4, E5
 	}
 }
 
@@ -83,19 +83,23 @@ func (b *othelloBoard) applyMove(player uint64, sq int) othelloBoard {
 	if player == b.black {
 		return b.apply(b.black, b.white, sq)
 	}
-	return b.apply(b.white, b.black, sq)
+	r := b.apply(b.white, b.black, sq)
+	return othelloBoard{black: r.white, white: r.black}
 }
 
 func (b othelloBoard) apply(me, opp uint64, sq int) othelloBoard {
 	bit := uint64(1) << sq
 	me |= bit
+	edgeMask := uint64(0x7e7e7e7e7e7e7e7e)
 	var flipped uint64
 	for _, d := range []int{1, 7, 8, 9} {
 		for _, sign := range []int{1, -1} {
 			shift := d * sign
 			var cand uint64
 			if shift > 0 {
-				cand = (bit << shift) & opp
+				mask := opp & edgeMask
+				if shift == 8 { mask = opp }
+				cand = (bit << shift) & mask
 				for i := 0; i < 7; i++ {
 					cand |= (cand << shift) & opp
 				}
@@ -104,7 +108,9 @@ func (b othelloBoard) apply(me, opp uint64, sq int) othelloBoard {
 				}
 			} else {
 				shift = -shift
-				cand = (bit >> shift) & opp
+				mask := opp & edgeMask
+				if shift == 8 { mask = opp }
+				cand = (bit >> shift) & mask
 				for i := 0; i < 7; i++ {
 					cand |= (cand >> shift) & opp
 				}

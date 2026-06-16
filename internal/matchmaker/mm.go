@@ -429,7 +429,7 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 			buf.WriteString("INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms) VALUES ")
 			for mi, mv := range g.Moves {
 				if mi > 0 { buf.WriteString(", ") }
-				buf.WriteString("(?,?,?,?,?,?,?,?)")
+				buf.WriteString("(?,?,?,?,?,?,?)")
 				args = append(args, gameID, mi+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs)
 			}
 			if _, err := m.DB.Exec(buf.String(), args...); err != nil {
@@ -441,53 +441,38 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 
 	m.DB.Exec("UPDATE matches SET wins_1=?, wins_2=?, draws=? WHERE id=?", wins1, wins2, draws, matchID)
 
-	m.recomputeElo(e1ID)
-	m.recomputeElo(e2ID)
+	// Incremental Elo: update rating for each game result.
+	for i, g := range games {
+		var blackID, whiteID int
+		if i%2 == 0 { blackID, whiteID = e1ID, e2ID } else { blackID, whiteID = e2ID, e1ID }
+		var scoreA float64
+		switch {
+		case g.Result == "1-0": scoreA = 1.0
+		case g.Result == "0-1": scoreA = 0.0
+		default: scoreA = 0.5
+		}
+		// For the black player, scoreA is already correct.
+		// For the white player, invert.
+		m.updateElo(blackID, whiteID, matchID, scoreA)
+		m.updateElo(whiteID, blackID, matchID, 1.0-scoreA)
+	}
 
 	return matchID, nil
 }
 
-// recomputeElo rebuilds Elo ratings from scratch using the shared elo.Update.
-func (m *MatchMaker) recomputeElo(engineID int) {
-	m.DB.Exec("DELETE FROM elo_history WHERE engine_id=?", engineID)
+// updateElo appends one Elo history row for engine after a game against opponent.
+func (m *MatchMaker) updateElo(engineID, opponentID, matchID int, scoreA float64) {
+	var rA, rB float64
+	var gamesA int
+	m.DB.QueryRow(`SELECT COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=? ORDER BY created_at DESC LIMIT 1), 1500.0)`, engineID).Scan(&rA)
+	m.DB.QueryRow(`SELECT COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=? ORDER BY created_at DESC LIMIT 1), 1500.0)`, opponentID).Scan(&rB)
+	m.DB.QueryRow(`SELECT COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=?), 0)`, engineID).Scan(&gamesA)
 
-	rows, err := m.DB.Query(`SELECT g.id, g.match_id, g.black_id, g.white_id, g.result, g.created_at
-		FROM games g WHERE g.black_id=? OR g.white_id=? ORDER BY g.created_at, g.id`, engineID, engineID)
-	if err != nil { return }
-	defer rows.Close()
+	nA, _ := elo.Update(rA, rB, scoreA, gamesA)
 
-	ratings := map[int]float64{engineID: 1500}
-	gamesPlayed := map[int]int{engineID: 0}
+	wins, losses, draws := 0, 0, 0
+	if scoreA == 1.0 { wins = 1 } else if scoreA == 0.0 { losses = 1 } else { draws = 1 }
 
-	for rows.Next() {
-		var gid, mid, bid, wid int
-		var result, createdAt string
-		if err := rows.Scan(&gid, &mid, &bid, &wid, &result, &createdAt); err != nil { continue }
-		oppID := bid
-		if bid == engineID { oppID = wid }
-		if _, ok := ratings[oppID]; !ok { ratings[oppID] = 1500; gamesPlayed[oppID] = 0 }
-
-		rA, rB := ratings[engineID], ratings[oppID]
-		gA := gamesPlayed[engineID]
-
-		var scoreA float64
-		if bid == engineID {
-			if result == "1-0" { scoreA = 1.0 } else if result == "0-1" { scoreA = 0.0 } else { scoreA = 0.5 }
-		} else {
-			if result == "0-1" { scoreA = 1.0 } else if result == "1-0" { scoreA = 0.0 } else { scoreA = 0.5 }
-		}
-
-		nA, nB := elo.Update(rA, rB, scoreA, gA)
-
-		wins, losses, draws := 0, 0, 0
-		if scoreA == 1.0 { wins = 1 } else if scoreA == 0.0 { losses = 1 } else { draws = 1 }
-
-		m.DB.Exec(`INSERT INTO elo_history (engine_id, opponent_id, match_id, rating_before, rating_after, games, wins, losses, draws)
-			VALUES (?,?,?,?,?,1,?,?,?)`, engineID, oppID, mid, rA, nA, wins, losses, draws)
-
-		ratings[engineID] = nA
-		ratings[oppID] = nB
-		gamesPlayed[engineID]++
-		gamesPlayed[oppID]++
-	}
+	m.DB.Exec(`INSERT INTO elo_history (engine_id, opponent_id, match_id, rating_before, rating_after, games, wins, losses, draws)
+		VALUES (?,?,?,?,?,1,?,?,?)`, engineID, opponentID, matchID, rA, nA, wins, losses, draws)
 }

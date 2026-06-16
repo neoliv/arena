@@ -595,9 +595,18 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		for scanner.Scan() {
 			raw := scanner.Bytes()
 			line := string(raw)
+
+			// Engine # stats: prepend measured time and forward.
+			if strings.HasPrefix(line, "#") {
+				timingMu.Lock()
+				ms := lastElapsedMs
+				timingMu.Unlock()
+				raw = []byte(fmt.Sprintf("# time_ms %d %s", ms, strings.TrimPrefix(line, "# ")))
+			}
+
 			var injectLine string
 			timingMu.Lock()
-			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && len(strings.TrimPrefix(line, "= ")) > 0 {
+			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && !strings.HasPrefix(line, "= nodes ") && len(strings.TrimPrefix(line, "= ")) > 0 {
 				lastElapsedMs = time.Since(genmoveStart).Milliseconds()
 				totalThinkMs += lastElapsedMs
 				genmoveStart = time.Time{}
@@ -614,12 +623,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				sn, sd, ss := searchNodes, searchDepth, searchScore
 				searchNodes, searchDepth, searchScore = 0, 0, 0
 				searchMu.Unlock()
-				injectLine = fmt.Sprintf("# time_ms %d nodes %d depth %d score %d v2", lastElapsedMs, sn, sd, ss)
+				injectLine = fmt.Sprintf("# time_ms %d nodes %d depth %d score %d timeout false", lastElapsedMs, sn, sd, ss)
 			}
 			// If engine sent its own stats, enrich with real time.
 			if strings.HasPrefix(line, "= nodes ") {
 				injectLine = "" // engine provided data, skip injection
-				rewritten := fmt.Sprintf("# time_ms %d %s",
+				rewritten := fmt.Sprintf("# time_ms %d nodes %s",
 					lastElapsedMs, strings.TrimPrefix(line, "= nodes "))
 				raw = []byte(rewritten)
 				statsSent = true

@@ -46,7 +46,8 @@ func wsSend(stream coach.Stream, cmd string) (string, error) {
 			if !ok {
 				return "", fmt.Errorf("stream closed")
 			}
-			if strings.TrimSpace(resp) != "" {
+			s := strings.TrimSpace(resp)
+			if s != "" && !strings.HasPrefix(s, "#") {
 				return resp, nil
 			}
 		case <-time.After(5 * time.Second):
@@ -169,6 +170,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		t0 := time.Now()
 		resp, err := wsSend(current, "genmove "+sideToMove)
 		elapsed := time.Since(t0).Seconds()
+		slog.Info("genmove", "side", sideToMove, "move", strings.TrimSpace(resp)[:min(60, len(strings.TrimSpace(resp)))], "ms", int(elapsed*1000))
 		if sideToMove == "b" {
 			gr.BlackTimeS += elapsed
 		} else {
@@ -232,11 +234,11 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		board = board.applyMove(curPlayer, sq)
-		other := black
+		opponent := white
 		if sideToMove == "w" {
-			other = white
+			opponent = black
 		}
-		playResp, _ := wsSend(other, "play "+sideToMove+" "+mv)
+		playResp, _ := wsSend(opponent, "play "+sideToMove+" "+mv)
 		if strings.HasPrefix(playResp, "?") {
 			slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
 			if sideToMove == "b" {
@@ -247,15 +249,12 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-			// Read stats comment injected by the coach after genmove.
-			// Format: "# time_ms <ms> nodes <n> depth <d> score <s> timeout <t> branching <b>"
+			// Consume all # stats lines, keeping the last (engine data overwrites coach-injected).
 			var nodes int64
 			var depth int
 			var timeout bool
-			
 			var score int
 			var coachMs float64
-			// Drain blanks (edax double-newline) then read stats.
 			for {
 				select {
 				case statsLine := <-current.In:
@@ -267,6 +266,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 						if n == 0 {
 							fmt.Sscanf(s, "# time_ms %f", &coachMs)
 						}
+						continue
 					}
 				default:
 				}
@@ -278,8 +278,9 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 			gr.Moves = append(gr.Moves, gameMove{
 				Side: sideToMove, Move: mv,
-				Nodes: nodes, Depth: depth, TimeMs: coachMs, 
+				Nodes: nodes, Depth: depth, TimeMs: coachMs,
 			})
+			slog.Info("move stored", "side", sideToMove, "move", mv, "nodes", nodes, "depth", depth, "ms", coachMs, "total", len(gr.Moves))
 
 		sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
 
@@ -302,6 +303,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
+	slog.Info("game result", "result", gr.Result, "moves", len(gr.Moves), "black_s", gr.BlackTimeS, "white_s", gr.WhiteTimeS)
 	return gr
 }
 

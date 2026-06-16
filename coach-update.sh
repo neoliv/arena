@@ -109,7 +109,7 @@ if [ -d "$ADAPTERS_DIR" ]; then
     done
 fi
 
-BUILD_ERRORS=0
+BUILD_ERRORS=0; BUILD_COUNT=0
 for f in "$BUILDS_DIR"/*.yaml; do
     [ -f "$f" ] || continue
     # Extract source path (simple YAML: source: "...")
@@ -155,6 +155,7 @@ for f in "$BUILDS_DIR"/*.yaml; do
             done
             echo "   -> $ENGINE_DIR/"
         fi
+        BUILD_COUNT=$((BUILD_COUNT + 1))
         rm -rf coach-engine  # cleanup ephemeral dir
     else
         echo "   ERROR: coach-engine/ not created by build"
@@ -176,7 +177,7 @@ echo ""; echo "=== Done ==="
 if [ $BUILD_ERRORS -gt 0 ]; then
     echo "ERROR: $BUILD_ERRORS engine build(s) failed — check the log for details"
 else
-    echo "All engines built successfully"
+    echo "All $BUILD_COUNT engines built successfully"
 fi
 echo "Log saved to: $SCRIPT_DIR/log/coach-update.log"
 $DRY_RUN && echo "(dry run — no changes made)"

@@ -75,7 +75,7 @@ const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="v
 const pageFoot = `</body></html>`
 
 // chartColors are chalk/pastel hues visible on both light and dark backgrounds.
-var chartColors = [8]string{"#ff6b8a","#6bd4ff","#ffe66b","#6bff8a","#ff8a6b","#c46bff","#6bffe6","#ffb86b"}
+var chartColors = [8]string{"#4caf50","#6bd4ff","#ffe66b","#6bff8a","#ff8a6b","#c46bff","#6bffe6","#ffb86b"}
 
 type Handler struct {
 	DB       *db.DB
@@ -150,7 +150,7 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 		<a href="?tab=speed" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="speed"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="speed"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Speed</a>
 		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="games"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="games"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Games</a>
 		<a href="?tab=timeout" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="timeout"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="timeout"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Timeouts</a>
-		<a href="?tab=performance" style="display:inline-block;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="performance"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="performance"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Performance</a>
+		<a href="?tab=unspent" style="display:inline-block;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="performance"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="performance"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Unspent</a>
 		</div>`)
 
 	switch tab {
@@ -161,7 +161,6 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	case "timeout":
 		h.renderStatsBars(w, r, "timeout")
 	case "performance":
-		h.renderStatsBars(w, r, "length")
 		io.WriteString(w, "<br>")
 		h.renderStatsBars(w, r, "unspent")
 	default:
@@ -263,15 +262,10 @@ func (h *Handler) handleSpeed(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderSpeedGraph(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, `<form><select name="id" onchange="location=this.value"><option value="?tab=speed">Select engine…</option>`)
-	rows, _ := h.DB.Query("SELECT id, name, version FROM engines ORDER BY name")
-	if rows != nil { defer rows.Close(); for rows.Next() { var id int; var n, v string; rows.Scan(&id, &n, &v); fmt.Fprintf(w, `<option value="?tab=speed&id=%d">%s %s</option>`, id, n, v) } }
-	io.WriteString(w, `</select></form>`)
-	engID := r.URL.Query().Get("id")
-	if engID == "" { io.WriteString(w, pageFoot); return }
-	io.WriteString(w, `<table><tr><th>Ply</th><th>#</th><th>Depth</th><th>NPS</th><th>Timeouts</th><th></th></tr>`)
-	sRows, _ := h.DB.Query(`SELECT ply, SUM(sample_count), CAST(SUM(total_depth) AS REAL)/MAX(1,SUM(sample_count)), CAST(SUM(total_nps) AS REAL)/MAX(1,SUM(sample_count)), SUM(timeouts) FROM speed_stats WHERE engine_id=? GROUP BY ply ORDER BY ply`, engID)
-	if sRows != nil { defer sRows.Close(); for sRows.Next() { var ply, samples, timeouts int; var depth, nps float64; sRows.Scan(&ply, &samples, &depth, &nps, &timeouts); fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%d</td><td>%.1f</td><td>%.0f</td><td>%d</td><td><span class="bar" style="width:%dpx"></span></td></tr>`, ply, samples, depth, nps, timeouts, int(nps/1000)) } }
+	io.WriteString(w, searchJS+filterBox)
+	io.WriteString(w, `<table><tr><th>Ply</th><th>Engine</th><th>#</th><th>Depth</th><th>NPS</th><th>Timeouts</th></tr>`)
+	sRows, _ := h.DB.Query(`SELECT ss.ply, e.name, SUM(ss.sample_count), CAST(SUM(ss.total_depth) AS REAL)/MAX(1,SUM(ss.sample_count)), CAST(SUM(ss.total_nps) AS REAL)/MAX(1,SUM(ss.sample_count)), SUM(ss.timeouts) FROM speed_stats ss JOIN engines e ON e.id=ss.engine_id GROUP BY ss.ply, e.name ORDER BY ss.ply, e.name`)
+	if sRows != nil { defer sRows.Close(); for sRows.Next() { var ply, samples, timeouts int; var name string; var depth, nps float64; sRows.Scan(&ply, &name, &samples, &depth, &nps, &timeouts); fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%d</td><td>%.1f</td><td>%.0f</td><td>%d</td></tr>`, ply, name, samples, depth, nps, timeouts) } }
 	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
@@ -313,7 +307,7 @@ func (h *Handler) handleMatch(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Games</h1>`+filterBox)
+	io.WriteString(w, pageHead+navHTML+`<div hx-get="." hx-trigger="every 30s" hx-swap="outerHTML">`+searchJS+`<h1>Games</h1>`+filterBox)
 
 	var inProgressCount int
 	h.DB.QueryRow("SELECT COUNT(*) FROM match_assignments WHERE status='in_progress'").Scan(&inProgressCount)
@@ -342,7 +336,7 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if iRows == nil { io.WriteString(w, `<tr><td colspan="6">None</td></tr>`) }
-	io.WriteString(w, "</table>"+`</div>`+pageFoot)
+	io.WriteString(w, "</table>")
 
 	var completedCount int
 	h.DB.QueryRow("SELECT COUNT(*) FROM games").Scan(&completedCount)
@@ -358,111 +352,247 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, pageHead+navHTML)
 
 	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth int
-	var result, opening, bName, bVer, wName, wVer string
-	var bTime, wTime float64
-	var bElo, wElo float64
+	var result, opening, bName, bVer, wName, wVer, tcJSON string
+	var bTime, wTime, gameTimeSec float64
+	var bElo, wElo, bEloBefore, wEloBefore float64
 	err := h.DB.QueryRow(
 		"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
 			"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
 			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), eb.name, eb.version, ew.name, ew.version, "+
+			"COALESCE(m.time_control,'{}'), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
-			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0) "+
-			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE g.id=?",
-		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &bName, &bVer, &wName, &wVer, &bElo, &wElo)
+			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
+			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.black_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0), "+
+			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.white_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0) "+
+			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id JOIN matches m ON m.id=g.match_id WHERE g.id=?",
+		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
 	if err != nil {
 		io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
 		return
 	}
 
-	// Compact title: #1455 40/24  edax l10-30s (1500) vs (1500) dw-rodent d8-es44-30s
-	bScore := 0; wScore := 0
-	if result == "1-0" { bScore = finalScore; wScore = 64 - finalScore }
-	if result == "0-1" { wScore = finalScore; bScore = 64 - finalScore }
-	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.5em">
-		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-size:.8em;font-weight:400">%d-%d</span></h1></div>
-		<div style="text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small> vs <small style="color:var(--muted)">(%.0f)</small> <a href="/engines/%s">%s %s</a></div>
-		<div style="flex:1"></div></div>`,
-		id, bScore, wScore, bName, bName, bVer, bElo, wElo, wName, wName, wVer)
+	var tc struct {
+		Seconds float64 `json:"seconds"`
+		Label   string  `json:"label"`
+	}
+	json.Unmarshal([]byte(tcJSON), &tc)
+	if tc.Seconds > 0 {
+		gameTimeSec = tc.Seconds
+	}
 
-	// Per-move data with charts at top
-	mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, nps FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
+	bDelta := bElo - bEloBefore
+	wDelta := wElo - wEloBefore
+
+	bScore := 0
+	wScore := 0
+	if result == "1-0" {
+		bScore = finalScore
+		wScore = 64 - finalScore
+	}
+	if result == "0-1" {
+		wScore = finalScore
+		bScore = 64 - finalScore
+	}
+
+	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0">
+		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-size:.8em;font-weight:400">%d-%d</span></h1></div>
+		<div style="text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f <span style="color:%s">%+d</span>)</small> vs <small style="color:var(--muted)">(<span style="color:%s">%+d</span> %.0f)</small> <a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1"></div></div>`,
+		id, bScore, wScore, bName, bName, bVer, bElo, deltaColor(bDelta), int(bDelta), deltaColor(wDelta), int(wDelta), wElo, wName, wName, wVer)
+
+	bUnspent := 0.0
+	wUnspent := 0.0
+	if gameTimeSec > 0 {
+		bUnspent = max(0, gameTimeSec-bTime)
+		wUnspent = max(0, gameTimeSec-wTime)
+	}
+	tcLabel := tc.Label
+	if tcLabel == "" && tc.Seconds > 0 {
+		tcLabel = fmt.Sprintf("%.0fs", tc.Seconds)
+	}
+	otherGame := gid + 1
+	if gnum == 2 {
+		otherGame = gid - 1
+	}
+	io.WriteString(w, `<div style="text-align:center;margin-bottom:.5em;color:var(--muted);font-size:.85em">`)
+	fmt.Fprintf(w, `Match <a href="/matches/%d">#%d</a> (game %d) | <a href="/games/%d">other game</a>`, mid, mid, gnum, otherGame)
+	if tcLabel != "" {
+		fmt.Fprintf(w, ` | Time: %s (unspent B:%.0fs W:%.0fs)`, tcLabel, bUnspent, wUnspent)
+	}
+	if opening != "" {
+		fmt.Fprintf(w, ` | Opening: %s`, opening)
+	}
+	io.WriteString(w, `</div>`)
+
+	mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, nps, score FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
 	if mRows != nil {
 		defer mRows.Close()
-		type moveRow struct{ num int; side, move string; nodes int; depth int; timeMs float64; nps int }
+		type moveRow struct {
+			num            int
+			side, move     string
+			nodes          int
+			depth          int
+			timeMs         float64
+			nps            int
+			score          int
+		}
 		var moves []moveRow
-		maxTime, maxNodes, maxNPS := 0.0, 0.0, 0.0
+		maxTime, maxNodes, maxNPS, maxScore := 0.0, 0.0, 0.0, 0.0
 		for mRows.Next() {
-			var m moveRow; mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.nps)
+			var m moveRow
+			mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.nps, &m.score)
 			moves = append(moves, m)
-			if m.timeMs > maxTime { maxTime = m.timeMs }
-			if float64(m.nodes) > maxNodes { maxNodes = float64(m.nodes) }
-			if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
+			if m.timeMs > maxTime {
+				maxTime = m.timeMs
+			}
+			if float64(m.nodes) > maxNodes {
+				maxNodes = float64(m.nodes)
+			}
+			if float64(m.nps) > maxNPS {
+				maxNPS = float64(m.nps)
+			}
+			if float64(m.score) > maxScore {
+				maxScore = float64(m.score)
+			}
+		}
+
+		discDiffs := make([]int, len(moves))
+		bCount, wCount := 2, 2
+		maxDiscDiff := 0.0
+		for i, m := range moves {
+			if m.side == "b" {
+				bCount++
+			} else {
+				wCount++
+			}
+			discDiffs[i] = bCount - wCount
+			adiff := discDiffs[i]
+			if adiff < 0 {
+				adiff = -adiff
+			}
+			if float64(adiff) > maxDiscDiff {
+				maxDiscDiff = float64(adiff)
+			}
+		}
+		if maxDiscDiff < 1 {
+			maxDiscDiff = 1
 		}
 
 		if len(moves) > 0 {
 			tab := r.URL.Query().Get("tab")
-			chartH := 160
-			chartW := fmt.Sprintf("%d", max(600, len(moves)*8))
+			chartH := 320
+			chartW := fmt.Sprintf("%d", len(moves)*14+50)
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
-			for _, t := range []struct{ key, label string }{ {"time","Time"}, {"nodes","Nodes"}, {"nps","NpS"} } {
+			for _, t := range []struct{ key, label string }{
+				{"time", "Time"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"diff", "Diff"}, {"score", "Score"},
+			} {
 				sel := `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
-				if tab != t.key { sel = `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--fg);background:rgba(56,136,85,0.06)"` }
+				if tab != t.key {
+					sel = `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--fg);background:rgba(56,136,85,0.06)"`
+				}
 				fmt.Fprintf(w, `<a href="?tab=%s" %s>%s</a>`, t.key, sel, t.label)
 			}
 			io.WriteString(w, `</nav>`)
 
 			fmtVal := func(v float64) string {
 				switch {
-				case v >= 1e9: return fmt.Sprintf("%.1fG", v/1e9)
-				case v >= 1e6: return fmt.Sprintf("%.0fM", v/1e6)
-				case v >= 1e3: return fmt.Sprintf("%.0fk", v/1e3)
-				default: return fmt.Sprintf("%.0f", v)
+				case v >= 1e9:
+					return fmt.Sprintf("%.1fG", v/1e9)
+				case v >= 1e6:
+					return fmt.Sprintf("%.0fM", v/1e6)
+				case v >= 1e3:
+					return fmt.Sprintf("%.0fk", v/1e3)
+				default:
+					return fmt.Sprintf("%.0f", v)
 				}
 			}
 			renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
-				if tab == "" { tab = "time" }
-				if metric != tab { return }
-				io.WriteString(w, fmt.Sprintf(`<div style="background:#1a3a1a;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto"><svg width="%s" height="%d">`, chartW, chartH+30))
-				for pct := 0; pct <= 100; pct += 25 {
-					y := chartH - pct*chartH/100 + 4
-					val := maxVal * float64(pct) / 100.0
-					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="9">%s%s</text>`, y, fmtVal(val), unit)
-					fmt.Fprintf(w, `<line x1="30" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
+				if tab == "" {
+					tab = "time"
 				}
-				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="10">%s</text>`, chartH+34, yLabel)
+				if metric != tab {
+					return
+				}
+				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto"><svg width="%s" height="%d">`, chartW, chartH+52))
+				niceStep := maxVal / 4
+				if niceStep >= 100 {
+					niceStep = float64(int(niceStep/100+0.5)) * 100
+				} else if niceStep >= 10 {
+					niceStep = float64(int(niceStep/10+0.5)) * 10
+				} else {
+					niceStep = float64(int(niceStep + 0.5))
+				}
+				for pct := 0; pct <= 100; pct += 25 {
+					y := chartH - pct*chartH/100 + 14
+					val := float64(pct) / 100.0 * niceStep * 4
+					if pct == 100 {
+						val = maxVal
+					}
+					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="11">%s%s</text>`, y, fmtVal(val), unit)
+					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
+				}
+				if metric == "diff" {
+					z := chartH/2 + 14
+					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
+				}
+				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="11">%s</text>`, chartH+44, yLabel)
 				for i, m := range moves {
 					var val float64
 					switch metric {
-					case "time": val = m.timeMs
-					case "nodes": val = float64(m.nodes)
-					case "nps": val = float64(m.nps)
+					case "time":
+						val = m.timeMs
+					case "nodes":
+						val = float64(m.nodes)
+					case "nps":
+						val = float64(m.nps)
+					case "score":
+						val = float64(m.score)
+					case "diff":
+						val = float64(discDiffs[i])
 					}
 					h := 0
-					if maxVal > 0 { h = int(val / maxVal * float64(chartH)) }
-					if h < 2 { h = 2 }
-					color := "#2c5a2c"
-					if m.side == "w" { color = "#d4d4d4" }
-					showLabel := true
-					if i > 0 && moves[i-1].side == m.side { showLabel = false }
-					x := 32 + i*6
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="5" height="%d" fill="%s" rx="1"><title>%s %s: %s%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, fmtVal(val), unit, m.nodes)
-					if showLabel {
-						fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="7" text-anchor="middle">%s</text>`, x+2, chartH+16, color, m.move)
+					if metric == "diff" {
+						mid := chartH / 2
+						if maxVal > 0 {
+							h = int((val + maxVal) / (2 * maxVal) * float64(chartH))
+						}
+						_ = mid
+					} else {
+						if maxVal > 0 {
+							h = int(val / maxVal * float64(chartH))
+						}
 					}
+					if h < 2 {
+						h = 2
+					}
+					color := "#6bc4ff"
+					if m.side == "w" {
+						color = "#e8e8e8"
+					}
+					x := 34 + i*14
+					titleVal := fmtVal(val)
+					if metric == "diff" {
+						titleVal = fmt.Sprintf("%+d", discDiffs[i])
+					}
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s %s: %s%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, titleVal, unit, m.nodes)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20, color, m.move)
 				}
 				io.WriteString(w, `</svg></div>`)
 			}
 			renderChart("time", maxTime, "ms", "Time per move (ms)")
 			renderChart("nodes", maxNodes, "kn", "Nodes explored")
 			renderChart("nps", maxNPS, "kn/s", "Nodes per second")
+			renderChart("diff", maxDiscDiff, "", "Disc diff (B-W)")
+			renderChart("score", maxScore, "", "Score (cP)")
 
-			// Full detailed table at bottom
-			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
+			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th><th>Score</th></tr>`)
 			for _, m := range moves {
 				side := "Black"
-				if m.side == "w" { side = "White" }
-				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
-					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
+				if m.side == "w" {
+					side = "White"
+				}
+				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td><td>%+d</td></tr>`,
+					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps, m.score)
 			}
 			io.WriteString(w, "</table>"+`</div>`+pageFoot)
 		}
@@ -470,6 +600,15 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `<p style="color:var(--muted);font-style:italic">No per-move data; engines may not support move stats.</p>`)
 	}
 	io.WriteString(w, pageFoot)
+}
+
+func deltaColor(d float64) string {
+	if d > 0 {
+		return "#4caf50"
+	} else if d < 0 {
+		return "#f44336"
+	}
+	return "var(--muted)"
 }
 
 func (h *Handler) OLD_handleGameDetail(w http.ResponseWriter, r *http.Request) {
@@ -932,29 +1071,40 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 
 	if len(stats) == 0 { io.WriteString(w, "<p>No data yet.</p>"+pageFoot); return }
 
+	fmtVal := func(v float64) string {
+		switch {
+		case v >= 1e9: return fmt.Sprintf("%.1fG", v/1e9)
+		case v >= 1e6: return fmt.Sprintf("%.0fM", v/1e6)
+		case v >= 1e3: return fmt.Sprintf("%.0fk", v/1e3)
+		default: return fmt.Sprintf("%.0f", v)
+		}
+	}
+
 	// SVG bar chart helper
 	maxW := 600; barH := 20; gap := 4
+	maxLabelW := 0
+	for _, s := range stats { if len(s.Name) > maxLabelW { maxLabelW = len(s.Name) } }
+	labelX := maxLabelW*7 + 10
+	rightPad := 96
 	drawBars := func(title, unit string, getVal func(engineStats) float64, getMax func() float64, color string) string {
 		var svg strings.Builder
 		maxVal := getMax()
 		if maxVal == 0 { maxVal = 1 }
 		height := len(stats)*(barH+gap) + 10
-		fmt.Fprintf(&svg, `<h3>%s</h3><svg viewBox="0 0 %d %d" style="width:100%%;max-width:%dpx">`, title, maxW+160, height, maxW+160)
+		totalW := labelX + maxW + rightPad
+		fmt.Fprintf(&svg, `<h3>%s</h3><svg viewBox="0 0 %d %d" style="width:100%%;max-width:%dpx">`, title, totalW, height, totalW)
 		for i, s := range stats {
 			val := getVal(s)
 			w := int(val / maxVal * float64(maxW))
 			if w < 2 { w = 2 }
 			y := i*(barH+gap)
-			lbl := s.Name
-			if len(lbl) > 18 { lbl = lbl[:17]+"…" }
-			fmt.Fprintf(&svg, `<g class="filter-item"><text x="0" y="%d" fill="var(--fg)" font-size="11">%s</text>`, y+12, lbl)
-			fmt.Fprintf(&svg, `<rect x="155" y="%d" width="%d" height="%d" fill="%s" rx="2"/>`, y, w, barH, color)
-			fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="var(--muted)" font-size="10">%s</text></g>`, 160+w, y+12, fmt.Sprintf("%.0f%s", val, unit))
+			fmt.Fprintf(&svg, `<g class="filter-item"><text x="%d" y="%d" fill="var(--fg)" font-size="11" text-anchor="end">%s</text>`, labelX-6, y+12, s.Name)
+			fmt.Fprintf(&svg, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="2"/>`, labelX, y, w, barH, color)
+			fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="var(--fg)" font-size="11" font-weight="600">%s</text></g>`, labelX+w+8, y+12, fmtVal(val)+unit)
 		}
 		svg.WriteString(`</svg>`)
 		return svg.String()
 	}
-
 	getGames := func(s engineStats) float64 { return float64(s.Games) }
 	getMaxGames := func() float64 { m := 0.0; for _, s := range stats { if float64(s.Games) > m { m = float64(s.Games) } }; return m }
 	switch chart {
@@ -976,7 +1126,12 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 	io.WriteString(w, drawBars("Unspent Time (%)", "%", getUnspent, getMaxUnspent, chartColors[3]))
 	}
 
-	io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">Unspent time = how much of the allocated time budget goes unused, averaged across all games and time controls. Higher % means the engine finishes early (fast).</p>`)
+	switch chart {
+	case "games": io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">Number of games completed by each engine across all time controls.</p>`)
+	case "length": io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">Average game length in plies. Higher means more moves per game.</p>`)
+	case "timeout": io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">Percentage of moves where the engine exceeded its time budget.</p>`)
+	case "unspent": io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">How much of the time budget goes unused. Higher % means the engine finishes early.</p>`)
+	}
 	}
 
 
