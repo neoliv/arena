@@ -353,140 +353,124 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		io.WriteString(w, pageHead+navHTML)
-		fmt.Fprintf(w, "<h1>Game #%s</h1>", id)
+	id := r.PathValue("id")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.WriteString(w, pageHead+navHTML)
 
-		var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth int
-		var result, opening, bName, bVer, wName, wVer string
-		var bTime, wTime float64
-		var bElo, wElo float64
-		err := h.DB.QueryRow(
-			"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
-				"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
-				"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), eb.name, eb.version, ew.name, ew.version, "+
-				"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
-				"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0) "+
-				"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE g.id=?",
-			id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &bName, &bVer, &wName, &wVer, &bElo, &wElo)
-		if err != nil {
-			io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
-			return
-		}
-
-		badge := `<span class="badge draw">D</span>`
-		if result == "1-0" {
-			badge = `<span class="badge win">W</span>`
-		} else if result == "0-1" {
-			badge = `<span class="badge loss">L</span>`
-		}
-
-		bNPS := float64(blackNodes) / max(bTime, 0.001)
-		wNPS := float64(whiteNodes) / max(wTime, 0.001)
-
-		fmt.Fprintf(w, `<table class="stats-table">`)
-		fmt.Fprintf(w, `<tr><td>Match</td><td><a href="/matches/%d">#%d</a> (game %d)</td></tr>`, mid, mid, gnum)
-		fmt.Fprintf(w, `<tr><td>Black</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small></td></tr>`, bName, bName, bVer, bElo)
-		fmt.Fprintf(w, `<tr><td>White</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small></td></tr>`, wName, wName, wVer, wElo)
-		fmt.Fprintf(w, `<tr><td>Result</td><td>%s %s</td></tr>`, result, badge)
-		fmt.Fprintf(w, `<tr><td>Score</td><td>%+d</td></tr>`, finalScore)
-		if opening != "" { fmt.Fprintf(w, `<tr><td>Opening</td><td>%s</td></tr>`, opening) }
-		fmt.Fprintf(w, `<tr><td>Black NPS</td><td>%.0f / depth %d</td></tr>`, bNPS, blackDepth)
-		fmt.Fprintf(w, `<tr><td>White NPS</td><td>%.0f / depth %d</td></tr></table>`, wNPS, whiteDepth)
-
-		// Per-move data
-		mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, nps FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
-		if mRows != nil {
-			defer mRows.Close()
-			type moveRow struct{ num int; side, move string; nodes int; depth int; timeMs float64; nps int }
-			var moves []moveRow
-			maxTime, maxNodes, maxNPS := 0.0, 0.0, 0.0
-			for mRows.Next() {
-				var m moveRow
-				mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.nps)
-				moves = append(moves, m)
-				if m.timeMs > maxTime { maxTime = m.timeMs }
-				if float64(m.nodes) > maxNodes { maxNodes = float64(m.nodes) }
-				if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
-			}
-
-			// Move transcript at top
-			if len(moves) > 0 {
-				tab := r.URL.Query().Get("tab")
-				chartH := 160
-				chartW := fmt.Sprintf("%d", max(600, len(moves)*8))
-				// Chart tabs
-				io.WriteString(w, `<nav class="chart-tabs" style="margin-top:1em;margin-bottom:1em">`)
-				for _, t := range []struct{ key, label string }{ {"time","Time"}, {"nodes","Nodes"}, {"nps","NpS"} } {
-					sel := `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
-					if tab != t.key { sel = `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--fg);background:rgba(56,136,85,0.06)"` }
-					fmt.Fprintf(w, `<a href="?tab=%s" %s>%s</a>`, t.key, sel, t.label)
-				}
-				io.WriteString(w, `</nav>`)
-
-				// Render chart based on selected tab
-				fmtVal := func(v float64) string {
-					switch {
-					case v >= 1e9: return fmt.Sprintf("%.1fG", v/1e9)
-					case v >= 1e6: return fmt.Sprintf("%.0fM", v/1e6)
-					case v >= 1e3: return fmt.Sprintf("%.0fk", v/1e3)
-					default: return fmt.Sprintf("%.0f", v)
-					}
-				}
-				renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
-					if tab == "" { tab = "time" }
-					if metric != tab { return }
-					io.WriteString(w, fmt.Sprintf(`<div style="background:#1a3a1a;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;position:relative;overflow-x:auto;width:%s">`, chartW))
-					io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+30))
-					for pct := 0; pct <= 100; pct += 25 {
-						y := chartH - pct*chartH/100 + 4
-						val := maxVal * float64(pct) / 100.0
-						fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="9">%s%s</text>`, y, fmtVal(val), unit)
-						fmt.Fprintf(w, `<line x1="30" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
-					}
-					fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="10">%s</text>`, chartH+34, yLabel)
-					for i, m := range moves {
-						var val float64
-						switch metric {
-						case "time": val = m.timeMs
-						case "nodes": val = float64(m.nodes)
-						case "nps": if m.timeMs > 0 { val = float64(m.nodes) / m.timeMs * 1000 }
-						}
-						h := 0
-						if maxVal > 0 { h = int(val / maxVal * float64(chartH)) }
-						if h < 2 { h = 2 }
-						color := "#2c5a2c"
-						if m.side == "w" { color = "#eee" }
-						showLabel := true
-						if i > 0 && moves[i-1].side == m.side { showLabel = false }
-						x := 32 + i*6
-						fmt.Fprintf(w, `<rect x="%d" y="%d" width="5" height="%d" fill="%s" rx="1"><title>%s %s: %s%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, fmtVal(val), unit, m.nodes)
-						if showLabel {
-							fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="7" text-anchor="middle">%s</text>`, x+2, chartH+16, color, m.move)
-						}
-					}
-					io.WriteString(w, `</svg></div>`)
-				}
-				renderChart("time", maxTime, "ms", "Time per move (ms)")
-				renderChart("nodes", maxNodes, "kn", "Nodes explored")
-				renderChart("nps", maxNPS, "kn/s", "Nodes per second")
-
-				// Full detailed table at bottom
-				io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
-				for _, m := range moves {
-					side := "Black"
-					if m.side == "w" { side = "White" }
-					fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
-						m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
-				}
-				io.WriteString(w, "</table>")
-			}
-		} else {
-			io.WriteString(w, "<p style=\"color:var(--muted);font-style:italic\">No per-move data — engines may not support move stats.</p>")
-		}
-		io.WriteString(w, pageFoot)
+	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth int
+	var result, opening, bName, bVer, wName, wVer string
+	var bTime, wTime float64
+	var bElo, wElo float64
+	err := h.DB.QueryRow(
+		"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
+			"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
+			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), eb.name, eb.version, ew.name, ew.version, "+
+			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
+			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0) "+
+			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE g.id=?",
+		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &bName, &bVer, &wName, &wVer, &bElo, &wElo)
+	if err != nil {
+		io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
+		return
 	}
+
+	// Compact title: #1455 40/24  edax l10-30s (1500) vs (1500) dw-rodent d8-es44-30s
+	bScore := 0; wScore := 0
+	if result == "1-0" { bScore = finalScore; wScore = 64 - finalScore }
+	if result == "0-1" { wScore = finalScore; bScore = 64 - finalScore }
+	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.5em">
+		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-size:.8em;font-weight:400">%d-%d</span></h1></div>
+		<div style="text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f)</small> vs <small style="color:var(--muted)">(%.0f)</small> <a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1"></div></div>`,
+		id, bScore, wScore, bName, bName, bVer, bElo, wElo, wName, wName, wVer)
+
+	// Per-move data with charts at top
+	mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, nps FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
+	if mRows != nil {
+		defer mRows.Close()
+		type moveRow struct{ num int; side, move string; nodes int; depth int; timeMs float64; nps int }
+		var moves []moveRow
+		maxTime, maxNodes, maxNPS := 0.0, 0.0, 0.0
+		for mRows.Next() {
+			var m moveRow; mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.nps)
+			moves = append(moves, m)
+			if m.timeMs > maxTime { maxTime = m.timeMs }
+			if float64(m.nodes) > maxNodes { maxNodes = float64(m.nodes) }
+			if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
+		}
+
+		if len(moves) > 0 {
+			tab := r.URL.Query().Get("tab")
+			chartH := 160
+			chartW := fmt.Sprintf("%d", max(600, len(moves)*8))
+			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
+			for _, t := range []struct{ key, label string }{ {"time","Time"}, {"nodes","Nodes"}, {"nps","NpS"} } {
+				sel := `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
+				if tab != t.key { sel = `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--fg);background:rgba(56,136,85,0.06)"` }
+				fmt.Fprintf(w, `<a href="?tab=%s" %s>%s</a>`, t.key, sel, t.label)
+			}
+			io.WriteString(w, `</nav>`)
+
+			fmtVal := func(v float64) string {
+				switch {
+				case v >= 1e9: return fmt.Sprintf("%.1fG", v/1e9)
+				case v >= 1e6: return fmt.Sprintf("%.0fM", v/1e6)
+				case v >= 1e3: return fmt.Sprintf("%.0fk", v/1e3)
+				default: return fmt.Sprintf("%.0f", v)
+				}
+			}
+			renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
+				if tab == "" { tab = "time" }
+				if metric != tab { return }
+				io.WriteString(w, fmt.Sprintf(`<div style="background:#1a3a1a;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto"><svg width="%s" height="%d">`, chartW, chartH+30))
+				for pct := 0; pct <= 100; pct += 25 {
+					y := chartH - pct*chartH/100 + 4
+					val := maxVal * float64(pct) / 100.0
+					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="9">%s%s</text>`, y, fmtVal(val), unit)
+					fmt.Fprintf(w, `<line x1="30" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
+				}
+				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="10">%s</text>`, chartH+34, yLabel)
+				for i, m := range moves {
+					var val float64
+					switch metric {
+					case "time": val = m.timeMs
+					case "nodes": val = float64(m.nodes)
+					case "nps": val = float64(m.nps)
+					}
+					h := 0
+					if maxVal > 0 { h = int(val / maxVal * float64(chartH)) }
+					if h < 2 { h = 2 }
+					color := "#2c5a2c"
+					if m.side == "w" { color = "#d4d4d4" }
+					showLabel := true
+					if i > 0 && moves[i-1].side == m.side { showLabel = false }
+					x := 32 + i*6
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="5" height="%d" fill="%s" rx="1"><title>%s %s: %s%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, fmtVal(val), unit, m.nodes)
+					if showLabel {
+						fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="7" text-anchor="middle">%s</text>`, x+2, chartH+16, color, m.move)
+					}
+				}
+				io.WriteString(w, `</svg></div>`)
+			}
+			renderChart("time", maxTime, "ms", "Time per move (ms)")
+			renderChart("nodes", maxNodes, "kn", "Nodes explored")
+			renderChart("nps", maxNPS, "kn/s", "Nodes per second")
+
+			// Full detailed table at bottom
+			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
+			for _, m := range moves {
+				side := "Black"
+				if m.side == "w" { side = "White" }
+				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
+			}
+			io.WriteString(w, "</table>")
+		}
+	} else {
+		io.WriteString(w, `<p style="color:var(--muted);font-style:italic">No per-move data; engines may not support move stats.</p>`)
+	}
+	io.WriteString(w, pageFoot)
+}
 
 func (h *Handler) OLD_handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
