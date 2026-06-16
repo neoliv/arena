@@ -218,7 +218,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			Nodes: nodes, Depth: depth, TimeMs: tm, NPS: nps,
 		})
 
-		if moveNum > 120 {
+		if moveNum > 90 {
 			break
 		}
 	}
