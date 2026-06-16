@@ -1,18 +1,18 @@
 name: "dw-rodent"
-version: "d8-es44"
+version: "d10-es44"
 created: "2026-06-14"
-changelog_short: "Default-strength darwersi — depth 8 with standard endgame solver"
+changelog_short: "Default-strength darwersi — depth 10 with standard endgame solver"
 changelog_full: |
-  Darwersi at its default strength level. Depth 8 search with endgame
+  Darwersi at its default strength level. Depth 10 search with endgame
   solver starting at ply 44 (both exact and WLD). This was the standard
   setting used in the original 1998 release. Expected ~1600 Elo.
 
-  Search: depth 8 (iterative deepening)
+  Search: depth 10 (iterative deepening)
   Endgame: exact at ply 44, WLD at ply 44
-  Nodes/move: ~80,000
+  Nodes/move: ~300,000
   Time/move: ~10ms
 build: "cd darwersi/Arena && make"
-run: "/home/oliv/dev/agent/darwersi/Arena/darwersi-gtp --name dw-rodent --max-depth 8 --end-search 44"
+run: "/home/oliv/dev/agent/darwersi/Arena/darwersi-gtp --name dw-rodent --max-depth 10 --end-search 44"
 cores: 1
 memory_mb: 8
 max_concurrency: 4
