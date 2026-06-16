@@ -55,11 +55,20 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		bScore = 64 - finalScore
 	}
 
-	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0">
+	// Line 1: game number + score, Elos centered
+	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.2em">
 		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-weight:400">%d-%d</span></h1></div>
-		<div style="text-align:center;font-size:1.4em"><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f <span style="color:%s">%+d</span>)</small> vs <small style="color:var(--muted)">(<span style="color:%s">%+d</span> %.0f)</small> <a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1;text-align:center;font-size:1.1em"><span style="color:%s">(%.0f %+d)</span></div>
+		<div style="flex:1;text-align:center;font-size:1.1em"><span style="color:%s">(%+d %.0f)</span></div>
 		<div style="flex:1"></div></div>`,
-		id, bScore, wScore, bName, bName, bVer, bElo, deltaColor(bDelta), int(bDelta), deltaColor(wDelta), int(wDelta), wElo, wName, wName, wVer)
+		id, bScore, wScore, deltaColor(bDelta), bElo, int(bDelta), deltaColor(wDelta), int(wDelta), wElo)
+	// Line 2: player names
+	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.6em">
+		<div style="flex:1"></div>
+		<div style="flex:1;text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1;text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1"></div></div>`,
+		bName, bName, bVer, wName, wName, wVer)
 
 	bUnspent := 0.0
 	wUnspent := 0.0
@@ -75,7 +84,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	if gnum == 2 {
 		otherGame = gid - 1
 	}
-	io.WriteString(w, `<div style="text-align:center;margin-bottom:.5em;color:var(--muted);font-size:.85em">`)
+	io.WriteString(w, `<br><br><div style="text-align:center;margin-bottom:.3em;color:var(--muted);font-size:.85em">`)
 	fmt.Fprintf(w, `Match <a href="/matches/%d">#%d</a> (game %d) | <a href="/games/%d">other game</a>`, mid, mid, gnum, otherGame)
 	if tcLabel != "" {
 		fmt.Fprintf(w, ` | Time: %s (unspent B:%.0fs W:%.0fs)`, tcLabel, bUnspent, wUnspent)
@@ -83,7 +92,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	if opening != "" {
 		fmt.Fprintf(w, ` | Opening: %s`, opening)
 	}
-	io.WriteString(w, `</div>`)
+	io.WriteString(w, `</div><br>`)
 
 	mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, score FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
 	if mRows != nil {
