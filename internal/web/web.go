@@ -486,9 +486,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			for _, t := range []struct{ key, label string }{
 				{"time", "Time"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"diff", "Diff"}, {"score", "Score"},
 			} {
-				sel := `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
+				sel := `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
 				if tab != t.key {
-					sel = `style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--fg);background:rgba(56,136,85,0.06)"`
+					sel = `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:var(--fg);background:rgba(56,136,85,0.06)"`
 				}
 				fmt.Fprintf(w, `<a href="?tab=%s" %s>%s</a>`, t.key, sel, t.label)
 			}
