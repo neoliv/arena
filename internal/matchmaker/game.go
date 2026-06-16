@@ -16,7 +16,7 @@ type gameMove struct {
 	Nodes     int64
 	Depth     int
 	TimeMs    float64 // wall-clock from arena genmove timing
-	Branching int
+	
 }
 type gameResult struct {
 	Black        string
@@ -252,7 +252,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			var nodes int64
 			var depth int
 			var timeout bool
-			var branching int
+			
 			var score int
 			var coachMs float64
 			select {
@@ -260,8 +260,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 				// Resilient parsing: try full format, fall back to
 				// simpler ones. Missing fields stay at zero.
 				if s := strings.TrimSpace(statsLine); strings.HasPrefix(s, "#") {
-					n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t branching %d",
-						&coachMs, &nodes, &depth, &score, &timeout, &branching)
+					n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t",
+						&coachMs, &nodes, &depth, &score, &timeout)
 					if n == 0 {
 						fmt.Sscanf(s, "# time_ms %f", &coachMs)
 					}
@@ -274,7 +274,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 			gr.Moves = append(gr.Moves, gameMove{
 				Side: sideToMove, Move: mv,
-				Nodes: nodes, Depth: depth, TimeMs: coachMs, Branching: branching,
+				Nodes: nodes, Depth: depth, TimeMs: coachMs, 
 			})
 
 		sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)

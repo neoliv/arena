@@ -426,11 +426,11 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 		if len(g.Moves) > 0 {
 			var buf strings.Builder
 			var args []any
-			buf.WriteString("INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, branching) VALUES ")
+			buf.WriteString("INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms) VALUES ")
 			for mi, mv := range g.Moves {
 				if mi > 0 { buf.WriteString(", ") }
 				buf.WriteString("(?,?,?,?,?,?,?,?)")
-				args = append(args, gameID, mi+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Branching)
+				args = append(args, gameID, mi+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs)
 			}
 			if _, err := m.DB.Exec(buf.String(), args...); err != nil {
 				slog.Error("store game_moves FAILED; check DB schema", "game", gameID, "moves", len(g.Moves), "err", err)
