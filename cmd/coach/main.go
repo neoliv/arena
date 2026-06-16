@@ -637,7 +637,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				sn, sd, ss := searchNodes, searchDepth, searchScore
 				searchNodes, searchDepth, searchScore = 0, 0, 0
 				searchMu.Unlock()
-				injectLine = fmt.Sprintf("# time_ms %d nodes %d depth %d score %d", lastElapsedMs, sn, sd, ss)
+				injectLine = fmt.Sprintf("# time_ms %d nodes %d depth %d score %d v2", lastElapsedMs, sn, sd, ss)
 			}
 			// If engine sent its own stats, enrich with real time.
 			if strings.HasPrefix(line, "= nodes ") {
