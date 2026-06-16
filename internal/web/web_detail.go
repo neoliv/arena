@@ -56,8 +56,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0">
-		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-size:.8em;font-weight:400">%d-%d</span></h1></div>
-		<div style="text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f <span style="color:%s">%+d</span>)</small> vs <small style="color:var(--muted)">(<span style="color:%s">%+d</span> %.0f)</small> <a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-weight:400">%d-%d</span></h1></div>
+		<div style="text-align:center;font-size:1.4em"><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">(%.0f <span style="color:%s">%+d</span>)</small> vs <small style="color:var(--muted)">(<span style="color:%s">%+d</span> %.0f)</small> <a href="/engines/%s">%s %s</a></div>
 		<div style="flex:1"></div></div>`,
 		id, bScore, wScore, bName, bName, bVer, bElo, deltaColor(bDelta), int(bDelta), deltaColor(wDelta), int(wDelta), wElo, wName, wName, wVer)
 
