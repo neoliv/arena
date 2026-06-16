@@ -500,8 +500,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 			if !strings.Contains(line, "BEST MOVE FOUND") {
 				continue
 			}
-			var n int64; var d, s int
-			if _, err := fmt.Sscanf(line, "%*d> => BEST MOVE FOUND! level = %d@", &d); err == nil {
+			var n int64; var d, s, dummy int
+			if _, err := fmt.Sscanf(line, "%d> => BEST MOVE FOUND! level = %d@", &dummy, &d); err == nil {
 				if idx := strings.Index(line, "score = "); idx >= 0 {
 					fmt.Sscanf(line[idx:], "score = %d", &s)
 				}

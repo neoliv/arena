@@ -107,10 +107,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			if m.timeMs > maxTime {
 				maxTime = m.timeMs
 			}
-			if float64(m.nodes) > maxNodes {
-				maxNodes = float64(m.nodes)
-				if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
-			}
+			if float64(m.nodes) > maxNodes { maxNodes = float64(m.nodes) }
+			if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
 			if float64(m.score) > maxScore {
 				maxScore = float64(m.score)
 			}
@@ -142,6 +140,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			tab := r.URL.Query().Get("tab")
 			chartH := 320
 			chartW := fmt.Sprintf("%d", len(moves)*14+50)
+			if tab == "" { tab = "time" }
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
 			for _, t := range []struct{ key, label string }{
 				{"time", "Time"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"diff", "Diff"}, {"score", "Score"},
@@ -167,9 +166,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
-				if tab == "" {
-					tab = "time"
-				}
 				if metric != tab {
 					return
 				}
@@ -248,8 +244,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, `</svg></div>`)
 			}
 			renderChart("time", maxTime, "ms", "Time per move (ms)")
-			renderChart("nodes", maxNodes, "kn", "Nodes explored")
-			renderChart("nps", maxNPS, "kn/s", "Nodes per second")
+			renderChart("nodes", maxNodes, "", "Nodes explored")
+			renderChart("nps", maxNPS, "", "Nodes per second")
 			renderChart("diff", maxDiscDiff, "", "Disc diff (B-W)")
 			renderChart("score", maxScore, "", "Score (cP)")
 
