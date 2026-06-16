@@ -1,0 +1,17 @@
+name: "nr-neural"
+version: "6.1.0"
+created: "2026-06-16"
+changelog_short: "Neural Reversi 6.1.0 — neural network Othello engine with level 1-20"
+changelog_full: |
+  Neural Reversi is a Rust Othello engine using a neural network evaluation
+  function. Supports Multi-PV, ProbCut selectivity, and SMP.
+
+  Level 10: midgame ~10 ply with neural eval
+  Nodes/move: ~200,000 at level 10
+  Time/move: ~50ms at level 10
+build: "bash coach-build.sh"
+binary: "neural-reversi-gtp"
+args: "gtp --level 10 --threads 1"
+cores: 1
+memory_mb: 128
+max_concurrency: 2

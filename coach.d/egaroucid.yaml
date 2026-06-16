@@ -1,0 +1,17 @@
+name: "egaroucid"
+version: "7.8.1"
+created: "2026-06-16"
+changelog_short: "Egaroucid 7.8.1 — strong C++ Othello engine with level-based play"
+changelog_full: |
+  Egaroucid is a high-performance Othello engine implementing NegaScout
+  search with ProbCut, lazy SMP, and endgame solver. Level 1-20.
+
+  Level 10: midgame ~8 ply, endgame exact solve
+  Nodes/move: ~500,000 at level 10
+  Time/move: ~100ms at level 10
+build: "bash coach-build.sh"
+binary: "egaroucid-gtp"
+args: "--time %game_time% --level 10"
+cores: 1
+memory_mb: 64
+max_concurrency: 2
