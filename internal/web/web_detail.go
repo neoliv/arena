@@ -98,7 +98,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			score          int
 		}
 		var moves []moveRow
-		maxTime, maxNodes, maxNPS, maxScore := 0.0, 0.0, 0.0, 0.0
+		maxTime, maxNodes, maxNPS, maxBScore, maxWScore := 0.0, 0.0, 0.0, 0.0, 0.0
 		for mRows.Next() {
 			var m moveRow
 			mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.score)
@@ -109,9 +109,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			if float64(m.nodes) > maxNodes { maxNodes = float64(m.nodes) }
 			if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
-			if float64(m.score) > maxScore {
-				maxScore = float64(m.score)
-			}
+			if m.side == "b" { abs := float64(m.score); if abs < 0 { abs = -abs }; if abs > maxBScore { maxBScore = abs } }
+			if m.side == "w" { abs := float64(m.score); if abs < 0 { abs = -abs }; if abs > maxWScore { maxWScore = abs } }
 		}
 
 		discDiffs := make([]int, len(moves))
@@ -187,7 +186,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="11">%s%s</text>`, y, fmtVal(val), unit)
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 				}
-				if metric == "diff" {
+				if metric == "diff" || metric == "score" {
 					z := chartH/2 + 14
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
 				}
@@ -220,13 +219,17 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 							h = int(val / maxVal * float64(chartH))
 						}
 					}
-					if h < 2 {
-						h = 2
+					if h < 2 { h = 2 }
+					barY := chartH - h
+					if metric == "score" {
+						mid := float64(chartH / 2)
+						h = int((val / maxVal) * mid)
+						if h < 0 { h = -h }
+						if h < 2 { h = 2 }
+						if val >= 0 { barY = int(mid) - h } else { barY = int(mid) }
 					}
 					color := "#6bc4ff"
-					if m.side == "w" {
-						color = "#e8e8e8"
-					}
+					if m.side == "w" { color = "#e8e8e8" }
 					x := 34 + i*14
 					titleVal := fmtVal(val)
 					if metric == "diff" { titleVal = fmt.Sprintf("%+d", discDiffs[i]) }
@@ -238,7 +241,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "score": tip = fmt.Sprintf("%s %s: %+d cP", m.side, m.move, m.score)
 					case "diff": tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, chartH-h, h, color, tip)
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, barY, h, color, tip)
 					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20, color, m.move)
 				}
 				io.WriteString(w, `</svg></div>`)
@@ -247,7 +250,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			renderChart("nodes", maxNodes, "", "Nodes explored")
 			renderChart("nps", maxNPS, "", "Nodes per second")
 			renderChart("diff", maxDiscDiff, "", "Disc diff (B-W)")
-			renderChart("score", maxScore, "", "Score (cP)")
+			renderChart("score", maxBScore, "", "Score (cP)")
 
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th><th>Score</th></tr>`)
 			for _, m := range moves {
