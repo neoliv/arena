@@ -940,7 +940,7 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 		CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN g.black_depth+g.white_depth ELSE g.white_depth+g.black_depth END),0) AS INTEGER) as avg_ply,
 		COALESCE((SELECT COUNT(*) FROM speed_stats ss WHERE ss.engine_id=e.id AND ss.timeouts>0),0) as timeouts,
 		COALESCE((SELECT COUNT(*) FROM speed_stats ss WHERE ss.engine_id=e.id),0) as moves,
-		CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN 1.0-(g.black_time_s/COALESCE((SELECT CAST(ss.total_time_s AS REAL)/MAX(1,ss.sample_count) FROM speed_stats ss WHERE ss.engine_id=e.id LIMIT 1),60)) ELSE 1.0-(g.white_time_s/60) END),0)*100 AS REAL) as unspent_pct,
+		CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN 100.0*(1.0-g.black_time_s/NULLIF(COALESCE((SELECT CAST(json_extract(m.time_control,'$.seconds') AS REAL) FROM matches m WHERE m.id=g.match_id),60),0)) ELSE 100.0*(1.0-g.white_time_s/NULLIF(COALESCE((SELECT CAST(json_extract(m.time_control,'$.seconds') AS REAL) FROM matches m WHERE m.id=g.match_id),60),0)) END),0) AS REAL) as unspent_pct,
 		CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN g.black_time_s ELSE g.white_time_s END),0) AS REAL) as avg_time_s
 		FROM engines e LEFT JOIN games g ON g.black_id=e.id OR g.white_id=e.id
 		GROUP BY e.name HAVING games>0 ORDER BY games DESC`)
@@ -999,7 +999,7 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 	io.WriteString(w, drawBars("Unspent Time (%)", "%", getUnspent, getMaxUnspent, chartColors[3]))
 	}
 
-	io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">Unspent time = how much of the allocated 60s budget goes unused. Higher % means the engine finishes early (fast).</p>`)
+	io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">Unspent time = how much of the allocated time budget goes unused, averaged across all games and time controls. Higher % means the engine finishes early (fast).</p>`)
 	}
 
 
