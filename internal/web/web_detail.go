@@ -231,10 +231,16 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					}
 					x := 34 + i*14
 					titleVal := fmtVal(val)
-					if metric == "diff" {
-						titleVal = fmt.Sprintf("%+d", discDiffs[i])
+					if metric == "diff" { titleVal = fmt.Sprintf("%+d", discDiffs[i]) }
+					tip := fmt.Sprintf("%s %s: %s%s", m.side, m.move, titleVal, unit)
+					switch metric {
+					case "time": tip = fmt.Sprintf("%s %s: %.0fms, %s nodes", m.side, m.move, m.timeMs, fmtVal(float64(m.nodes)))
+					case "nodes": tip = fmt.Sprintf("%s %s: %s nodes, depth %d", m.side, m.move, fmtVal(float64(m.nodes)), m.depth)
+					case "nps": tip = fmt.Sprintf("%s %s: %s n/s, %.0fms", m.side, m.move, fmtVal(float64(m.nps)), m.timeMs)
+					case "score": tip = fmt.Sprintf("%s %s: %+d cP", m.side, m.move, m.score)
+					case "diff": tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s %s: %s%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, titleVal, unit, m.nodes)
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, chartH-h, h, color, tip)
 					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20, color, m.move)
 				}
 				io.WriteString(w, `</svg></div>`)
