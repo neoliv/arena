@@ -302,7 +302,7 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 	if status == "declined" {
 		var retryCount int
 		h.DB.QueryRow("SELECT retry_count FROM match_assignments WHERE id=?", assignmentID).Scan(&retryCount)
-		delays := []int{30, 60, 120, 240, 480}
+		delays := []int{5, 15, 30, 60, 120}
 		delay := 480
 		if retryCount < len(delays) {
 			delay = delays[retryCount]
