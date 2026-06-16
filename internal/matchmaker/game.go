@@ -247,22 +247,29 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-		// Read optional stats emitted by the engine after genmove.
-		// Only nodes, depth, timeout, and branching are accepted.
-		// Time is measured by the arena (wall-clock above).
-		var nodes int64
-		var depth int
-		var timeout bool
-		var branching int
-		statsResp, _ := wsSend(current, "stats")
-		statsResp = strings.TrimPrefix(strings.TrimSpace(statsResp), "= ")
-		fmt.Sscanf(statsResp, "nodes %d depth %d timeout %t branching %d", &nodes, &depth, &timeout, &branching)
+			// Read stats comment injected by the coach after genmove.
+			// Format: "# time_ms <ms> nodes <n> depth <d> timeout <bool> branching <b>"
+			var nodes int64
+			var depth int
+			var timeout bool
+			var branching int
+			var coachMs float64
+			select {
+			case statsLine := <-current.In:
+				statsLine = strings.TrimSpace(statsLine)
+				if strings.HasPrefix(statsLine, "#") {
+					fmt.Sscanf(statsLine, "# time_ms %f nodes %d depth %d timeout %t branching %d", &coachMs, &nodes, &depth, &timeout, &branching)
+				}
+			default:
+			}
+			if coachMs <= 0 {
+				coachMs = elapsed * 1000
+			}
 
-		elapsedMs := elapsed * 1000
-		gr.Moves = append(gr.Moves, gameMove{
-			Side: sideToMove, Move: mv,
-			Nodes: nodes, Depth: depth, TimeMs: elapsedMs, Branching: branching,
-		})
+			gr.Moves = append(gr.Moves, gameMove{
+				Side: sideToMove, Move: mv,
+				Nodes: nodes, Depth: depth, TimeMs: coachMs, Branching: branching,
+			})
 
 		sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
 

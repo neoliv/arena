@@ -552,17 +552,23 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	}
 	engineTimedOut := false
 
-	// stdout → WS: track genmove response timing
+	// stdout → WS: track genmove response timing and always
+	// emit a stats line with real wall-clock time.
+	var lastElapsedMs int64
+	statsSent := false
 	go func() {
 		defer conn.Close(websocket.StatusNormalClosure, "done")
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			line := scanner.Text()
+			raw := scanner.Bytes()
+			line := string(raw)
+			var injectLine string
 			timingMu.Lock()
 			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && len(strings.TrimPrefix(line, "= ")) > 0 {
-				elapsed := time.Since(genmoveStart).Milliseconds()
-				totalThinkMs += elapsed
+				lastElapsedMs = time.Since(genmoveStart).Milliseconds()
+				totalThinkMs += lastElapsedMs
 				genmoveStart = time.Time{}
+				statsSent = false
 				if totalThinkMs > budgetMs {
 					engineTimedOut = true
 					timingMu.Unlock()
@@ -570,10 +576,34 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 					cmd.Process.Kill()
 					return
 				}
+				// Always inject timing after genmove response.
+				injectLine = fmt.Sprintf("= nodes 0 depth 0 time_ms %%d timeout false branching 0", lastElapsedMs)
+			}
+			// If engine sent its own stats, enrich with real time.
+			if strings.HasPrefix(line, "= nodes ") {
+				injectLine = "" // engine provided data, skip injection
+				rewritten := fmt.Sprintf("= nodes %%s time_ms %%d%%s",
+					lastElapsedMs, strings.TrimPrefix(line, "= nodes "),
+					func() string {
+						if idx := strings.Index(line, " timeout "); idx >= 0 {
+							return line[idx:]
+						}
+						return ""
+					}())
+				raw = []byte(rewritten)
+				statsSent = true
 			}
 			timingMu.Unlock()
-			if err := conn.Write(context.Background(), websocket.MessageText, scanner.Bytes()); err != nil {
+			if err := conn.Write(context.Background(), websocket.MessageText, raw); err != nil {
 				break
+			}
+			if injectLine != "" {
+				timingMu.Lock()
+				sent := statsSent
+				timingMu.Unlock()
+				if !sent {
+					conn.Write(context.Background(), websocket.MessageText, []byte(injectLine))
+				}
 			}
 		}
 	}()
