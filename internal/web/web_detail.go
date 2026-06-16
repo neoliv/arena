@@ -85,7 +85,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	io.WriteString(w, `</div>`)
 
-	mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, nps, score FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
+	mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, score FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
 	if mRows != nil {
 		defer mRows.Close()
 		type moveRow struct {
@@ -101,16 +101,15 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		maxTime, maxNodes, maxNPS, maxScore := 0.0, 0.0, 0.0, 0.0
 		for mRows.Next() {
 			var m moveRow
-			mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.nps, &m.score)
+			mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.score)
+				if m.timeMs > 0 { m.nps = int(float64(m.nodes) * 1000.0 / m.timeMs) }
 			moves = append(moves, m)
 			if m.timeMs > maxTime {
 				maxTime = m.timeMs
 			}
 			if float64(m.nodes) > maxNodes {
 				maxNodes = float64(m.nodes)
-			}
-			if float64(m.nps) > maxNPS {
-				maxNPS = float64(m.nps)
+				if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
 			}
 			if float64(m.score) > maxScore {
 				maxScore = float64(m.score)

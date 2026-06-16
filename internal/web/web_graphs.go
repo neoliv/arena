@@ -18,7 +18,7 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 		<a href="?tab=speed" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="speed"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="speed"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Speed</a>
 		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="games"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="games"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Games</a>
 		<a href="?tab=timeout" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="timeout"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="timeout"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Timeouts</a>
-		<a href="?tab=unspent" style="display:inline-block;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--border);color:`+func()string{if tab=="performance"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="performance"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Unspent</a>
+		<a href="?tab=unspent" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="unspent"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="unspent"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Unspent</a>
 		</div>`)
 
 	switch tab {
@@ -28,8 +28,7 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 		h.renderStatsBars(w, r, "games")
 	case "timeout":
 		h.renderStatsBars(w, r, "timeout")
-	case "performance":
-		io.WriteString(w, "<br>")
+	case "unspent":
 		h.renderStatsBars(w, r, "unspent")
 	default:
 		h.renderEloChart(w, r)
