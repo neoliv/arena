@@ -364,7 +364,7 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	// Filter out phantom games (0 moves = coach/system failure, not a real game).
 	realGames := games[:0]
 	for _, g := range games {
-		if len(g.Moves) > 0 { realGames = append(realGames, g) }
+		if len(g.Moves) > 0 && !g.Disconnect { realGames = append(realGames, g) }
 	}
 	games = realGames
 	if len(games) == 0 {

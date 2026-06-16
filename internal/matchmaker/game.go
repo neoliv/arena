@@ -28,6 +28,7 @@ type gameResult struct {
 	WhiteTimeS   float64
 	BlackNodes   int64
 	WhiteNodes   int64
+	Disconnect   bool // stream/timeout error, not a real game
 	BlackDepth   int
 	WhiteDepth   int
 	Moves        []gameMove
@@ -84,12 +85,12 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	for _, s := range []coach.Stream{black, white} {
 		if _, err := wsSend(s, "boardsize 8"); err != nil {
 			slog.Error("init failed", "cmd", "boardsize 8", "err", err)
-			gr.Result = "0-1"
+			gr.Result = "0-1"; gr.Disconnect = true
 			return gr
 		}
 		if _, err := wsSend(s, "clear_board"); err != nil {
 			slog.Error("init failed", "cmd", "clear_board", "err", err)
-			gr.Result = "0-1"
+			gr.Result = "0-1"; gr.Disconnect = true
 			return gr
 		}
 	}
@@ -107,7 +108,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			resp, err := wsSend(s, cmd)
 			if err != nil {
 				slog.Error("opening play failed", "move", mv, "err", err)
-				gr.Result = "0-1"
+				gr.Result = "0-1"; gr.Disconnect = true
 				return gr
 			}
 			if strings.HasPrefix(resp, "?") {
@@ -179,6 +180,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 		if err != nil {
 			slog.Error("genmove failed", "side", sideToMove, "err", err)
+			gr.Disconnect = true
 			if sideToMove == "b" {
 				gr.Result = "0-1"
 			} else {
