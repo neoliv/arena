@@ -485,6 +485,35 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	stderrWriters := io.MultiWriter(os.Stderr, &stderrBuf, stderrPipeW)
 	if errLog != nil { stderrWriters = io.MultiWriter(stderrWriters, errLog) }
 	cmd.Stderr = stderrWriters
+
+	// Parse edax search-log from stderr, store stats for the
+	// timing goroutine to merge into a single stats line.
+	var searchMu sync.Mutex
+	var searchNodes int64
+	var searchDepth int
+	var searchScore int
+	go func() {
+		defer stderrPipeR.Close()
+		scanner := bufio.NewScanner(stderrPipeR)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.Contains(line, "BEST MOVE FOUND") {
+				continue
+			}
+			var n int64; var d, s int
+			if _, err := fmt.Sscanf(line, "%*d> => BEST MOVE FOUND! level = %d@", &d); err == nil {
+				if idx := strings.Index(line, "score = "); idx >= 0 {
+					fmt.Sscanf(line[idx:], "score = %d", &s)
+				}
+				if idx := strings.Index(line, "nodes = "); idx >= 0 {
+					fmt.Sscanf(line[idx:], "nodes = %d N", &n)
+				}
+				searchMu.Lock()
+				searchNodes, searchDepth, searchScore = n, d, s
+				searchMu.Unlock()
+			}
+		}
+	}()
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 
@@ -603,8 +632,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 					cmd.Process.Kill()
 					return
 				}
-				// Always inject timing after genmove response.
-				injectLine = fmt.Sprintf("= nodes 0 depth 0 time_ms %%d timeout false branching 0", lastElapsedMs)
+				// Inject timing + optional search-log data.
+				searchMu.Lock()
+				sn, sd, ss := searchNodes, searchDepth, searchScore
+				searchNodes, searchDepth, searchScore = 0, 0, 0
+				searchMu.Unlock()
+				injectLine = fmt.Sprintf("# time_ms %d nodes %d depth %d score %d", lastElapsedMs, sn, sd, ss)
 			}
 			// If engine sent its own stats, enrich with real time.
 			if strings.HasPrefix(line, "= nodes ") {
