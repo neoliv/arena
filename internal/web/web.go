@@ -416,15 +416,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				tab := r.URL.Query().Get("tab")
 				chartH := 140
 				chartW := fmt.Sprintf("%d", max(600, len(moves)*8))
-				io.WriteString(w, `<table><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
-				for _, m := range moves {
-					side := "Black"
-					if m.side == "w" { side = "White" }
-					fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
-						m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
-				}
-				io.WriteString(w, "</table>")
-
 				// Chart tabs
 				io.WriteString(w, `<nav class="chart-tabs" style="margin-top:1em;margin-bottom:1em">`)
 				for _, t := range []struct{ key, label string }{ {"time","Time"}, {"nodes","Nodes"}, {"nps","NpS"} } {
@@ -461,7 +452,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						}
 						h := 0
 						if maxVal > 0 { h = int(val / maxVal * float64(chartH)) }
-						if h < 1 { h = 1 }
+						if h < 2 { h = 2 }
 						color := "#2c5a2c"
 						if m.side == "w" { color = "#eee" }
 						// Parity check: if previous move was same side, skip label
