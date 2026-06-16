@@ -414,7 +414,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			// Move transcript at top
 			if len(moves) > 0 {
 				tab := r.URL.Query().Get("tab")
-				chartH := 140
+				chartH := 160
 				chartW := fmt.Sprintf("%d", max(600, len(moves)*8))
 				// Chart tabs
 				io.WriteString(w, `<nav class="chart-tabs" style="margin-top:1em;margin-bottom:1em">`)
@@ -441,7 +441,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						fmt.Fprintf(w, `<line x1="30" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 					}
 					// X-axis label
-					fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="10">%s</text>`, chartH+20, yLabel)
+					fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="10">%s</text>`, chartH+34, yLabel)
 					// Bars with parity handling
 					for i, m := range moves {
 						var val float64
@@ -461,7 +461,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						x := 32 + i*6
 						fmt.Fprintf(w, `<rect x="%d" y="%d" width="5" height="%d" fill="%s" rx="1"><title>%s %s: %.0f%s %d nodes</title></rect>`, x, chartH-h, h, color, m.side, m.move, val, unit, m.nodes)
 						if showLabel {
-							fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="7" text-anchor="middle">%s</text>`, x+2, chartH+14, color, m.move)
+							fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="7" text-anchor="middle">%s</text>`, x+2, chartH+16, color, m.move)
 						}
 					}
 					io.WriteString(w, `</svg></div>`)
