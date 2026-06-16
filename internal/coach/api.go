@@ -171,6 +171,11 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "db error", http.StatusInternalServerError); return
 	}
 
+	// Coach restarted — cancel all its pending assignments.
+	h.DB.Exec(`UPDATE match_assignments SET status='failed', decline_reason='coach restarted'
+		WHERE status IN ('pending','assigned','accepted','ready','in_progress','retry')
+		AND (coach1_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?) OR coach2_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?))`, coachID, coachID)
+
 	registered := 0
 	for _, ai := range req.AIs {
 		if registered >= 64 { break }
