@@ -34,8 +34,6 @@ type gameResult struct {
 	Moves        []gameMove
 }
 
-// wsSend sends a GTP command and returns the first non-blank response.
-// Blank lines (edax double-newline bug) are drained silently.
 func wsSend(stream coach.Stream, cmd string) (string, error) {
 	select {
 	case stream.Out <- cmd:
@@ -96,7 +94,10 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	// Play opening moves using wsSend (reliable, drains blank lines).
+	// Track the board independently so we can validate moves and
+	// detect game end without relying on engines to report passes.
+	board := newBoard()
+
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
 		color := "b"
@@ -117,17 +118,30 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 				return gr
 			}
 		}
+		sq := sqFromString(mv)
+		if sq >= 0 {
+			player := board.black
+			if color == "w" {
+				player = board.white
+			}
+			board = board.applyMove(player, sq)
+		}
 	}
 
-	moveNum := len(moves)
-	sideToMove := "b"
-	if moveNum%2 == 1 {
-		sideToMove = "w"
-	}
 	consecutivePasses := 0
 	timeLimit := gameTimeSec * 1.05
 
+	// Determine which player moves first based on opening length.
+	sideToMove := "b"
+	curPlayer := board.black
+	oppPlayer := board.white
+	if len(moves)%2 == 1 {
+		sideToMove = "w"
+		curPlayer, oppPlayer = oppPlayer, curPlayer
+	}
+
 	for {
+		// Time enforcement from arena-side (backup to coach-side).
 		if gr.BlackTimeS >= timeLimit {
 			gr.Result = "0-1"
 			break
@@ -136,6 +150,23 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			gr.Result = "1-0"
 			break
 		}
+
+		// Check if the game is over on our board.
+		if board.isOver() {
+			break
+		}
+
+		// If the current player has no legal moves, force a pass.
+		legal := board.legalMoves(curPlayer)
+		if legal == 0 {
+			consecutivePasses++
+			if consecutivePasses >= 2 {
+				break
+			}
+			sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
+			continue
+		}
+		consecutivePasses = 0
 
 		current := black
 		if sideToMove == "w" {
@@ -168,16 +199,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 		mv := strings.ToUpper(parts[0])
-		if mv != "PASS" && mv != "RESIGN" && (len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8') {
-			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
-			if sideToMove == "b" {
-				gr.Result = "0-1"
-			} else {
-				gr.Result = "1-0"
-			}
-			break
-		}
 
+		// Handle RESIGN.
 		if mv == "RESIGN" {
 			if sideToMove == "b" {
 				gr.Result = "0-1"
@@ -186,24 +209,54 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			}
 			break
 		}
+
+		// Handle PASS.
 		if mv == "PASS" {
 			consecutivePasses++
 			if consecutivePasses >= 2 {
 				break
 			}
-			sideToMove = map[string]string{"b": "w", "w": "b"}[sideToMove]
+			sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
 			continue
 		}
-		consecutivePasses = 0
-		moveNum++
 
-		playedColor := sideToMove
-		sideToMove = map[string]string{"b": "w", "w": "b"}[sideToMove]
+		// Validate the move against our board.
+		if len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8' {
+			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
+			if sideToMove == "b" {
+				gr.Result = "0-1"
+			} else {
+				gr.Result = "1-0"
+			}
+			break
+		}
+		sq := sqFromString(mv)
+		if sq < 0 || (legal>>sq)&1 == 0 {
+			slog.Warn("illegal move from engine", "side", sideToMove, "move", mv)
+			if sideToMove == "b" {
+				gr.Result = "0-1"
+			} else {
+				gr.Result = "1-0"
+			}
+			break
+		}
+
+		// Apply move and tell the other engine.
+		board = board.applyMove(curPlayer, sq)
 		other := black
-		if playedColor == "b" {
+		if sideToMove == "w" {
 			other = white
 		}
-		wsSend(other, "play "+playedColor+" "+mv)
+		playResp, _ := wsSend(other, "play "+sideToMove+" "+mv)
+		if strings.HasPrefix(playResp, "?") {
+			slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
+			if sideToMove == "b" {
+				gr.Result = "1-0"
+			} else {
+				gr.Result = "0-1"
+			}
+			break
+		}
 
 		// Optional stats.
 		var nodes, nps int64
@@ -214,28 +267,49 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		fmt.Sscanf(statsResp, "nodes %d depth %d time_ms %f timeout %*s score %*d nps %d branching %*d empties %*d",
 			&nodes, &depth, &tm, &nps)
 		gr.Moves = append(gr.Moves, gameMove{
-			Side: playedColor, Move: mv,
+			Side: sideToMove, Move: mv,
 			Nodes: nodes, Depth: depth, TimeMs: tm, NPS: nps,
 		})
 
-		if moveNum > 90 {
+		sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
+
+		if len(gr.Moves) > 90 {
 			break
 		}
 	}
 
+	// Determine result from final board state.
 	if gr.Result == "" {
-		gr.Result = "1/2"
-	}
-	switch gr.Result {
-	case "1-0":
-		gr.FinalScore = 64
-	case "0-1":
-		gr.FinalScore = -64
-	default:
-		gr.FinalScore = 0
+		bCount := popcount(board.black)
+		wCount := popcount(board.white)
+		if bCount > wCount {
+			gr.Result = "1-0"
+			gr.FinalScore = bCount - wCount
+		} else if wCount > bCount {
+			gr.Result = "0-1"
+			gr.FinalScore = wCount - bCount
+		} else {
+			gr.Result = "1/2"
+		}
 	}
 
 	return gr
+}
+
+func flipSide(sideToMove string, curPlayer, oppPlayer uint64, board othelloBoard) (string, uint64, uint64) {
+	if sideToMove == "b" {
+		return "w", board.white, board.black
+	}
+	return "b", board.black, board.white
+}
+
+func popcount(x uint64) int {
+	c := 0
+	for x != 0 {
+		x &= x - 1
+		c++
+	}
+	return c
 }
 
 func parseMoveList(line string) []string {
