@@ -11,6 +11,8 @@ requires more fixes. The most failure-prone files:
 - `internal/db/db.go` — SQL strings with multi-line backtick literals
 - `internal/coach/api.go` — tab-indented Go with JSON/SQL strings
 - `internal/web/web.go` — raw HTML strings inside Go, mixed indent
+- `internal/matchmaker/mm.go` — deeply nested, tab-indented, multi-line SQL
+- `internal/matchmaker/game.go` — deeply nested, mixed indent + raw strings
 - `coach-update.sh` — bash, some lines indented, some not
 
 For a single targeted change, Edit is fine. For a function rewrite or multiple
