@@ -259,6 +259,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps, m.score)
 			}
 			io.WriteString(w, "</table>"+`</div>`+pageFoot)
+		} else {
+			io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">No moves recorded — engines may have timed out or the coach restarted.</p>`)
 		}
 	} else {
 		io.WriteString(w, `<p style="color:var(--muted);font-style:italic">No per-move data; engines may not support move stats.</p>`)

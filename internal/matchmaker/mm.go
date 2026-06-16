@@ -361,6 +361,20 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	if totalGames == 0 { totalGames = 2 }
 
 	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
+	// Filter out phantom games (0 moves = coach/system failure, not a real game).
+	realGames := games[:0]
+	for _, g := range games {
+		if len(g.Moves) > 0 { realGames = append(realGames, g) }
+	}
+	games = realGames
+	if len(games) == 0 {
+		slog.Warn("all games ended without moves, skipping store", "assignment", assignmentID)
+		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "no moves played")
+		m.Relay.Cleanup(a.Session1ID)
+		m.Relay.Cleanup(a.Session2ID)
+		select { case m.wakeup <- struct{}{}: default: }
+		return
+	}
 	slog.Info("playGames completed", "assignment", assignmentID, "games", len(games))
 
 	var matchID int
