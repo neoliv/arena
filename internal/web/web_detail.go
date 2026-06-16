@@ -55,18 +55,18 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		bScore = 64 - finalScore
 	}
 
-	// Line 1: game number + score, Elos centered
+	// Line 1: game number + score, Elos right/left aligned
 	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.2em">
 		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-weight:400">%d-%d</span></h1></div>
-		<div style="flex:1;text-align:center;font-size:1.1em"><span style="color:%s">(%.0f %+d)</span></div>
-		<div style="flex:1;text-align:center;font-size:1.1em"><span style="color:%s">(%+d %.0f)</span></div>
+		<div style="flex:1;text-align:right;font-size:1.1em;padding-right:1.5em"><span style="color:%s">(%.0f %+d)</span></div>
+		<div style="flex:1;text-align:left;font-size:1.1em;padding-left:1.5em"><span style="color:%s">(%+d %.0f)</span></div>
 		<div style="flex:1"></div></div>`,
 		id, bScore, wScore, deltaColor(bDelta), bElo, int(bDelta), deltaColor(wDelta), int(wDelta), wElo)
-	// Line 2: player names
+	// Line 2: player names — Black right-aligned, White left-aligned
 	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.6em">
 		<div style="flex:1"></div>
-		<div style="flex:1;text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a></div>
-		<div style="flex:1;text-align:center;font-size:1.15em"><a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1;text-align:right;font-size:1.15em;padding-right:1.5em"><a href="/engines/%s">%s %s</a></div>
+		<div style="flex:1;text-align:left;font-size:1.15em;padding-left:1.5em"><a href="/engines/%s">%s %s</a></div>
 		<div style="flex:1"></div></div>`,
 		bName, bName, bVer, wName, wName, wVer)
 
@@ -173,7 +173,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					return fmt.Sprintf("%.0f", v)
 				}
 			}
-			renderChart := func(metric string, maxVal float64, unit string, yLabel string) {
+			renderChart := func(metric string, maxVal, maxValR float64, unit string, yLabel string) {
 				if metric != tab {
 					return
 				}
@@ -199,6 +199,15 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					z := chartH/2 + 14
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
 				}
+				if metric == "score" && maxValR > 0 {
+					niceStepR := maxValR / 4
+					if niceStepR >= 100 { niceStepR = float64(int(niceStepR/100+0.5)) * 100 } else if niceStepR >= 10 { niceStepR = float64(int(niceStepR/10+0.5)) * 10 } else { niceStepR = float64(int(niceStepR + 0.5)) }
+					for pct := 0; pct <= 100; pct += 25 {
+						y := chartH - pct*chartH/100 + 14
+						valR := float64(pct) / 100.0 * niceStepR * 4; if pct == 100 { valR = maxValR }
+						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#e8e8e8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
+					}
+				}
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+44, yLabel)
 				fmt.Fprintf(w, `<text x="34" y="20" fill="#6bc4ff" font-size="13" font-weight="600">%s %s</text>`, bName, bVer)
 				fmt.Fprintf(w, `<text x="100%%" y="20" fill="#e8e8e8" font-size="13" font-weight="600" text-anchor="end">%s %s</text>`, wName, wVer)
@@ -212,6 +221,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "nps":
 						val = float64(m.nps)
 					case "score":
+						maxVal = maxBScore; if m.side == "w" { maxVal = maxWScore }
+						if maxVal < 1 { maxVal = 1 }
 						val = float64(m.score)
 					case "diff":
 						val = float64(discDiffs[i])
@@ -255,11 +266,11 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				}
 				io.WriteString(w, `</svg></div>`)
 			}
-			renderChart("time", maxTime, "ms", "Time per move (ms)")
-			renderChart("nodes", maxNodes, "", "Nodes explored")
-			renderChart("nps", maxNPS, "", "Nodes per second")
-			renderChart("diff", maxDiscDiff, "", "Disc diff (B-W)")
-			renderChart("score", maxBScore, "", "Score (cP)")
+			renderChart("time", maxTime, 0, "ms", "Time per move (ms)")
+			renderChart("nodes", maxNodes, 0, "", "Nodes explored")
+			renderChart("nps", maxNPS, 0, "", "Nodes per second")
+			renderChart("diff", maxDiscDiff, 0, "", "Disc diff (B-W)")
+			renderChart("score", maxBScore, maxWScore, "", "Score (cP)")
 
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th><th>Score</th></tr>`)
 			for _, m := range moves {
