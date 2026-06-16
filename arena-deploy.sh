@@ -1,14 +1,19 @@
 #!/bin/bash
 # arena-deploy.sh — Build the arena-server binary and push it to the VPS.
-# Usage: ./arena-deploy.sh [vps-host]
+# Usage: ./arena-deploy.sh [vps-host] [--clear-db]
 set -euo pipefail
 
 VPS="${1:-arena.arsac.org}"
 VPS_USER="${VPS_USER:-root}"
 BINARY="arena-server"
+CLEAR_DB=false
+for arg in "$@"; do
+    case "$arg" in --clear-db) CLEAR_DB=true ;; esac
+done
 
 echo "=== Arena Deploy ==="
 echo "Target: ${VPS_USER}@${VPS}"
+$CLEAR_DB && echo "DB clear: YES" || echo "DB clear: no (use --clear-db to wipe)"
 echo ""
 
 # ── Build ────────────────────────────────────────────────────────────────
@@ -45,15 +50,17 @@ echo "  logs reset"
 
 # ── Clear DB ─────────────────────────────────────────────────────────────
 
-echo "--- Clearing DB (keeping tokens + sessions) ---"
-DB="/opt/arena/arena.db"
-ssh "${VPS_USER}@${VPS}" "cp '$DB' '$DB.bak-deploy-\$(date +%Y%m%d-%H%M%S)'"
-for t in bisect_steps bisections coach_ais coaches elo_history engines game_moves games match_assignments matches speed_stats; do
-    count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")
-    ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"DELETE FROM $t\""
-    echo "  cleared $t ($count rows)"
-done
-echo "  DB cleared"
+if $CLEAR_DB; then
+    echo "--- Clearing DB (keeping tokens + sessions) ---"
+    DB="/opt/arena/arena.db"
+    ssh "${VPS_USER}@${VPS}" "cp '$DB' '$DB.bak-deploy-\$(date +%Y%m%d-%H%M%S)'"
+    for t in bisect_steps bisections coach_ais coaches elo_history engines game_moves games match_assignments matches speed_stats; do
+        count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")
+        ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"DELETE FROM $t\""
+        echo "  cleared $t ($count rows)"
+    done
+    echo "  DB cleared"
+fi
 
 # ── Copy binary ──────────────────────────────────────────────────────────
 

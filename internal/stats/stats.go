@@ -43,9 +43,7 @@ func (t *Tracker) ReqPerSec() float64 {
 		if e.timestamp.After(cutoff) { count++ }
 	}
 	if count == 0 { return 0 }
-	elapsed := now.Sub(t.entries[0].timestamp).Seconds()
-	if elapsed < 1 { elapsed = 1 }
-	return float64(count) / elapsed
+	return float64(count) / 60.0
 }
 
 // ByteRate returns incoming and outgoing bytes per second.
@@ -59,7 +57,5 @@ func (t *Tracker) ByteRate() (in, out float64) {
 		if e.timestamp.After(cutoff) { totalIn += e.bytesIn; totalOut += e.bytesOut }
 	}
 	if totalIn == 0 && totalOut == 0 { return 0, 0 }
-	elapsed := now.Sub(t.entries[0].timestamp).Seconds()
-	if elapsed < 1 { elapsed = 1 }
-	return float64(totalIn) / elapsed, float64(totalOut) / elapsed
+	return float64(totalIn) / 60.0, float64(totalOut) / 60.0
 }
