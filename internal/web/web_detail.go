@@ -187,7 +187,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					niceStep = float64(int(niceStep + 0.5))
 				}
 				for pct := 0; pct <= 100; pct += 25 {
-					y := chartH - pct*chartH/100 + 14
+					y := chartH - pct*chartH/100 + 44
 					val := float64(pct) / 100.0 * niceStep * 4
 					if pct == 100 {
 						val = maxVal
@@ -197,21 +197,21 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 				}
 				if metric == "diff" || metric == "score" {
-					z := chartH/2 + 14
+					z := chartH/2 + 44
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
 				}
 				if metric == "score" && maxValR > 0 {
 					niceStepR := maxValR / 4
 					if niceStepR >= 100 { niceStepR = float64(int(niceStepR/100+0.5)) * 100 } else if niceStepR >= 10 { niceStepR = float64(int(niceStepR/10+0.5)) * 10 } else { niceStepR = float64(int(niceStepR + 0.5)) }
 					for pct := 0; pct <= 100; pct += 25 {
-						y := chartH - pct*chartH/100 + 14
+						y := chartH - pct*chartH/100 + 44
 						valR := float64(pct) / 100.0 * niceStepR * 4; if pct == 100 { valR = maxValR }
 						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#e8e8e8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
 					}
 				}
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+44, yLabel)
-				fmt.Fprintf(w, `<text x="34" y="20" fill="#6bc4ff" font-size="13" font-weight="600">%s %s</text>`, bName, bVer)
-				fmt.Fprintf(w, `<text x="100%%" y="20" fill="#e8e8e8" font-size="13" font-weight="600" text-anchor="end">%s %s</text>`, wName, wVer)
+				fmt.Fprintf(w, `<text x="34" y="16" fill="#6bc4ff" font-size="13" font-weight="600">%s %s</text>`, bName, bVer)
+				fmt.Fprintf(w, `<text x="100%%" y="16" fill="#e8e8e8" font-size="13" font-weight="600" text-anchor="end">%s %s</text>`, wName, wVer)
 				for i, m := range moves {
 					var val float64
 					switch metric {
