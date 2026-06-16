@@ -272,7 +272,7 @@ func (h *Handler) renderSpeedGraph(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, `<table><tr><th>Ply</th><th>#</th><th>Depth</th><th>NPS</th><th>Timeouts</th><th></th></tr>`)
 	sRows, _ := h.DB.Query(`SELECT ply, SUM(sample_count), CAST(SUM(total_depth) AS REAL)/MAX(1,SUM(sample_count)), CAST(SUM(total_nps) AS REAL)/MAX(1,SUM(sample_count)), SUM(timeouts) FROM speed_stats WHERE engine_id=? GROUP BY ply ORDER BY ply`, engID)
 	if sRows != nil { defer sRows.Close(); for sRows.Next() { var ply, samples, timeouts int; var depth, nps float64; sRows.Scan(&ply, &samples, &depth, &nps, &timeouts); fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%d</td><td>%.1f</td><td>%.0f</td><td>%d</td><td><span class="bar" style="width:%dpx"></span></td></tr>`, ply, samples, depth, nps, timeouts, int(nps/1000)) } }
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func (h *Handler) handleMatches(w http.ResponseWriter, r *http.Request) {
@@ -291,14 +291,14 @@ func (h *Handler) handleMatches(w http.ResponseWriter, r *http.Request) {
 				elapsed := time.Since(t).Round(time.Second)
 				tcDisplay = fmt.Sprintf("%s / %s", elapsed, tcDisplay)
 			}; startDisplay := started[:min(19, len(started))]; if t, err := time.Parse(time.RFC3339, started); err == nil { startDisplay = niceDuration(t) } else if t, err := time.Parse("2006-01-02 15:04:05", started[:19]); err == nil { startDisplay = niceDuration(t) }; fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`, id, e1, e2, tcDisplay, games, startDisplay) } }
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 
 	var completedCount int
 	h.DB.QueryRow("SELECT COUNT(*) FROM matches").Scan(&completedCount)
 	fmt.Fprintf(w, `<h2>Completed %d</h2><table><tr><th>ID</th><th>Black</th><th>White</th><th>Score</th><th>Games</th><th>Date</th></tr>`, completedCount)
 	rows, _ := h.DB.Query(`SELECT m.id, (SELECT name||' '||version FROM engines WHERE id=m.engine1_id), (SELECT name||' '||version FROM engines WHERE id=m.engine2_id), m.wins_1, m.wins_2, m.draws, m.total_games, COALESCE(m.created_at,'') FROM matches m ORDER BY m.id DESC LIMIT 100`)
 	if rows != nil { defer rows.Close(); for rows.Next() { var id, w1, w2, d, t int; var e1, e2, created string; rows.Scan(&id, &e1, &e2, &w1, &w2, &d, &t, &created); fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/matches/%d">%d</a></td><td>%s</td><td>%s</td><td>%d-%d-%d</td><td>%d</td><td>%s</td></tr>`, id, id, e1, e2, w1, w2, d, t, created[:min(10,len(created))]) } }
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func (h *Handler) handleMatch(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +308,7 @@ func (h *Handler) handleMatch(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "<h1>Match #%s</h1><table><tr><th>#</th><th>Black</th><th>White</th><th>Result</th><th>Score</th><th>Opening</th></tr>", id)
 	rows, _ := h.DB.Query(`SELECT g.game_number, (SELECT name||' '||version FROM engines WHERE id=g.black_id), (SELECT name||' '||version FROM engines WHERE id=g.white_id), g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,'') FROM games g WHERE g.match_id=? ORDER BY g.game_number`, id)
 	if rows != nil { defer rows.Close(); for rows.Next() { var num, s int; var blk, wht, r, o string; rows.Scan(&num, &blk, &wht, &r, &s, &o); badge := ""; if r == "1-0" { badge = `<span class="badge win">W</span>` } else if r == "0-1" { badge = `<span class="badge loss">L</span>` } else { badge = `<span class="badge draw">D</span>` }; fmt.Fprintf(w, `<tr><td><a href="/games/%d">%d</a></td><td>%s</td><td>%s</td><td>%s %s</td><td>%+d</td><td>%s</td></tr>`, num, num, blk, wht, r, badge, s, o) } }
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
@@ -342,14 +342,14 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if iRows == nil { io.WriteString(w, `<tr><td colspan="6">None</td></tr>`) }
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 
 	var completedCount int
 	h.DB.QueryRow("SELECT COUNT(*) FROM games").Scan(&completedCount)
 	fmt.Fprintf(w, `<h2>Completed %d</h2><table><tr><th onclick="st(this.closest('table'),0,true)">ID</th><th onclick="st(this.closest('table'),1,false)">Black</th><th onclick="st(this.closest('table'),2,false)">White</th><th onclick="st(this.closest('table'),3,false)">Result</th><th onclick="st(this.closest('table'),4,true)">Score</th><th onclick="st(this.closest('table'),5,false)">Opening</th></tr>`, completedCount)
 	gRows, _ := h.DB.Query(`SELECT g.id, (SELECT name||' '||version FROM engines WHERE id=g.black_id), (SELECT name||' '||version FROM engines WHERE id=g.white_id), g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,'') FROM games g ORDER BY g.id DESC LIMIT 100`)
 	if gRows != nil { defer gRows.Close(); for gRows.Next() { var id, s int; var blk, wht, r, o string; gRows.Scan(&id, &blk, &wht, &r, &s, &o); fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/games/%d">%d</a></td><td>%s</td><td>%s</td><td>%s</td><td>%+d</td><td>%s</td></tr>`, id, id, blk, wht, r, s, o) } }
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
@@ -464,7 +464,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
 					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
 			}
-			io.WriteString(w, "</table>")
+			io.WriteString(w, "</table>"+`</div>`+pageFoot)
 		}
 	} else {
 		io.WriteString(w, `<p style="color:var(--muted);font-style:italic">No per-move data; engines may not support move stats.</p>`)
@@ -533,7 +533,7 @@ func (h *Handler) handleEngine(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "<pre>%s</pre><h3>Recent Games</h3><table><tr><th>#</th><th>Opponent</th><th>Result</th><th>Score</th></tr>", spark)
 	gameRows, _ := h.DB.Query(`SELECT g.id, CASE WHEN g.black_id IN (SELECT id FROM engines WHERE name=?) THEN ew.name ELSE eb.name END, CASE WHEN g.black_id IN (SELECT id FROM engines WHERE name=?) THEN g.result ELSE CASE g.result WHEN '1-0' THEN '0-1' WHEN '0-1' THEN '1-0' ELSE g.result END END, COALESCE(g.final_score,0) FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE eb.name=? OR ew.name=? ORDER BY g.id DESC LIMIT 30`, name, name, name, name)
 	if gameRows != nil { defer gameRows.Close(); for gameRows.Next() { var id, s int; var opp, r string; if gameRows.Scan(&id, &opp, &r, &s) == nil { fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/games/%d">%d</a></td><td>%s</td><td>%s</td><td>%+d</td></tr>`, id, id, opp, r, s) } } }
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
@@ -565,7 +565,7 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/engines/%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%.0f</td><td>%d</td><td>%d/%d/%d</td><td>%s</td></tr>`, v.Name, v.Name, v.Version, v.Created, v.Budget, v.Elo, v.Games, v.Wins, v.Losses, v.Draws, changeCell)
 	}
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func (h *Handler) handleCoaches(w http.ResponseWriter, r *http.Request) {
@@ -616,7 +616,7 @@ func (h *Handler) handleCoaches(w http.ResponseWriter, r *http.Request) {
 			ramBar(c.MemUsed, c.MemTotal),
 			lastSeen)
 		}
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 var arenaStart = time.Now()
@@ -670,7 +670,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	kv("  database", fmt.Sprintf("%s (%s)", niceSize(dbSize), dbPath), "")
 	kv("  backups", fmt.Sprintf("%s (%d file", niceSize(backupSize), backupCount)+func() string { if backupCount != 1 { return "s)" } else { return ")" } }(), "")
 	kv("Last backup", lastBackup, "")
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 
 	// ── System ──
 	sysDur, sysStart := sysUptime()
@@ -690,7 +690,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	kv("CPU", fmt.Sprintf("%d%% (%d cores)", sysCPU, runtime.NumCPU()), cpuClass)
 	kv("Memory", fmt.Sprintf("%d%% (%s / %s)", sysMemPct, niceSize(memUsed), niceSize(memTotal)), memClass2)
 	kv("Disk", fmt.Sprintf("%d%% (%s / %s)", diskPct, niceSize(diskUsed), niceSize(diskTotal)), diskClass)
-	io.WriteString(w, "</table>")
+	io.WriteString(w, "</table>"+`</div>`+pageFoot)
 }
 
 func fileSize(path string) int64 {
