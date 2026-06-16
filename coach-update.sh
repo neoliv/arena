@@ -109,6 +109,7 @@ if [ -d "$ADAPTERS_DIR" ]; then
     done
 fi
 
+BUILD_ERRORS=0
 for f in "$BUILDS_DIR"/*.yaml; do
     [ -f "$f" ] || continue
     # Extract source path (simple YAML: source: "...")
@@ -132,6 +133,7 @@ for f in "$BUILDS_DIR"/*.yaml; do
         echo "   Last 10 lines:"
         tail -10 "$SCRIPT_DIR/log/.build-${name}.log" 2>/dev/null || true
         echo "   Full log: $SCRIPT_DIR/log/.build-${name}.log"
+        BUILD_ERRORS=$((BUILD_ERRORS + 1))
         continue
     fi
 
@@ -171,5 +173,10 @@ else
     reload
 fi
 echo ""; echo "=== Done ==="
+if [ $BUILD_ERRORS -gt 0 ]; then
+    echo "ERROR: $BUILD_ERRORS engine build(s) failed — check the log for details"
+else
+    echo "All engines built successfully"
+fi
 echo "Log saved to: $SCRIPT_DIR/log/coach-update.log"
 $DRY_RUN && echo "(dry run — no changes made)"
