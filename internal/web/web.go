@@ -419,7 +419,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, `<table><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
 				for _, m := range moves {
 					side := "Black"
-					if m.side == "W" { side = "White" }
+					if m.side == "w" { side = "White" }
 					fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
 						m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
 				}
@@ -461,9 +461,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						}
 						h := 0
 						if maxVal > 0 { h = int(val / maxVal * float64(chartH)) }
-						if h < 2 { h = 2 }
-						color := "#222"
-						if m.side == "W" { color = "#eee" }
+						if h < 1 { h = 1 }
+						color := "#2c5a2c"
+						if m.side == "w" { color = "#eee" }
 						// Parity check: if previous move was same side, skip label
 						showLabel := true
 						if i > 0 && moves[i-1].side == m.side { showLabel = false }
@@ -478,6 +478,16 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				renderChart("time", maxTime, "ms", "Time per move (ms)")
 				renderChart("nodes", maxNodes, "kn", "Nodes explored")
 				renderChart("nps", maxNPS, "kn/s", "Nodes per second")
+
+				// Full detailed table at bottom
+				io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th></tr>`)
+				for _, m := range moves {
+					side := "Black"
+					if m.side == "w" { side = "White" }
+					fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+						m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps)
+				}
+				io.WriteString(w, "</table>")
 			}
 		} else {
 			io.WriteString(w, "<p style=\"color:var(--muted);font-style:italic\">No per-move data — engines may not support move stats.</p>")
