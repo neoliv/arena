@@ -1,7 +1,0 @@
-[darwersi-gtp] data path: /home/oliv/coach/engines/f22dc4f8618f27c5/../Lib:/home/oliv/coach/engines/f22dc4f8618f27c5/../Database:/home/oliv/coach/engines/f22dc4f8618f27c5/../DataSrc:.
-Ply 0, lastPly 0
-Direct eval of depth 4
-[D3][C3][C4][E3]{C3}{C5}{E3}
-Ply 1, lastPly 0
-Direct eval of depth 4
-[C5][E6][F5][F6]{E6}{B6}{F6}{D6}{C6}

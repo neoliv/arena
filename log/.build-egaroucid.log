@@ -1,0 +1,14 @@
+rm -rf coach-engine
+cmake -B build_coach -DCMAKE_BUILD_TYPE=Release -DBUILD_CONSOLE=ON -DBUILD_GUI=OFF -DBUILD_ENGINE_LIB=OFF -DBUILD_SHARED_LIBS=OFF
+-- Egaroucid engine variant: SIMD
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach
+cmake --build build_coach --target Egaroucid_for_Console.out -j$(nproc)
+gmake[1]: Entering directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
+[100%] Built target Egaroucid_for_Console.out
+gmake[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
+mkdir -p coach-engine/players.d
+cp bin/Egaroucid_for_Console.out coach-engine/egaroucid-gtp
+cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
+coach-engine/ ready: 5 files

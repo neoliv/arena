@@ -34,10 +34,10 @@ type gameResult struct {
 	Moves        []gameMove
 }
 
-func wsSend(stream coach.Stream, cmd string) (string, error) {
+func wsSend(stream coach.Stream, cmd string, timeoutSec float64) (string, error) {
 	select {
 	case stream.Out <- cmd:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Duration(timeoutSec) * time.Second):
 		return "", fmt.Errorf("write timeout: %s", cmd)
 	}
 
@@ -51,7 +51,7 @@ func wsSend(stream coach.Stream, cmd string) (string, error) {
 			if s != "" && !strings.HasPrefix(s, "#") {
 				return resp, nil
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Duration(timeoutSec) * time.Second):
 			return "", fmt.Errorf("read timeout: %s", cmd)
 		}
 	}
@@ -83,12 +83,12 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	gr := gameResult{Black: bName, White: wName, OpeningLine: opening}
 
 	for _, s := range []coach.Stream{black, white} {
-		if _, err := wsSend(s, "boardsize 8"); err != nil {
+		if _, err := wsSend(s, "boardsize 8", 10); err != nil {
 			slog.Error("init failed", "cmd", "boardsize 8", "err", err)
 			gr.Result = "0-1"; gr.Disconnect = true
 			return gr
 		}
-		if _, err := wsSend(s, "clear_board"); err != nil {
+		if _, err := wsSend(s, "clear_board", 10); err != nil {
 			slog.Error("init failed", "cmd", "clear_board", "err", err)
 			gr.Result = "0-1"; gr.Disconnect = true
 			return gr
@@ -105,7 +105,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		cmd := "play " + color + " " + mv
 		for _, s := range []coach.Stream{black, white} {
-			resp, err := wsSend(s, cmd)
+			resp, err := wsSend(s, cmd, 10)
 			if err != nil {
 				slog.Error("opening play failed", "move", mv, "err", err)
 				gr.Result = "0-1"; gr.Disconnect = true
@@ -169,7 +169,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		t0 := time.Now()
-		resp, err := wsSend(current, "genmove "+sideToMove)
+		resp, err := wsSend(current, "genmove "+sideToMove, gameTimeSec)
 		elapsed := time.Since(t0).Seconds()
 		slog.Info("genmove", "side", sideToMove, "move", strings.TrimSpace(resp)[:min(60, len(strings.TrimSpace(resp)))], "ms", int(elapsed*1000))
 		if sideToMove == "b" {
@@ -240,7 +240,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		if sideToMove == "w" {
 			opponent = black
 		}
-		playResp, _ := wsSend(opponent, "play "+sideToMove+" "+mv)
+		playResp, _ := wsSend(opponent, "play "+sideToMove+" "+mv, 10)
 		if strings.HasPrefix(playResp, "?") {
 			slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
 			if sideToMove == "b" {

@@ -1,0 +1,99 @@
+Jun 16 18:49:07 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 18:49:07 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 18:49:07 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 18:49:07 avh.arsac.org systemd[1]: arena.service: Consumed 16.925s CPU time.
+Jun 16 18:49:16 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 18:54:13 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 18:54:13 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 18:54:13 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 18:54:13 avh.arsac.org systemd[1]: arena.service: Consumed 3.378s CPU time.
+Jun 16 18:54:21 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 19:02:28 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 19:02:28 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 19:02:28 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 19:02:28 avh.arsac.org systemd[1]: arena.service: Consumed 5.999s CPU time.
+Jun 16 19:02:56 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 19:24:29 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 19:24:29 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 19:24:29 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 19:24:29 avh.arsac.org systemd[1]: arena.service: Consumed 11.064s CPU time.
+Jun 16 19:24:57 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 19:30:32 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 19:30:32 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 19:30:32 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 19:30:32 avh.arsac.org systemd[1]: arena.service: Consumed 2.732s CPU time.
+Jun 16 19:30:40 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 20:55:23 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 20:55:23 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 20:55:23 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 20:55:23 avh.arsac.org systemd[1]: arena.service: Consumed 51.156s CPU time.
+Jun 16 20:55:31 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 21:00:57 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 21:00:57 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 21:00:57 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 21:00:57 avh.arsac.org systemd[1]: arena.service: Consumed 4.180s CPU time.
+Jun 16 21:01:04 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 21:07:00 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 21:07:00 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 21:07:00 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 21:07:00 avh.arsac.org systemd[1]: arena.service: Consumed 4.064s CPU time.
+Jun 16 21:07:07 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 21:16:08 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 21:16:08 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 21:16:08 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 21:16:08 avh.arsac.org systemd[1]: arena.service: Consumed 6.604s CPU time.
+Jun 16 21:16:16 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 21:43:02 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 21:43:02 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 21:43:02 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 21:43:02 avh.arsac.org systemd[1]: arena.service: Consumed 15.794s CPU time.
+Jun 16 21:43:24 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 21:47:13 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 21:47:13 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 21:47:13 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 21:47:13 avh.arsac.org systemd[1]: arena.service: Consumed 1.327s CPU time.
+Jun 16 21:47:35 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 22:14:37 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 22:14:37 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 22:14:37 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 22:14:37 avh.arsac.org systemd[1]: arena.service: Consumed 19.187s CPU time.
+Jun 16 22:14:45 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 22:19:41 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 22:19:41 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 22:19:41 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 22:19:41 avh.arsac.org systemd[1]: arena.service: Consumed 3.858s CPU time.
+Jun 16 22:19:48 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 22:23:21 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 22:23:21 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 22:23:21 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 22:23:21 avh.arsac.org systemd[1]: arena.service: Consumed 4.088s CPU time.
+Jun 16 22:23:29 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 22:25:29 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 22:25:29 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 22:25:29 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 22:25:29 avh.arsac.org systemd[1]: arena.service: Consumed 1.412s CPU time.
+Jun 16 22:25:51 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 22:39:31 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 22:39:31 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 22:39:31 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 22:39:31 avh.arsac.org systemd[1]: arena.service: Consumed 6.940s CPU time.
+Jun 16 22:39:39 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 22:49:05 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 22:49:05 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 22:49:05 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 22:49:05 avh.arsac.org systemd[1]: arena.service: Consumed 8.102s CPU time.
+Jun 16 22:49:13 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 22:49:46 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 22:49:46 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 22:49:46 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 22:49:54 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 23:10:53 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 23:10:53 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 23:10:53 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 23:10:53 avh.arsac.org systemd[1]: arena.service: Consumed 17.253s CPU time.
+Jun 16 23:11:01 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.
+Jun 16 23:16:12 avh.arsac.org systemd[1]: Stopping arena.service - neursi Arena Server...
+Jun 16 23:16:12 avh.arsac.org systemd[1]: arena.service: Deactivated successfully.
+Jun 16 23:16:12 avh.arsac.org systemd[1]: Stopped arena.service - neursi Arena Server.
+Jun 16 23:16:12 avh.arsac.org systemd[1]: arena.service: Consumed 4.683s CPU time.
+Jun 16 23:16:20 avh.arsac.org systemd[1]: Started arena.service - neursi Arena Server.

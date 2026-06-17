@@ -1,0 +1,15 @@
+make: 'coach-build' is up to date.
+warning: field `tt` is never read
+  --> src/gtp.rs:24:5
+   |
+13 | pub struct GtpEngine {
+   |            --------- field in this struct
+...
+24 |     tt: TranspositionTable,
+   |     ^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `neursi` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.01s
+coach-engine/ ready: 2 files

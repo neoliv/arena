@@ -1,0 +1,8 @@
+rm -rf coach-engine
+# Download weight files needed at compile time (include_bytes!)
+cargo build --release -p cli
+    Finished `release` profile [optimized] target(s) in 0.06s
+mkdir -p coach-engine
+cp target/release/cli coach-engine/neural-reversi-gtp
+cp eval-e6bbc4f6.zst eval_sm-e6bbc4f6.zst coach-engine/
+coach-engine/ ready: 3 files

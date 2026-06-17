@@ -1,6 +1,12 @@
 ### Prompts
 
-- simple links (eg: game ID -> game detgails) have the same color visited or not. Should be different (eg in dark mode, use a darker green once visited)
+On the detail game page
+Split the top lines like:
+Note that the players elo and names are justify to align on the center of the screen with a few spaces as central margin.
+#2958 44-20    (1531 +30)    (-14 1470)
+      edax-master l20-30s    dw-amoeba d4-es60-30s
+      
+        Match #1481 (game 1) | other game | Time: 30s (unspent B:27s W:28s)
 
 
 - Regarding the matchmaker vs coach allocation issue. This is still not working as intended. (I often see 6/6 with 0 game in progress and 0% CPU on the host). We need to discuss the flow to understand the catch. Don't implement yet, only analyse and recommend.
@@ -16,13 +22,7 @@ Design ideas to comment upon:
 
 
 
-- How can you make sure we won't get the 'stuck' games syndrome again? The game had clearly overrun their time budget but were still shown as "in progress". Offer design solution to make sure the game flow is robust.
-
-
-Could the arena web pages contaiing dynamic data auto-refresh?
-
-
-But I think there is something fishy anyway. The 'core occupation' state the
+I think there is something fishy anyway. The 'core occupation' state the
   coach (should) see and the one shown by MM/arena are not the same. WHen no
   engine is running, no game in progress, the MM/arena should see 0/6 not 6/6.
   How could we redesign the flow to make sure the final word is the coach that
@@ -30,8 +30,6 @@ But I think there is something fishy anyway. The 'core occupation' state the
 
 
 
-
-- build new complete coach-adapters/ for other AIs in agent/othello-refs/ (eg: egaroucid). As for edax, create 4 playrs of various strength.
 
 arena: Explain how the stats are affected to the proper player.
 explain the workflow from registration to match maker staring a game and stats collected by arena.

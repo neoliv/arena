@@ -132,7 +132,7 @@ func (r *Relay) WaitForStream(sessionID string, timeoutSec int) (Stream, error) 
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if !exists {
-		slot = &relaySlot{ready: make(chan struct{})}
+		slot = &relaySlot{ready: make(chan struct{}), done: make(chan struct{})}
 		r.sessions[sessionID] = slot
 	}
 	r.mu.Unlock()

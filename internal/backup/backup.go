@@ -5,6 +5,7 @@ package backup
 import (
 	"fmt"
 	"io"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"sort"
@@ -56,8 +57,17 @@ func (m *Manager) maybeBackup() {
 
 func (m *Manager) doBackup() error {
 	if err := os.MkdirAll(m.backupDir, 0755); err != nil { return err }
+	tmpPath := filepath.Join(m.backupDir, "arena-tmp.db")
 	name := filepath.Join(m.backupDir, "arena-"+time.Now().Format("2006-01-02T15-04")+".db.zst")
-	src, err := os.Open(m.dbPath)
+	// Use VACUUM INTO for a consistent snapshot (captures WAL).
+	db, err := sql.Open("sqlite", m.dbPath+"?_journal_mode=WAL&_busy_timeout=30000")
+	if err != nil { return err }
+	defer db.Close()
+	_, err = db.Exec(fmt.Sprintf("VACUUM INTO '%s'", tmpPath))
+	if err != nil { return fmt.Errorf("vacuum: %w", err) }
+	defer os.Remove(tmpPath)
+	// Compress
+	src, err := os.Open(tmpPath)
 	if err != nil { return err }
 	defer src.Close()
 	dst, err := os.Create(name)

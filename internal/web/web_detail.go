@@ -68,7 +68,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		<div style="flex:1;text-align:right;font-size:1.15em;padding-right:1.5em"><a href="/engines/%s">%s %s</a></div>
 		<div style="flex:1;text-align:left;font-size:1.15em;padding-left:1.5em"><a href="/engines/%s">%s %s</a></div>
 		<div style="flex:1"></div></div>`,
-		bName, bName, bVer, wName, wName, wVer)
+		htmlEscape(bName), htmlEscape(bName), htmlEscape(bVer), htmlEscape(wName), htmlEscape(wName), htmlEscape(wVer))
 
 	bUnspent := 0.0
 	wUnspent := 0.0
@@ -90,7 +90,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, ` | Time: %s (unspent B:%.0fs W:%.0fs)`, tcLabel, bUnspent, wUnspent)
 	}
 	if opening != "" {
-		fmt.Fprintf(w, ` | Opening: %s`, opening)
+		fmt.Fprintf(w, ` | Opening: %s`, htmlEscape(opening))
 	}
 	io.WriteString(w, `</div><br>`)
 
@@ -263,7 +263,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "diff": tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
 					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, barY, h, color, tip)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, m.move)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, htmlEscape(m.move))
 				}
 				io.WriteString(w, `</svg></div>`)
 			}

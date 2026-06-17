@@ -3,6 +3,7 @@ package matchmaker
 
 import (
 	"context"
+	"sync"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -51,6 +52,7 @@ func DefaultConfig() Config {
 // MatchMaker schedules matches and executes them.
 type MatchMaker struct {
 	DB     *db.DB
+	eloMu  sync.Mutex
 	Relay  interface {
 		WaitForStream(sessionID string, timeoutSec int) (coach.Stream, error)
 		Cleanup(sessionID string)
@@ -429,7 +431,11 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 		} else {
 			blackID, whiteID = e2ID, e1ID
 		}
-		if g.Result == "1-0" { wins1++ } else if g.Result == "0-1" { wins2++ } else { draws++ }
+		if g.Result == "1-0" {
+				if blackID == e1ID { wins1++ } else { wins2++ }
+			} else if g.Result == "0-1" {
+				if whiteID == e1ID { wins1++ } else { wins2++ }
+			} else { draws++ }
 
 		res, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -476,6 +482,8 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 
 // updateElo appends one Elo history row for engine after a game against opponent.
 func (m *MatchMaker) updateElo(engineID, opponentID, matchID int, scoreA float64) {
+	m.eloMu.Lock()
+	defer m.eloMu.Unlock()
 	var rA, rB float64
 	var gamesA int
 	m.DB.QueryRow(`SELECT COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=? ORDER BY created_at DESC LIMIT 1), 1500.0)`, engineID).Scan(&rA)

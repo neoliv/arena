@@ -1,0 +1,8 @@
+make -C ../Lib libdarw.a
+make[1]: Entering directory '/home/oliv/dev/agent/darwersi/Lib'
+make[1]: 'libdarw.a' is up to date.
+make[1]: Leaving directory '/home/oliv/dev/agent/darwersi/Lib'
+rm -rf coach-engine
+mkdir -p coach-engine/players.d
+cp darwersi-gtp coach-engine/
+coach-engine/ ready: 17 files

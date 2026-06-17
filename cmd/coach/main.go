@@ -60,11 +60,12 @@ type aiConfig struct {
 }
 
 type runningEngine struct {
-	ai        aiConfig
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
-	sessionID string
-	stderrBuf *bytes.Buffer
+	ai          aiConfig
+	cmd         *exec.Cmd
+	cancel      context.CancelFunc
+	sessionID   string
+	stderrBuf   *bytes.Buffer
+	stderrPipeW *io.PipeWriter
 }
 
 var coachSession string
@@ -668,7 +669,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		}
 	}()
 
-	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID, stderrBuf: &stderrBuf}
+	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID, stderrBuf: &stderrBuf, stderrPipeW: stderrPipeW}
 
 	// Watchdog: if the engine doesn't respond at all within
 	// 2x the per-game budget, kill it.
