@@ -3,13 +3,21 @@ package game
 import "strings"
 
 // Compact Othello board for move validation and game-end detection.
-// Allows the match runner / SPRT tool to independently verify moves
-// and detect passes without trusting the engine.
+// Bitboard: LSB = A1 (0), MSB = H8 (63). Row-major, little-endian.
 
 type Board struct {
 	black uint64
 	white uint64
 }
+
+// Edge masks to prevent bitboard wrapping. Each byte corresponds to one
+// row (bits 0-7 = row 0, ..., bits 56-63 = row 7).
+const (
+	notA    uint64 = 0xfefefefefefefefe // exclude file A (bit 0 of each byte)
+	notH    uint64 = 0x7f7f7f7f7f7f7f7f // exclude file H (bit 7 of each byte)
+	notRow0 uint64 = 0xffffffffffffff00 // exclude row 0
+	notRow7 uint64 = 0x00ffffffffffffff // exclude row 7
+)
 
 // NewBoard returns the standard Othello starting position.
 func NewBoard() Board {
@@ -28,92 +36,108 @@ func (b *Board) LegalMoves(player uint64) uint64 {
 		opp = b.black
 	}
 	empty := ^(b.black | b.white)
-	var moves, candidates uint64
+	var moves uint64
 
-	edge := uint64(0x7e7e7e7e7e7e7e7e)
-	dirs := []struct{ shift int; mask uint64 }{
-		{1, edge},   // E
-		{7, edge},   // SW (<<7) / NE (>>7)
-		{8, ^uint64(0)}, // S
-		{9, edge},   // SE (<<9) / NW (>>9)
-	}
+	// For each direction, do a Kogge-Stone parallel-prefix flood
+	// through opponent discs. Properly mask source bits to prevent
+	// wrapping around board edges.
 
-	for _, d := range dirs {
-		for _, sign := range []int{1, -1} {
-			shift := d.shift * sign
-			mask := opp & d.mask
-			if shift > 0 {
-				candidates = (player << shift) & mask
-				for i := 0; i < 5; i++ {
-					candidates |= (candidates << shift) & opp
-				}
-				moves |= (candidates << shift) & empty
-			} else {
-				shift = -shift
-				candidates = (player >> shift) & mask
-				for i := 0; i < 5; i++ {
-					candidates |= (candidates >> shift) & opp
-				}
-				moves |= (candidates >> shift) & empty
-			}
-		}
-	}
+	// E (<<1): source must not be in file H
+	moves |= shiftFlood(player, opp, empty, 1, notH)
+	// W (>>1): source must not be in file A
+	moves |= shiftFlood(player, opp, empty, -1, notA)
+	// S (<<8): source must not be in row 7
+	moves |= shiftFlood(player, opp, empty, 8, notRow7)
+	// N (>>8): source must not be in row 0
+	moves |= shiftFlood(player, opp, empty, -8, notRow0)
+	// SE (<<9): source must not be in row 7 or file H
+	moves |= shiftFlood(player, opp, empty, 9, notRow7&notH)
+	// NW (>>9): source must not be in row 0 or file A
+	moves |= shiftFlood(player, opp, empty, -9, notRow0&notA)
+	// NE (>>7): source must not be in row 0 or file H
+	moves |= shiftFlood(player, opp, empty, -7, notRow0&notH)
+	// SW (<<7): source must not be in row 7 or file A
+	moves |= shiftFlood(player, opp, empty, 7, notRow7&notA)
+
 	return moves & empty
+}
+
+// shiftFlood does one direction of Kogge-Stone flood fill.
+func shiftFlood(player, opp, empty uint64, shift int, mask uint64) uint64 {
+	var w uint64
+	if shift > 0 {
+		w = opp & ((player & mask) << shift)
+		w |= opp & ((w & mask) << shift)
+		w |= opp & ((w & mask) << shift)
+		w |= opp & ((w & mask) << shift)
+		return empty & ((w & mask) << shift)
+	}
+	shift = -shift
+	w = opp & ((player & mask) >> shift)
+	w |= opp & ((w & mask) >> shift)
+	w |= opp & ((w & mask) >> shift)
+	w |= opp & ((w & mask) >> shift)
+	return empty & ((w & mask) >> shift)
 }
 
 // ApplyMove applies a legal move and returns the new board.
 func (b *Board) ApplyMove(player uint64, sq int) Board {
 	if player == b.black {
-		r := b.apply(b.black, b.white, sq)
-		return Board{black: r.black, white: r.white}
+		r := applyFlip(b.black, b.white, sq)
+		return Board{black: r.me, white: r.opp}
 	}
-	r := b.apply(b.white, b.black, sq)
-	return Board{black: r.white, white: r.black}
+	r := applyFlip(b.white, b.black, sq)
+	return Board{black: r.opp, white: r.me}
 }
 
-func (b Board) apply(me, opp uint64, sq int) Board {
+type flipResult struct{ me, opp uint64 }
+
+func applyFlip(me, opp uint64, sq int) flipResult {
 	bit := uint64(1) << sq
 	me |= bit
-	edge := uint64(0x7e7e7e7e7e7e7e7e)
 	var flipped uint64
+
+	// For each direction, walk from the placed disc through opponent
+	// discs until hitting own disc (capture) or empty/edge (no capture).
 	dirs := []struct{ shift int; mask uint64 }{
-		{1, edge}, {7, edge}, {8, ^uint64(0)}, {9, edge},
+		{1, notH},                  // E
+		{-1, notA},                 // W
+		{8, notRow7},              // S
+		{-8, notRow0},             // N
+		{9, notRow7 & notH},       // SE
+		{-9, notRow0 & notA},      // NW
+		{-7, notRow0 & notH},      // NE
+		{7, notRow7 & notA},       // SW
 	}
+
 	for _, d := range dirs {
-		for _, sign := range []int{1, -1} {
-			shift := d.shift * sign
-			var cand uint64
-			if shift > 0 {
-				mask := opp & d.mask
-				if d.shift == 8 {
-					mask = opp
-				}
-				cand = (bit << shift) & mask
-				for i := 0; i < 7; i++ {
-					cand |= (cand << shift) & opp
-				}
-				if (cand << shift) & me != 0 {
-					flipped |= cand
-				}
-			} else {
-				shift = -shift
-				mask := opp & d.mask
-				if d.shift == 8 {
-					mask = opp
-				}
-				cand = (bit >> shift) & mask
-				for i := 0; i < 7; i++ {
-					cand |= (cand >> shift) & opp
-				}
-				if (cand >> shift) & me != 0 {
-					flipped |= cand
-				}
+		mask := opp & d.mask
+		if mask == 0 {
+			continue
+		}
+		var cand uint64
+		if d.shift > 0 {
+			cand = (bit << d.shift) & mask
+			for i := 0; i < 7; i++ {
+				cand |= (cand << d.shift) & opp
+			}
+			if (cand << d.shift) & me != 0 {
+				flipped |= cand
+			}
+		} else {
+			sh := -d.shift
+			cand = (bit >> sh) & mask
+			for i := 0; i < 7; i++ {
+				cand |= (cand >> sh) & opp
+			}
+			if (cand >> sh) & me != 0 {
+				flipped |= cand
 			}
 		}
 	}
 	me |= flipped
 	opp &^= flipped
-	return Board{black: me, white: opp}
+	return flipResult{me, opp}
 }
 
 // IsOver returns true if neither player has a legal move.

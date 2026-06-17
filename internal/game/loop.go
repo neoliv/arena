@@ -181,7 +181,14 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 
 		sq := SqFromString(mv)
 		if sq < 0 || (legal>>sq)&1 == 0 {
-			slog.Warn("illegal move from engine", "side", sideToMove, "move", mv)
+			slog.Warn("illegal move from engine",
+				"side", sideToMove, "move", mv,
+				"empties", 64-popcount(board.black|board.white),
+				"legal_count", popcount(legal),
+				"legal", fmt.Sprintf("%064b", legal),
+				"black", fmt.Sprintf("%064b", board.black),
+				"white", fmt.Sprintf("%064b", board.white),
+			)
 			if sideToMove == "B" {
 				gr.Result = "0-1"
 			} else {

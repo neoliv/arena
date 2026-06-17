@@ -33,16 +33,23 @@ func LoadBook(data string) []Opening {
 }
 
 // parseMoveList splits a continuous move string (e.g. "f5d6c3d3") into
-// individual 2-char moves. Returns uppercase moves.
+// individual 2-char moves. Returns uppercase moves. Returns nil if any
+// move is not a valid Othello square (to filter corrupt book lines).
 func parseMoveList(line string) []string {
 	if line == "" {
 		return nil
 	}
+	// Must be even length and consist only of valid square names
+	if len(line)%2 != 0 {
+		return nil
+	}
 	var moves []string
 	for i := 0; i < len(line); i += 2 {
-		if i+1 < len(line) {
-			moves = append(moves, strings.ToUpper(line[i:i+2]))
+		mv := strings.ToUpper(line[i : i+2])
+		if SqFromString(mv) < 0 {
+			return nil // corrupt line — skip entirely
 		}
+		moves = append(moves, mv)
 	}
 	return moves
 }

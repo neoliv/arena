@@ -1,131 +1,127 @@
 package matchmaker
 
-// Minimal Othello board for independent move validation and game-end detection.
-// The matchmaker uses this to verify moves and detect when the game is over,
-// rather than relying on engines to report passes correctly.
+// Compact Othello board for move validation and game-end detection.
+// Bitboard: LSB = A1 (0), MSB = H8 (63). Row-major, little-endian.
 
 type othelloBoard struct {
 	black uint64
 	white uint64
 }
 
+// Edge masks to prevent bitboard wrapping.
+const (
+	mmNotA    uint64 = 0xfefefefefefefefe
+	mmNotH    uint64 = 0x7f7f7f7f7f7f7f7f
+	mmNotRow0 uint64 = 0xffffffffffffff00
+	mmNotRow7 uint64 = 0x00ffffffffffffff
+)
+
 func newBoard() othelloBoard {
-	// Standard starting position
 	return othelloBoard{
-		black: 1<<28 | 1<<35, // E4, D5
-		white: 1<<27 | 1<<36, // D4, E5
+		black: 1<<28 | 1<<35,
+		white: 1<<27 | 1<<36,
 	}
 }
 
-// legalMoves returns a bitboard of legal moves for the given player.
 func (b *othelloBoard) legalMoves(player uint64) uint64 {
-	opp := b.white
-	if player == b.white {
+	var opp uint64
+	if player == b.black {
+		opp = b.white
+	} else {
 		opp = b.black
 	}
 	empty := ^(b.black | b.white)
-	var moves, candidates uint64
+	var moves uint64
 
-	// Kogge-Stone: compute legal moves by checking all 8 directions.
-	dirs := []int{1, 7, 8, 9} // horizontal, diagonal up, vertical, diagonal down
-	for _, d := range dirs {
-		for _, sign := range []int{1, -1} {
-			shift := d * sign
-			var mask uint64
-			if shift > 0 {
-				// Prevent wrapping
-				mask = opp & 0x7e7e7e7e7e7e7e7e
-				if d == 8 {
-					mask = opp
-				}
-				candidates = (player << shift) & mask
-				for i := 0; i < 5; i++ {
-					candidates |= (candidates << shift) & opp
-				}
-				moves |= (candidates << shift) & empty
-			} else if shift < 0 {
-				shift = -shift
-				mask = opp & 0x7e7e7e7e7e7e7e7e
-				if d == 8 {
-					mask = opp
-				}
-				candidates = (player >> shift) & mask
-				for i := 0; i < 5; i++ {
-					candidates |= (candidates >> shift) & opp
-				}
-				moves |= (candidates >> shift) & empty
-			}
-		}
-	}
-	// Also check down-right and up-left (9 and -9)
-	for _, shift := range []int{9, -9} {
-		mask := opp & 0x7e7e7e7e7e7e7e7e
-		if shift > 0 {
-			candidates = (player << shift) & mask
-			for i := 0; i < 5; i++ {
-				candidates |= (candidates << shift) & opp
-			}
-			moves |= (candidates << shift) & empty
-		} else {
-			candidates = (player >> (-shift)) & mask
-			for i := 0; i < 5; i++ {
-				candidates |= (candidates >> (-shift)) & opp
-			}
-			moves |= (candidates >> (-shift)) & empty
-		}
-	}
+	moves |= shiftFloodMM(player, opp, empty, 1, mmNotH)
+	moves |= shiftFloodMM(player, opp, empty, -1, mmNotA)
+	moves |= shiftFloodMM(player, opp, empty, 8, mmNotRow7)
+	moves |= shiftFloodMM(player, opp, empty, -8, mmNotRow0)
+	moves |= shiftFloodMM(player, opp, empty, 9, mmNotRow7&mmNotH)
+	moves |= shiftFloodMM(player, opp, empty, -9, mmNotRow0&mmNotA)
+	moves |= shiftFloodMM(player, opp, empty, -7, mmNotRow0&mmNotH)
+	moves |= shiftFloodMM(player, opp, empty, 7, mmNotRow7&mmNotA)
+
 	return moves & empty
 }
 
-// applyMove applies a move for the given player. Returns the new board.
-// Caller must ensure the move is legal.
-func (b *othelloBoard) applyMove(player uint64, sq int) othelloBoard {
-	if player == b.black {
-		return b.apply(b.black, b.white, sq)
+func shiftFloodMM(player, opp, empty uint64, shift int, mask uint64) uint64 {
+	var w uint64
+	if shift > 0 {
+		w = opp & ((player & mask) << shift)
+		w |= opp & ((w & mask) << shift)
+		w |= opp & ((w & mask) << shift)
+		w |= opp & ((w & mask) << shift)
+		return empty & ((w & mask) << shift)
 	}
-	r := b.apply(b.white, b.black, sq)
-	return othelloBoard{black: r.white, white: r.black}
+	shift = -shift
+	w = opp & ((player & mask) >> shift)
+	w |= opp & ((w & mask) >> shift)
+	w |= opp & ((w & mask) >> shift)
+	w |= opp & ((w & mask) >> shift)
+	return empty & ((w & mask) >> shift)
 }
 
-func (b othelloBoard) apply(me, opp uint64, sq int) othelloBoard {
+func (b *othelloBoard) applyMove(player uint64, sq int) othelloBoard {
+	if player == b.black {
+		r := applyFlipMM(b.black, b.white, sq)
+		return othelloBoard{black: r.me, white: r.opp}
+	}
+	r := applyFlipMM(b.white, b.black, sq)
+	return othelloBoard{black: r.opp, white: r.me}
+}
+
+type flipResultMM struct{ me, opp uint64 }
+
+func applyFlipMM(me, opp uint64, sq int) flipResultMM {
 	bit := uint64(1) << sq
 	me |= bit
-	edgeMask := uint64(0x7e7e7e7e7e7e7e7e)
 	var flipped uint64
-	for _, d := range []int{1, 7, 8, 9} {
-		for _, sign := range []int{1, -1} {
-			shift := d * sign
-			var cand uint64
-			if shift > 0 {
-				mask := opp & edgeMask
-				if shift == 8 { mask = opp }
-				cand = (bit << shift) & mask
-				for i := 0; i < 7; i++ {
-					cand |= (cand << shift) & opp
-				}
-				if (cand << shift) & me != 0 {
-					flipped |= cand
-				}
-			} else {
-				shift = -shift
-				mask := opp & edgeMask
-				if shift == 8 { mask = opp }
-				cand = (bit >> shift) & mask
-				for i := 0; i < 7; i++ {
-					cand |= (cand >> shift) & opp
-				}
-				if (cand >> shift) & me != 0 {
-					flipped |= cand
-				}
+
+	dirs := []struct {
+		shift int
+		mask  uint64
+	}{
+		{1, mmNotH}, {-1, mmNotA},
+		{8, mmNotRow7}, {-8, mmNotRow0},
+		{9, mmNotRow7 & mmNotH}, {-9, mmNotRow0 & mmNotA},
+		{-7, mmNotRow0 & mmNotH}, {7, mmNotRow7 & mmNotA},
+	}
+
+	for _, d := range dirs {
+		mask := opp & d.mask
+		if mask == 0 {
+			continue
+		}
+		var cand uint64
+		if d.shift > 0 {
+			cand = (bit << d.shift) & mask
+			for i := 0; i < 7; i++ {
+				cand |= (cand << d.shift) & opp
+			}
+			if (cand << d.shift) & me != 0 {
+				flipped |= cand
+			}
+		} else {
+			sh := -d.shift
+			cand = (bit >> sh) & mask
+			for i := 0; i < 7; i++ {
+				cand |= (cand >> sh) & opp
+			}
+			if (cand >> sh) & me != 0 {
+				flipped |= cand
 			}
 		}
 	}
 	me |= flipped
 	opp &^= flipped
-	return othelloBoard{black: me, white: opp}
+	return flipResultMM{me, opp}
 }
 
-// sqFromString converts an Othello square name (e.g., "F5") to a bit index.
+func (b *othelloBoard) isOver() bool {
+	return b.legalMoves(b.black) == 0 && b.legalMoves(b.white) == 0
+}
+
 func sqFromString(s string) int {
 	if len(s) < 2 {
 		return -1
@@ -141,7 +137,3 @@ func sqFromString(s string) int {
 	return int(col-'A') + int(row-'1')*8
 }
 
-// isOver returns true if neither player has a legal move.
-func (b *othelloBoard) isOver() bool {
-	return b.legalMoves(b.black) == 0 && b.legalMoves(b.white) == 0
-}
