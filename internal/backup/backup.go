@@ -39,10 +39,7 @@ func (m *Manager) loop() {
 }
 
 func (m *Manager) maybeBackup() {
-	info, err := os.Stat(m.dbPath)
-	if err != nil { return }
-	if !info.ModTime().After(m.lastBackup) { return }
-	if time.Since(info.ModTime()) < 5*time.Minute { return }
+	if time.Since(m.lastBackup) < 60*time.Minute { return }
 	if err := m.doBackup(); err != nil {
 		fmt.Fprintf(os.Stderr, "backup: %v\n", err)
 		return
