@@ -146,7 +146,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 
 		if len(moves) > 0 {
 			tab := r.URL.Query().Get("tab")
-			chartH := 320
+			chartH := 320; topPad := 30
 			chartW := fmt.Sprintf("%d", len(moves)*14+50)
 			if tab == "" { tab = "time" }
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
@@ -196,9 +196,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(w, `<text x="0" y="%d" fill="%s" font-size="11">%s%s</text>`, y, tickColor, fmtVal(val), unit)
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 				}
-				if metric == "diff" || metric == "score" {
-					z := chartH/2 + 44
-					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
+				if metric == "diff" {
+					z := chartH/2 + topPad
+					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
 				}
 				if metric == "score" && maxValR > 0 {
 					niceStepR := maxValR / 4
@@ -241,13 +241,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 					if h < 2 { h = 2 }
-					barY := chartH - h
+					barY := chartH - h + topPad
 					if metric == "score" {
 						mid := float64(chartH / 2)
 						h = int((val / maxVal) * mid)
 						if h < 0 { h = -h }
 						if h < 2 { h = 2 }
-						if val >= 0 { barY = int(mid) - h } else { barY = int(mid) }
+						if val >= 0 { barY = int(mid) - h + topPad } else { barY = int(mid) + topPad }
 					}
 					color := "#6bc4ff"
 					if m.side == "w" { color = "#e8e8e8" }
@@ -263,7 +263,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "diff": tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
 					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, barY, h, color, tip)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20, color, m.move)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, m.move)
 				}
 				io.WriteString(w, `</svg></div>`)
 			}
