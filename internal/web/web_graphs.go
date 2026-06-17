@@ -15,15 +15,12 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Graphs</h1>`+filterBox+`
 		<nav class="chart-tabs" style="margin-bottom:1.5em">
 		<a href="?tab=elo" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab==""||tab=="elo"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab==""||tab=="elo"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Elo</a>
-		<a href="?tab=speed" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="speed"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="speed"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Speed</a>
 		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="games"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="games"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Games</a>
 		<a href="?tab=timeout" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="timeout"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="timeout"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Timeouts</a>
 		<a href="?tab=unspent" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="unspent"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="unspent"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Unspent</a>
 		</div>`)
 
 	switch tab {
-	case "speed":
-		h.renderSpeedGraph(w, r)
 	case "games":
 		h.renderStatsBars(w, r, "games")
 	case "timeout":

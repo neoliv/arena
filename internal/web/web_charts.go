@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -71,8 +72,10 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 	getMaxGames := func() float64 { m := 0.0; for _, s := range stats { if float64(s.Games) > m { m = float64(s.Games) } }; return m }
 	switch chart {
 	case "games":
+		sort.Slice(stats, func(i, j int) bool { return stats[i].Games > stats[j].Games })
 		io.WriteString(w, drawBars("Games per Engine", "", getGames, getMaxGames, chartColors[0]))
 	case "length":
+		sort.Slice(stats, func(i, j int) bool { return stats[i].AvgPly > stats[j].AvgPly })
 		getPly := func(s engineStats) float64 { return float64(s.AvgPly) }
 	getMaxPly := func() float64 { m := 0.0; for _, s := range stats { if float64(s.AvgPly) > m { m = float64(s.AvgPly) } }; return m }
 	io.WriteString(w, drawBars("Average Game Length (plies)", "", getPly, getMaxPly, chartColors[1]))
@@ -81,11 +84,13 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 		if totalTimeouts == 0 {
 			io.WriteString(w, `<p style="color:var(--muted);margin-top:2em">No timeouts recorded — all engines stay within their time budget.</p>`)
 		} else if stats[0].TotalMoves > 0 {
+		sort.Slice(stats, func(i, j int) bool { return float64(stats[i].Timeouts)/float64(max(stats[i].TotalMoves,1)) > float64(stats[j].Timeouts)/float64(max(stats[j].TotalMoves,1)) })
 		getTO := func(s engineStats) float64 { return float64(s.Timeouts) * 100 / float64(max(s.TotalMoves,1)) }
 		getMaxTO := func() float64 { m := 0.0; for _, s := range stats { v := getTO(s); if v > m { m = v } }; return m }
 		io.WriteString(w, drawBars("Timeout Rate (%)", "%", getTO, getMaxTO, chartColors[2]))
 		}
 	case "unspent":
+		sort.Slice(stats, func(i, j int) bool { return stats[i].UnspentPct > stats[j].UnspentPct })
 		getUnspent := func(s engineStats) float64 { return s.UnspentPct }
 	getMaxUnspent := func() float64 { m := 0.0; for _, s := range stats { if s.UnspentPct > m { m = s.UnspentPct } }; return m }
 	io.WriteString(w, drawBars("Unspent Time (%)", "%", getUnspent, getMaxUnspent, chartColors[3]))
