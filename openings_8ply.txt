@@ -1,4 +1,4 @@
-Using 48 embedded openings (fallback — no WTHOR file provided)
+# Using 48 embedded openings (fallback — no WTHOR file provided)
 f5d6c3d3c4e3f4c5
 f5d6c3d3c4e3c5d2
 f5d6c3d3c4e3c5b4
