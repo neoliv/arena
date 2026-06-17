@@ -363,7 +363,11 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	if totalGames == 0 { totalGames = 2 }
 
 	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
-	// Filter out phantom games (0 moves = coach/system failure, not a real game).
+	// Discard incomplete games — no player should gain or lose Elo
+	// from infrastructure failure (coach restart, network drop).
+	// - 0 moves: coach/system failure before play began.
+	// - Disconnect: stream error mid-game. Even a 55-move game
+	//   cut short by a coach restart is discarded.
 	realGames := games[:0]
 	for _, g := range games {
 		if len(g.Moves) > 0 && !g.Disconnect { realGames = append(realGames, g) }
