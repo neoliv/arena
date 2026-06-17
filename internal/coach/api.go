@@ -357,6 +357,14 @@ func (h *Handler) HandleTaskStatus(w http.ResponseWriter, r *http.Request) {
 			slog.Error("task status", "err", err)
 			jsonErr(w, "db error", http.StatusInternalServerError); return
 		}
+		// If one side failed, clean up both relay sessions so the
+		// other coach doesn't keep an engine waiting indefinitely.
+		if status == "failed" {
+			var s1, s2 string
+			h.DB.QueryRow("SELECT COALESCE(session1_id,''), COALESCE(session2_id,'') FROM match_assignments WHERE id=?", assignmentID).Scan(&s1, &s2)
+			if s1 != "" { h.Relay.Cleanup(s1) }
+			if s2 != "" { h.Relay.Cleanup(s2) }
+		}
 	}
 
 	jsonOK(w, map[string]string{"status": status})
