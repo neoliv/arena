@@ -7,14 +7,20 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 
+	"github.com/neoliv/arena/internal/backup"
 	_ "modernc.org/sqlite"
 )
 
 // DB wraps the SQL connection pool.
-type DB struct{ *sql.DB }
+type DB struct {
+	*sql.DB
+	Rollback bool // true if DB was restored from backup
+}
 
 // Open creates or opens the SQLite database at the given path.
+// If the database is corrupted, it tries to restore from the latest backup.
 func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("mkdir: %w", err)
@@ -24,12 +30,36 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
-	conn.SetMaxOpenConns(4) // allow concurrent reads during writes
+	conn.SetMaxOpenConns(4)
 	conn.SetMaxIdleConns(2)
 	if err := conn.Ping(); err != nil {
+		conn.Close()
+		// Try restoring from latest backup.
+		backupDir := filepath.Join(filepath.Dir(path), "backup")
+		entries, _ := filepath.Glob(filepath.Join(backupDir, "arena-*.db.zst"))
+		if len(entries) > 0 {
+			sort.Strings(entries)
+			latest := entries[len(entries)-1]
+			fmt.Fprintf(os.Stderr, "db: ping failed (%v), restoring from %s\n", err, filepath.Base(latest))
+			if err := backup.RestoreBackup(path, latest); err != nil {
+				return nil, fmt.Errorf("restore backup: %w", err)
+			}
+			// Retry open.
+			conn2, err := sql.Open("sqlite", dsn)
+			if err != nil {
+				return nil, fmt.Errorf("open after restore: %w", err)
+			}
+			conn2.SetMaxOpenConns(4)
+			conn2.SetMaxIdleConns(2)
+			if err := conn2.Ping(); err != nil {
+				conn2.Close()
+				return nil, fmt.Errorf("ping after restore: %w", err)
+			}
+			return &DB{conn2, true}, nil
+		}
 		return nil, fmt.Errorf("ping: %w", err)
 	}
-	return &DB{conn}, nil
+	return &DB{conn, false}, nil
 }
 
 // Migrate creates the schema.

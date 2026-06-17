@@ -52,12 +52,16 @@ t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind"
 
 const filterBox = `<input type="search" id="filterBox" placeholder="Filter…" oninput="filter()" autofocus>`
 
-const navHTML = `<nav>
+var navHTML = `<nav>
 <a href="/">Ranks</a> <a href="/charts">Charts</a>
 <a href="/matches">Matches</a> <a href="/games">Games</a> <a href="/players">Players</a> <a href="/coaches">Coaches</a>
 <a href="/health">Health</a> <a href="/admin">Admin</a>
 <span style="float:right"><a class="logout" href="/logout">Disconnect</a></span>
 </nav>`
+
+func SetRollbackBanner() {
+	navHTML = `<div style="background:#c44;color:#fff;text-align:center;padding:.4em;font-weight:600;margin-bottom:.5em">⚠ Database was restored from backup — recent games may be missing.</div>` + navHTML
+}
 
 const htmxScript = `<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGxOGrUEVMQQBW1EE4IqOmxPxVJzZSoS0rIYgJOlhNYG8YP4iWm4kq6FDoGsEdJj" crossorigin="anonymous"></script>`
 const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + htmxScript + `</head><body>`

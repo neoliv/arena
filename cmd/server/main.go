@@ -74,6 +74,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer database.Close()
+	if database.Rollback {
+		web.SetRollbackBanner()
+		slog.Warn("database restored from backup — recent games may be missing")
+	}
 
 	if err := database.Migrate(); err != nil {
 		slog.Error("migration", "err", err)
