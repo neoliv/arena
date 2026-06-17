@@ -179,7 +179,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				}
 				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
 				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#6bc4ff;font-size:14px;font-weight:600">%s %s</span><span style="color:#e8e8e8;font-size:14px;font-weight:600">%s %s</span></div>`, bName, bVer, wName, wVer)
-				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+52))
+				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
 				niceStep := maxVal / 4
 				if niceStep >= 100 {
 					niceStep = float64(int(niceStep/100+0.5)) * 100
