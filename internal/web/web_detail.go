@@ -211,7 +211,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#e8e8e8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
 					}
 				}
-				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+44, yLabel)
+				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+68, yLabel)
 				for i, m := range moves {
 					var val float64
 					switch metric {
