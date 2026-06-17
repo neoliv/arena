@@ -25,8 +25,29 @@ insertions, use Read + Write.
 ./arena-clear-db.sh        # clear all game data from VPS DB (keeps tokens+sessions)
 ./arena-check.sh [--watch] # quick server health check
 ./arena-logs.sh            # pull server/caddy/journal logs to local log/
+./arena-sprt-gate.sh       # build engine + run SPRT vs previous version
 ~/bin/coach-update.sh      # rebuild all engines + coach on host (run on host)
 ```
+
+### SPRT tool
+
+`cmd/sprt/` is a standalone binary for fast regression testing between two
+engine versions. It plays color-swapped game pairs via local GTP subprocesses
+and accumulates a Sequential Probability Ratio Test until a decision is
+reached (or max games exhausted). Games are saved as local WTHOR files —
+nothing is posted to the arena.
+
+```
+go build -o sprt ./cmd/sprt/
+./sprt --candidate "./neursi --weights new.bin" --reference "./neursi --weights prev.bin" --tc 1
+```
+
+Exit codes: 0 = accepted (not meaningfully weaker), 1 = rejected, 2 = inconclusive.
+Designed for `git bisect run`.
+
+Shared packages:
+- `internal/game/` — GTP engine lifecycle, opening book, board validation, game loop
+- `internal/sprt/` — SPRT accumulator, LLR update, decision logic, JSON summary
 
 ## Deploy
 
@@ -125,12 +146,20 @@ The arena matchmaker only sends standard GTP commands: `boardsize`, `clear_board
 |------|---------|
 | `cmd/server/main.go` | Arena server entry point |
 | `cmd/coach/main.go` | Coach binary (contributor machines) |
+| `cmd/match_runner/main.go` | Local GTP match runner |
+| `cmd/sprt/main.go` | SPRT regression-testing tool |
+| `internal/game/engine.go` | Shared GTP engine lifecycle |
+| `internal/game/loop.go` | Shared Othello game execution |
+| `internal/game/board.go` | Shared Othello board + move validation |
+| `internal/game/book.go` | Shared opening book loading |
+| `internal/sprt/sprt.go` | SPRT accumulator + decision logic |
 | `internal/db/db.go` | Schema + migrations |
 | `internal/db/coach.go` | Coach/coach_ais/match_assignments queries |
 | `internal/coach/api.go` | Coach REST API handlers |
 | `internal/web/web.go` | Web dashboard handlers |
 | `internal/matchmaker/mm.go` | Match scheduling |
 | `deploy.sh` | Build + deploy to VPS |
+| `arena-sprt-gate.sh` | Build + SPRT + report pass/fail |
 | `coach-update.sh` | Build engines + coach binary on host |
 
 ## Web UI
