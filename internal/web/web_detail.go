@@ -147,7 +147,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		if len(moves) > 0 {
 			tab := r.URL.Query().Get("tab")
 			chartH := 320; topPad := 30
-			chartW := fmt.Sprintf("%d", len(moves)*14+50)
+			chartW := fmt.Sprintf("%d", max(600, len(moves)*14+50))
 			if tab == "" { tab = "time" }
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
 			for _, t := range []struct{ key, label string }{
