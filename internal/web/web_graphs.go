@@ -35,7 +35,6 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, searchJS+filterBox)
 	rows, err := h.DB.Query(`SELECT e.name||' '||e.version, eh.created_at, eh.rating_after FROM elo_history eh JOIN engines e ON eh.engine_id=e.id ORDER BY eh.created_at`)
 	if err != nil || rows == nil { io.WriteString(w, "<p>No data yet.</p>"+pageFoot); return }
 	defer rows.Close()
