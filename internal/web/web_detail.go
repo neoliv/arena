@@ -177,7 +177,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				if metric != tab {
 					return
 				}
-				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto"><svg width="%s" height="%d">`, chartW, chartH+52))
+				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
+				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#6bc4ff;font-size:14px;font-weight:600">%s %s</span><span style="color:#e8e8e8;font-size:14px;font-weight:600">%s %s</span></div>`, bName, bVer, wName, wVer)
+				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+52))
 				niceStep := maxVal / 4
 				if niceStep >= 100 {
 					niceStep = float64(int(niceStep/100+0.5)) * 100
@@ -210,8 +212,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+44, yLabel)
-				fmt.Fprintf(w, `<text x="34" y="16" fill="#6bc4ff" font-size="13" font-weight="600">%s %s</text>`, bName, bVer)
-				fmt.Fprintf(w, `<text x="100%%" y="16" fill="#e8e8e8" font-size="13" font-weight="600" text-anchor="end">%s %s</text>`, wName, wVer)
 				for i, m := range moves {
 					var val float64
 					switch metric {
