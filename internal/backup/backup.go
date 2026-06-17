@@ -25,7 +25,7 @@ func New(dbPath string) *Manager {
 	return &Manager{
 		dbPath:     dbPath,
 		backupDir:  filepath.Join(filepath.Dir(dbPath), "backup"),
-		maxBackups: 63,
+		maxBackups: 16, // ~7 days at 12h interval
 	}
 }
 
@@ -39,7 +39,13 @@ func (m *Manager) loop() {
 }
 
 func (m *Manager) maybeBackup() {
-	if time.Since(m.lastBackup) < 60*time.Minute { return }
+	// Skip if we already backed up recently (survives restarts by checking filesystem).
+	if latest := FindLatestBackup(m.dbPath); latest != "" {
+		if info, err := os.Stat(latest); err == nil && time.Since(info.ModTime()) < 12*time.Hour {
+			return
+		}
+	}
+	if time.Since(m.lastBackup) < 12*time.Hour { return }
 	if err := m.doBackup(); err != nil {
 		fmt.Fprintf(os.Stderr, "backup: %v\n", err)
 		return
