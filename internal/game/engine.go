@@ -57,6 +57,10 @@ func (s *Session) Send(cmd string) string {
 		if err != nil {
 			break
 		}
+		// Discard # comment lines (engine stats) from the response
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
 		buf.WriteString(line)
 		if strings.HasPrefix(line, "=") || strings.HasPrefix(line, "?") {
 			break

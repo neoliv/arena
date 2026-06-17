@@ -9,22 +9,20 @@ import (
 
 // GameResult holds the outcome of a single Othello game.
 type GameResult struct {
-	BlackName    string
-	WhiteName    string
-	Result       string // "1-0", "0-1", "1/2"
-	BlackScore   int
-	WhiteScore   int
-	TotalMoves   int
-	BlackTimeS   float64
-	WhiteTimeS   float64
-	OpeningLine  string
-	Disconnect   bool
-	Moves        []string // move sequence as squares (e.g. ["F5","D6",...])
+	BlackName   string
+	WhiteName   string
+	Result      string // "1-0", "0-1", "1/2"
+	BlackScore  int
+	WhiteScore  int
+	TotalMoves  int
+	BlackTimeS  float64
+	WhiteTimeS  float64
+	OpeningLine string
+	Disconnect  bool
+	Moves       []string // move sequence as squares (e.g. ["F5","D6",...])
 }
 
 // PlayGame runs one full Othello game between two engines via GTP.
-// black and white are engine sessions. opening is the opening line in
-// continuous format (e.g. "f5d6c3d3c4"). gameTimeSec is total time per side.
 func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameResult {
 	gr := GameResult{
 		OpeningLine: opening,
@@ -33,16 +31,20 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 	// Init both engines
 	if err := black.Init(gameTimeSec); err != nil {
 		slog.Error("black init", "err", err)
-		gr.Result = "0-1"; gr.Disconnect = true
+		gr.Result = "0-1"
+		gr.Disconnect = true
 		return gr
 	}
 	if err := white.Init(gameTimeSec); err != nil {
 		slog.Error("white init", "err", err)
-		gr.Result = "1-0"; gr.Disconnect = true
+		gr.Result = "1-0"
+		gr.Disconnect = true
 		return gr
 	}
 
-	// Play opening moves on both engines
+	// Play opening moves. If any move is rejected, clear the opening
+	// and restart from the initial position — corrupted openings must
+	// not produce corrupt games.
 	openMoves := parseMoveList(opening)
 	for i, mv := range openMoves {
 		color := "B"
@@ -50,17 +52,22 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			color = "W"
 		}
 		cmd := "play " + color + " " + mv
+		rejected := false
 		for _, s := range []*Session{black, white} {
 			resp := s.Send(cmd)
 			if strings.HasPrefix(resp, "?") {
-				slog.Warn("opening move rejected", "move", mv, "color", color, "resp", strings.TrimSpace(resp))
-				if color == "B" {
-					gr.Result = "0-1"
-				} else {
-					gr.Result = "1-0"
-				}
-				return gr
+				slog.Warn("opening move rejected, restarting from initial position",
+					"move", mv, "color", color, "opening", opening)
+				rejected = true
+				break
 			}
+		}
+		if rejected {
+			black.Send("clear_board")
+			white.Send("clear_board")
+			openMoves = nil
+			gr.OpeningLine = ""
+			break
 		}
 	}
 
@@ -90,7 +97,6 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 	consecutivePasses := 0
 
 	for gr.TotalMoves < 90 {
-		// Time enforcement
 		if gr.BlackTimeS >= timeLimit {
 			gr.Result = "0-1"
 			break
@@ -103,7 +109,6 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			break
 		}
 
-		// Determine player for this turn
 		var curPlayer uint64
 		if sideToMove == "B" {
 			curPlayer = board.black
@@ -117,7 +122,6 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			if consecutivePasses >= 2 {
 				break
 			}
-			// Pass: swap sides
 			gr.Moves = append(gr.Moves, "PASS")
 			sideToMove = flipSide(sideToMove)
 			continue
@@ -138,10 +142,20 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			gr.WhiteTimeS += elapsed
 		}
 
-		resp = strings.TrimSpace(strings.TrimPrefix(resp, "= "))
+		// Strip # comment lines (engine stats) and extract the = response
+		for _, line := range strings.Split(resp, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "#") || line == "" {
+				continue
+			}
+			if strings.HasPrefix(line, "=") {
+				resp = strings.TrimPrefix(line, "= ")
+				break
+			}
+		}
 		parts := strings.Fields(resp)
 		if len(parts) == 0 {
-			slog.Warn("empty genmove", "side", sideToMove)
+			slog.Warn("empty genmove", "side", sideToMove, "raw", resp)
 			break
 		}
 		mv := strings.ToUpper(parts[0])
@@ -165,7 +179,6 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			continue
 		}
 
-		// Validate move
 		sq := SqFromString(mv)
 		if sq < 0 || (legal>>sq)&1 == 0 {
 			slog.Warn("illegal move from engine", "side", sideToMove, "move", mv)
@@ -177,12 +190,10 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			break
 		}
 
-		// Apply move to validation board
 		board = board.ApplyMove(curPlayer, sq)
 		gr.Moves = append(gr.Moves, mv)
 		moveCount++
 
-		// Inform the other engine
 		opponent := white
 		if sideToMove == "W" {
 			opponent = black
@@ -199,7 +210,6 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		gr.Result = result
 	}
 
-	// Get final scores from engine for accurate count
 	finalResp := black.Send("final_score")
 	finalResp = strings.TrimPrefix(strings.TrimSpace(finalResp), "= ")
 	if strings.HasPrefix(finalResp, "B+") {
