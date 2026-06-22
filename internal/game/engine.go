@@ -18,6 +18,11 @@ type Session struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
+
+	// LastStats holds the most recent # neursi-stats v1: JSON line
+	// captured from a genmove response. Empty string if the engine
+	// does not emit stats (pre-v1 engines or non-neursi engines).
+	lastStats string
 }
 
 // StartEngine launches an engine subprocess. path may include arguments
@@ -44,12 +49,14 @@ func StartEngine(path string) *Session {
 }
 
 // Send sends a GTP command and returns the response (everything up to and
-// including the = or ? status line). Lines prefixed with # (stats/comments)
-// are discarded.
+// including the = or ? status line). Lines prefixed with # are stripped from
+// the returned string for GTP compatibility, but # neursi-stats v1: lines
+// are captured and available via LastStats().
 func (s *Session) Send(cmd string) string {
 	if s.stdin == nil {
 		return ""
 	}
+	s.lastStats = ""
 	s.stdin.Write([]byte(cmd + "\n"))
 	var buf bytes.Buffer
 	for {
@@ -57,7 +64,14 @@ func (s *Session) Send(cmd string) string {
 		if err != nil {
 			break
 		}
-		// Discard # comment lines (engine stats) from the response
+		// Capture neursi stats JSON lines (GTP comment, versioned)
+		if strings.HasPrefix(line, "# neursi-stats v1: ") {
+			s.lastStats = strings.TrimSpace(
+				strings.TrimPrefix(line, "# neursi-stats v1: "),
+			)
+			continue
+		}
+		// Discard other # comment lines (engine stderr redirects, debug)
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -68,6 +82,10 @@ func (s *Session) Send(cmd string) string {
 	}
 	return buf.String()
 }
+
+// LastStats returns the most recent # neursi-stats v1: JSON payload captured
+// during a Send(). Returns empty string if the engine did not emit stats.
+func (s *Session) LastStats() string { return s.lastStats }
 
 // Init sets up the engine for a new game.
 func (s *Session) Init(gameTimeSec float64) error {

@@ -6,8 +6,9 @@ import (
 
 // Opening represents one opening book line.
 type Opening struct {
-	Line  string // raw move string, e.g. "f5d6c3d3c4"
-	Moves []string
+	Line  string   // raw move string, e.g. "f5d6c3d3c4"
+	Name  string   // human-readable name, e.g. "Tiger"
+	Moves []string // parsed individual moves
 }
 
 // LoadBook parses opening lines from embedded book data or an external file.

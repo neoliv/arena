@@ -1,11 +1,47 @@
 package game
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 )
+
+// MoveStats holds per-move search statistics captured from engine responses.
+// All fields are optional — engines that don't emit stats will have zero values.
+type MoveStats struct {
+	Ply         int     `json:"ply"`
+	Color       string  `json:"color"`        // "black" or "white"
+	Engine      string  `json:"engine"`       // "candidate" or "reference"
+	Move        string  `json:"move"`
+	Nodes       int64   `json:"nodes"`
+	Depth       int     `json:"depth"`
+	TimeMs      float64 `json:"time_ms"`
+	Timeout     bool    `json:"timeout"`
+	Score       int     `json:"score"`
+	Nps         int64   `json:"nps"`
+	Empties     int     `json:"empties"`
+	AllocatedMs float64 `json:"allocated_ms"`
+	EndSearch   bool    `json:"end_search"`
+	BookExit    bool    `json:"book_exit"`
+	BookEval    *int    `json:"book_eval,omitempty"`
+}
+
+// neursiStatsV1 is the JSON payload from a # neursi-stats v1: GTP comment line.
+type neursiStatsV1 struct {
+	Nodes       int64   `json:"nodes"`
+	Depth       int     `json:"depth"`
+	TimeMs      float64 `json:"time_ms"`
+	Timeout     bool    `json:"timeout"`
+	Score       int     `json:"score"`
+	Nps         int64   `json:"nps"`
+	Empties     int     `json:"empties"`
+	AllocatedMs float64 `json:"allocated_ms"`
+	EndSearch   bool    `json:"end_search"`
+	BookExit    bool    `json:"book_exit"`
+	BookEval    *int    `json:"book_eval"`
+}
 
 // GameResult holds the outcome of a single Othello game.
 type GameResult struct {
@@ -19,7 +55,8 @@ type GameResult struct {
 	WhiteTimeS  float64
 	OpeningLine string
 	Disconnect  bool
-	Moves       []string // move sequence as squares (e.g. ["F5","D6",...])
+	Moves       []string    // move sequence as squares (e.g. ["F5","D6",...])
+	MoveStats   []MoveStats // per-move search stats (from engine genmove responses)
 }
 
 // PlayGame runs one full Othello game between two engines via GTP.
@@ -88,10 +125,15 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 
 	// Determine side to move after opening
 	moveCount := len(openMoves)
+	plyCount := moveCount
 	sideToMove := "B"
 	if moveCount%2 == 1 {
 		sideToMove = "W"
 	}
+
+	// Track which engine plays which color for stats attribution
+	blackIsCandidate := strings.Contains(black.cmd.Path, "sprt-cand") // heuristic; overridden by caller
+	_ = blackIsCandidate
 
 	timeLimit := gameTimeSec * 1.05
 	consecutivePasses := 0
@@ -124,6 +166,7 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			}
 			gr.Moves = append(gr.Moves, "PASS")
 			sideToMove = flipSide(sideToMove)
+			plyCount++
 			continue
 		}
 		consecutivePasses = 0
@@ -140,6 +183,34 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			gr.BlackTimeS += elapsed
 		} else {
 			gr.WhiteTimeS += elapsed
+		}
+
+		// Capture per-move stats if the engine emitted them
+		if statsJSON := current.LastStats(); statsJSON != "" {
+			var s neursiStatsV1
+			if err := json.Unmarshal([]byte(statsJSON), &s); err == nil {
+				colorName := "black"
+				if sideToMove == "W" {
+					colorName = "white"
+				}
+				// Engine identity will be filled in by the caller (main.go)
+				gr.MoveStats = append(gr.MoveStats, MoveStats{
+					Ply:         plyCount,
+					Color:       colorName,
+					Move:        "", // filled below after parsing response
+					Nodes:       s.Nodes,
+					Depth:       s.Depth,
+					TimeMs:      s.TimeMs,
+					Timeout:     s.Timeout,
+					Score:       s.Score,
+					Nps:         s.Nps,
+					Empties:     s.Empties,
+					AllocatedMs: s.AllocatedMs,
+					EndSearch:   s.EndSearch,
+					BookExit:    s.BookExit,
+					BookEval:    s.BookEval,
+				})
+			}
 		}
 
 		// Strip # comment lines (engine stats) and extract the = response
@@ -176,6 +247,7 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 				break
 			}
 			sideToMove = flipSide(sideToMove)
+			plyCount++
 			continue
 		}
 
@@ -199,7 +271,14 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 
 		board = board.ApplyMove(curPlayer, sq)
 		gr.Moves = append(gr.Moves, mv)
+
+		// Fill in the move name in the last stats entry
+		if len(gr.MoveStats) > 0 {
+			gr.MoveStats[len(gr.MoveStats)-1].Move = mv
+		}
+
 		moveCount++
+		plyCount++
 
 		opponent := white
 		if sideToMove == "W" {

@@ -7,7 +7,9 @@
 //	1 = REJECT (candidate is meaningfully weaker)
 //	2 = INCONCLUSIVE (max games reached, no decision)
 //
-// Games are saved to a local WTHOR file. Nothing is posted to the arena.
+// A manifest file is written every 60s and at test end, capturing full
+// game data, per-move search statistics, git commit references, binary
+// SHA256 hashes, and accumulated statistics for later analysis.
 //
 // Usage:
 //
@@ -17,13 +19,18 @@
 package main
 
 import (
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -43,7 +50,8 @@ func main() {
 		beta        = flag.Float64("beta", 0.05, "False negative rate")
 		maxGames    = flag.Int("max-games", 400, "Maximum game pairs")
 		concurrency = flag.Int("concurrency", 4, "Concurrent game pairs")
-		outputDir   = flag.String("output", "", "Output directory for WTHOR + JSON")
+		outputDir   = flag.String("output", "", "Output directory for WTHOR + JSON + manifest")
+		resumePath  = flag.String("resume", "", "Resume from a previous manifest file")
 	)
 	flag.Parse()
 
@@ -58,33 +66,143 @@ func main() {
 		MaxGames: *maxGames,
 	}
 
-	// Candidate/Reference identity from engine queries
-	candID := queryIdentity(*candidate)
-	refID := queryIdentity(*reference)
+	// ── Engine identity ──────────────────────────────────────────────
+
+	candPath := strings.Fields(*candidate)[0]
+	refPath := strings.Fields(*reference)[0]
+
+	// Query engine info (GTP engine_info, fallback to name/version)
+	candInfo := queryEngineInfo(*candidate)
+	refInfo := queryEngineInfo(*reference)
+
+	// Compute binary SHA256
+	candBinSHA := fileSHA256(candPath)
+	refBinSHA := fileSHA256(refPath)
+
+	// Compute weights SHA256 if --weights flag present in command
+	candWeightsSHA, candWeightsPath := extractWeightsSHA(*candidate)
+	refWeightsSHA, refWeightsPath := extractWeightsSHA(*reference)
+
+	// Build full identity
+	candID := buildManifestIdentity(candInfo, *candidate, candPath, candBinSHA,
+		candWeightsPath, candWeightsSHA)
+	refID := buildManifestIdentity(refInfo, *reference, refPath, refBinSHA,
+		refWeightsPath, refWeightsSHA)
+
+	// Simple identity for summary
+	candSimple := engineInfoToSimple(candInfo)
+	refSimple := engineInfoToSimple(refInfo)
+	if candSimple.Commit != "" {
+		candSimple.EngineID = candBinSHA[:16]
+	}
+	if refSimple.Commit != "" {
+		refSimple.EngineID = refBinSHA[:16]
+	}
 
 	slog.Info("SPRT starting",
-		"candidate", candID.Name+" "+candID.Version,
-		"reference", refID.Name+" "+refID.Version,
+		"candidate", fmt.Sprintf("%s %s (%s)", candSimple.Name, candSimple.Version, candBinSHA[:12]),
+		"reference", fmt.Sprintf("%s %s (%s)", refSimple.Name, refSimple.Version, refBinSHA[:12]),
 		"tc", *tc, "elo0", *elo0, "elo1", *elo1,
 		"max_games", *maxGames, "concurrency", *concurrency,
 	)
 
-	// Load embedded book
+	// ── Resume from manifest ─────────────────────────────────────────
+
+	var startPairIdx int
+	var acc *sprt.Accumulator
+	var allPairs []gameResultPair
+	var accumStats *accumulatedStats
+
+	if *resumePath != "" {
+		m, err := loadManifest(*resumePath)
+		if err != nil {
+			slog.Error("failed to load manifest for resume", "path", *resumePath, "err", err)
+			os.Exit(2)
+		}
+		// Validate identity hasn't changed
+		if m.Candidate.BinarySHA256 != candBinSHA {
+			slog.Error("candidate binary changed since manifest was written",
+				"manifest", m.Candidate.BinarySHA256[:12], "current", candBinSHA[:12])
+			os.Exit(2)
+		}
+		if m.Reference.BinarySHA256 != refBinSHA {
+			slog.Error("reference binary changed since manifest was written",
+				"manifest", m.Reference.BinarySHA256[:12], "current", refBinSHA[:12])
+			os.Exit(2)
+		}
+		// Replay completed pairs
+		acc = sprt.NewAccumulator(cfg)
+		for _, p := range m.Pairs {
+			if !p.Completed {
+				break
+			}
+			cWins := false
+			if len(p.Games) == 2 {
+				// Recompute: candidate score vs reference score across both games
+				var cScore, rScore int
+				for _, g := range p.Games {
+					if strings.Contains(g.Role, "candidate_black") {
+						cScore += g.BlackScore
+						rScore += g.WhiteScore
+					} else {
+						cScore += g.WhiteScore
+						rScore += g.BlackScore
+					}
+				}
+				cWins = cScore > rScore
+			}
+			acc.AddPair(cWins)
+		}
+		startPairIdx = acc.Pairs()
+		slog.Info("resumed from manifest", "pairs", startPairIdx, "path", *resumePath)
+	} else {
+		acc = sprt.NewAccumulator(cfg)
+	}
+
+	// ── Accumulated stats ────────────────────────────────────────────
+
+	if accumStats == nil {
+		accumStats = newAccumulatedStats()
+	}
+
+	// ── Opening book ─────────────────────────────────────────────────
+
 	book := game.LoadBook(embeddedBook)
 
-	acc := sprt.NewAccumulator(cfg)
+	// ── Output paths ─────────────────────────────────────────────────
+
+	var manifestPath, summaryPath, wthorPath string
+	if *outputDir != "" {
+		os.MkdirAll(*outputDir, 0755)
+		basename := filepath.Join(*outputDir,
+			fmt.Sprintf("%s_v%s-vs-v%s", time.Now().Format("2006-01-02"),
+				candSimple.Version, refSimple.Version))
+		wthorPath = basename + ".wthor"
+		summaryPath = basename + ".json"
+		manifestPath = basename + ".manifest.json"
+	}
+
+	// ── Periodic manifest writer ─────────────────────────────────────
+
+	manifestDone := make(chan struct{})
+	if manifestPath != "" {
+		go periodicManifestWriter(manifestPath, &allPairs, acc, cfg,
+			candID, refID, wthorPath, summaryPath, accumStats,
+			*resumePath != "", manifestDone)
+	}
+
+	// ── Play pairs ───────────────────────────────────────────────────
+
 	var (
 		mu        sync.Mutex
 		wg        sync.WaitGroup
 		sem       = make(chan struct{}, *concurrency)
 		pairIdx   int
-		allGames  []gameResultPair
 		gameCount int
 	)
 
-	// Play pairs until SPRT terminates
-	for acc.Status() == sprt.Running {
-		op := book[pairIdx%len(book)]
+	for acc.Status() == sprt.Running && (startPairIdx+pairIdx) < cfg.MaxGames {
+		op := book[(startPairIdx+pairIdx)%len(book)]
 		pairIdx++
 		wg.Add(1)
 		sem <- struct{}{}
@@ -92,10 +210,16 @@ func main() {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			pair := playPair(*candidate, *reference, op, *tc, idx)
+			pair := playPair(*candidate, *reference, op, *tc, idx, &candID, &refID)
 			mu.Lock()
-			allGames = append(allGames, pair)
+			allPairs = append(allPairs, pair)
 			gameCount++
+
+			// Accumulate per-move stats
+			for _, g := range []game.GameResult{pair.BlackGame, pair.WhiteGame} {
+				accumStats.recordGame(g, &candID, &refID)
+			}
+
 			acc.AddPair(pair.candidateWins())
 			pairs, cWins, llr, eloEst := acc.Stats()
 			slog.Info("pair done",
@@ -105,29 +229,37 @@ func main() {
 				"elo_est", fmt.Sprintf("%.1f", eloEst),
 			)
 			mu.Unlock()
-		}(pairIdx, op)
+		}(startPairIdx+pairIdx, op)
 	}
 	wg.Wait()
 
-	// Write output
-	summary := acc.MakeSummary(candID, refID, *tc)
+	// Signal manifest writer to stop and write final
+	if manifestPath != "" {
+		close(manifestDone)
+		time.Sleep(100 * time.Millisecond)
+		writeFinalManifest(manifestPath, &allPairs, acc, cfg,
+			candID, refID, wthorPath, summaryPath, accumStats)
+	}
+
+	// ── Write output files ───────────────────────────────────────────
+
+	summary := acc.MakeSummary(candSimple, refSimple, *tc)
+	if candSimple.Commit != "" {
+		summary.Commit = candSimple.Commit
+	}
 
 	if *outputDir != "" {
-		os.MkdirAll(*outputDir, 0755)
-		basename := filepath.Join(*outputDir,
-			fmt.Sprintf("%s_v%s-vs-v%s", time.Now().Format("2006-01-02"),
-				candID.Version, refID.Version))
-
-		writeWTHOR(basename+".wthor", summary, allGames)
-		writeJSON(basename+".json", summary)
+		writeWTHOR(wthorPath, summary, allPairs)
+		writeJSON(summaryPath, summary)
 		slog.Info("output written", "dir", *outputDir)
 	}
 
-	// Print final result
+	// ── Print final result ───────────────────────────────────────────
+
 	pairs, cWins, _, eloEst := acc.Stats()
 	fmt.Printf("\n=== SPRT Result ===\n")
-	fmt.Printf("Candidate: %s %s\n", candID.Name, candID.Version)
-	fmt.Printf("Reference: %s %s\n", refID.Name, refID.Version)
+	fmt.Printf("Candidate: %s %s (%s)\n", candSimple.Name, candSimple.Version, candBinSHA[:12])
+	fmt.Printf("Reference: %s %s (%s)\n", refSimple.Name, refSimple.Version, refBinSHA[:12])
 	fmt.Printf("Pairs: %d  Score: %d-%d  Elo est: %+.1f\n", pairs, cWins, pairs-cWins, eloEst)
 	fmt.Printf("Decision: %s\n", strings.ToUpper(summary.Result))
 	fmt.Printf("Duration: %s\n", acc.Elapsed().Round(time.Second))
@@ -143,45 +275,59 @@ func main() {
 	}
 }
 
-// gameResultPair holds both color-swapped games for one SPRT pair.
+// ── Game pair types ────────────────────────────────────────────────────
+
 type gameResultPair struct {
 	BlackGame game.GameResult
 	WhiteGame game.GameResult
+	CandidateFirstColor string // "black" or "white"
+	Opening             string
+	OpeningName         string
+	StartTime           time.Time
+	EndTime             time.Time
 }
 
-// candidateWins returns true if the candidate engine outscores the
-// reference across both games.
 func (p gameResultPair) candidateWins() bool {
-	// Game 1: candidate plays Black (if pair index odd, they swap)
-	// We detect: the engine names differ between candidate and reference.
-	// Actually, we know which is which because playPair sets up the games.
-	// Black is always the first engine path, White is the second.
-	// In game 1 (BlackGame): Black=candidate, White=reference
-	// In game 2 (WhiteGame): Black=reference, White=candidate
 	cScore := p.BlackGame.BlackScore + p.WhiteGame.WhiteScore
 	rScore := p.BlackGame.WhiteScore + p.WhiteGame.BlackScore
 	return cScore > rScore
 }
 
-// playPair runs two games with swapped colors using the same opening.
-func playPair(candidatePath, referencePath string, op game.Opening, tc float64, idx int) gameResultPair {
+func playPair(candidatePath, referencePath string, op game.Opening, tc float64, idx int,
+	candID, refID *sprt.ManifestEngineIdentity) gameResultPair {
+
+	pair := gameResultPair{
+		Opening:     op.Line,
+		OpeningName: op.Name,
+		StartTime:   time.Now(),
+	}
+
 	var g1, g2 game.GameResult
 
 	if idx%2 == 0 {
-		// Candidate = Black first, then White
-		g1 = playOneGame(candidatePath, referencePath, op.Line, tc)
-		g2 = playOneGame(referencePath, candidatePath, op.Line, tc)
+		pair.CandidateFirstColor = "black"
+		g1 = playOneGame(candidatePath, referencePath, op.Line, tc, "candidate", "reference")
+		g2 = playOneGame(referencePath, candidatePath, op.Line, tc, "reference", "candidate")
 	} else {
-		// Candidate = White first, then Black
-		g1 = playOneGame(referencePath, candidatePath, op.Line, tc)
-		g2 = playOneGame(candidatePath, referencePath, op.Line, tc)
+		pair.CandidateFirstColor = "white"
+		g1 = playOneGame(referencePath, candidatePath, op.Line, tc, "reference", "candidate")
+		g2 = playOneGame(candidatePath, referencePath, op.Line, tc, "candidate", "reference")
 	}
 
-	return gameResultPair{BlackGame: g1, WhiteGame: g2}
+	pair.BlackGame = g1
+	pair.WhiteGame = g2
+	pair.EndTime = time.Now()
+
+	// Label stats with engine identity
+	labelStats(&pair.BlackGame, "candidate", "reference")
+	labelStats(&pair.WhiteGame, "candidate", "reference")
+
+	return pair
 }
 
-// playOneGame runs a single game. blackPath/whitePath are engine commands.
-func playOneGame(blackPath, whitePath, opening string, tc float64) game.GameResult {
+func playOneGame(blackPath, whitePath, opening string, tc float64,
+	blackRole, whiteRole string) game.GameResult {
+
 	black := game.StartEngine(blackPath)
 	white := game.StartEngine(whitePath)
 	if black == nil || white == nil {
@@ -193,30 +339,575 @@ func playOneGame(blackPath, whitePath, opening string, tc float64) game.GameResu
 	gr := game.PlayGame(black, white, opening, tc)
 	gr.BlackName = blackPath
 	gr.WhiteName = whitePath
+
+	// Label each move with engine role
+	for i := range gr.MoveStats {
+		if gr.MoveStats[i].Color == "black" {
+			gr.MoveStats[i].Engine = blackRole
+		} else {
+			gr.MoveStats[i].Engine = whiteRole
+		}
+	}
+
 	return gr
 }
 
-// queryIdentity sends name/version GTP commands to get engine identity.
-func queryIdentity(enginePath string) sprt.EngineIdentity {
+// labelStats fills in the Engine field for each MoveStats entry.
+func labelStats(gr *game.GameResult, candRole, refRole string) {
+	for i := range gr.MoveStats {
+		if gr.MoveStats[i].Engine != "" {
+			continue // already labeled
+		}
+		// Determine which engine played this move from the game setup
+		if strings.Contains(gr.BlackName, "sprt-cand") {
+			if gr.MoveStats[i].Color == "black" {
+				gr.MoveStats[i].Engine = "candidate"
+			} else {
+				gr.MoveStats[i].Engine = "reference"
+			}
+		} else if strings.Contains(gr.WhiteName, "sprt-cand") {
+			if gr.MoveStats[i].Color == "black" {
+				gr.MoveStats[i].Engine = "reference"
+			} else {
+				gr.MoveStats[i].Engine = "candidate"
+			}
+		} else {
+			// Fall back to the roles passed in
+			if gr.MoveStats[i].Color == "black" {
+				gr.MoveStats[i].Engine = "candidate"
+			} else {
+				gr.MoveStats[i].Engine = "reference"
+			}
+		}
+	}
+}
+
+// ── Engine identity ────────────────────────────────────────────────────
+
+// engineInfoJSON is the JSON payload from engine_info GTP command.
+type engineInfoJSON struct {
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	Commit     string `json:"commit"`
+	Dirty      bool   `json:"dirty"`
+	Profile    string `json:"profile"`
+	Rustc      string `json:"rustc"`
+	WeightsPath string `json:"weights_path"`
+}
+
+func queryEngineInfo(enginePath string) engineInfoJSON {
 	s := game.StartEngine(enginePath)
 	if s == nil {
-		return sprt.EngineIdentity{Name: enginePath, Version: "unknown"}
+		return engineInfoJSON{Name: filepath.Base(strings.Fields(enginePath)[0]), Version: "unknown"}
 	}
 	defer s.Stop()
 
+	// Try engine_info first (neursi v0.1.0+)
+	resp := s.Send("engine_info")
+	resp = strings.TrimSpace(resp)
+	if strings.HasPrefix(resp, "= {") {
+		resp = strings.TrimPrefix(resp, "= ")
+		var info engineInfoJSON
+		if err := json.Unmarshal([]byte(resp), &info); err == nil && info.Name != "" {
+			return info
+		}
+	}
+
+	// Fallback: name + version queries
 	name := strings.TrimSpace(strings.TrimPrefix(s.Send("name"), "= "))
 	version := strings.TrimSpace(strings.TrimPrefix(s.Send("version"), "= "))
 	if name == "" {
 		name = filepath.Base(strings.Fields(enginePath)[0])
 	}
-	return sprt.EngineIdentity{Name: name, Version: version}
+	if version == "" {
+		version = "unknown"
+	}
+	return engineInfoJSON{Name: name, Version: version}
 }
 
-// ── WTHOR Output ──────────────────────────────────────────────────────
+func buildManifestIdentity(info engineInfoJSON, command, binPath, binSHA, weightsPath, weightsSHA string) sprt.ManifestEngineIdentity {
+	hostname, _ := os.Hostname()
+	return sprt.ManifestEngineIdentity{
+		Name:          info.Name,
+		Version:       info.Version,
+		GitCommit:     info.Commit,
+		GitDirty:      info.Dirty,
+		BinaryPath:    binPath,
+		BinarySHA256:  binSHA,
+		Command:       command,
+		BuildProfile:  info.Profile,
+		RustcVersion:  info.Rustc,
+		WeightsPath:   weightsPath,
+		WeightsSHA256: weightsSHA,
+		HostHostname:  hostname,
+		HostOS:        runtime.GOOS,
+	}
+}
 
-// writeWTHOR writes all games in WTHOR-compatible format.
-// Format: each game is a line with black_score, white_score, theoretical_score,
-// then the move sequence as 2-char coordinates (lowercase).
+func engineInfoToSimple(info engineInfoJSON) sprt.EngineIdentity {
+	id := sprt.EngineIdentity{Name: info.Name, Version: info.Version}
+	if info.Commit != "" {
+		id.Commit = info.Commit
+	}
+	return id
+}
+
+// ── SHA256 utilities ───────────────────────────────────────────────────
+
+func fileSHA256(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	io.Copy(h, f)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func extractWeightsSHA(command string) (sha, path string) {
+	parts := strings.Fields(command)
+	for i, p := range parts {
+		if (p == "--weights" || p == "-w") && i+1 < len(parts) {
+			path = parts[i+1]
+			sha = fileSHA256(path)
+			return
+		}
+	}
+	return "", ""
+}
+
+// ── Manifest writer ────────────────────────────────────────────────────
+
+func periodicManifestWriter(path string, allPairs *[]gameResultPair,
+	acc *sprt.Accumulator, cfg sprt.Config,
+	candID, refID sprt.ManifestEngineIdentity,
+	wthorPath, summaryPath string,
+	accumStats *accumulatedStats,
+	isResume bool, done <-chan struct{}) {
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			writeManifest(path, allPairs, acc, cfg, candID, refID,
+				wthorPath, summaryPath, accumStats, isResume)
+		case <-done:
+			return
+		}
+	}
+}
+
+func writeManifest(path string, allPairs *[]gameResultPair,
+	acc *sprt.Accumulator, cfg sprt.Config,
+	candID, refID sprt.ManifestEngineIdentity,
+	wthorPath, summaryPath string,
+	accumStats *accumulatedStats,
+	isResume bool) {
+
+	m := buildManifest(allPairs, acc, cfg, candID, refID,
+		wthorPath, summaryPath, path, accumStats, isResume)
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		slog.Error("manifest marshal", "err", err)
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		slog.Error("manifest write", "path", tmp, "err", err)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		slog.Error("manifest rename", "err", err)
+	}
+}
+
+func writeFinalManifest(path string, allPairs *[]gameResultPair,
+	acc *sprt.Accumulator, cfg sprt.Config,
+	candID, refID sprt.ManifestEngineIdentity,
+	wthorPath, summaryPath string,
+	accumStats *accumulatedStats) {
+
+	writeManifest(path, allPairs, acc, cfg, candID, refID,
+		wthorPath, summaryPath, accumStats, false)
+}
+
+func buildManifest(allPairs *[]gameResultPair,
+	acc *sprt.Accumulator, cfg sprt.Config,
+	candID, refID sprt.ManifestEngineIdentity,
+	wthorPath, summaryPath, manifestPath string,
+	accumStats *accumulatedStats,
+	isResume bool) sprt.Manifest {
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	pairs, cWins, llr, eloEst := acc.Stats()
+
+	// Build a stable test ID
+	testID := fmt.Sprintf("%s_v%s-vs-v%s",
+		time.Now().Format("2006-01-02"), candID.Version, refID.Version)
+
+	m := sprt.Manifest{
+		Version: "1.0",
+		TestID:  testID,
+		Updated: now,
+		Status:  acc.Status().String(),
+		Config: sprt.ManifestConfig{
+			Elo0: cfg.Elo0, Elo1: cfg.Elo1,
+			Alpha: cfg.Alpha, Beta: cfg.Beta,
+			MaxPairs: cfg.MaxGames,
+			TC:       0, // filled below if we have it
+			Conc:     0, // filled below
+		},
+		Candidate: candID,
+		Reference: refID,
+		SPRTState: sprt.ManifestSPRTState{
+			PairsCompleted: pairs,
+			CandidateWins:  cWins,
+			LLR:            math.Round(llr*100) / 100,
+			EloEstimate:    math.Round(eloEst*10) / 10,
+			LowerBound:     math.Round(math.Log(cfg.Alpha/(1-cfg.Beta))*100) / 100,
+			UpperBound:     math.Round(math.Log((1-cfg.Alpha)/cfg.Beta)*100) / 100,
+			ElapsedS:       math.Round(acc.Elapsed().Seconds()),
+		},
+		LLRTraj: acc.LLRHistory,
+		Files: sprt.ManifestFiles{
+			WTHOR:    wthorPath,
+			Summary:  summaryPath,
+			Manifest: manifestPath,
+		},
+	}
+
+	if isResume {
+		m.Created = "resumed"
+	} else {
+		m.Created = now
+	}
+
+	// Convert pairs to manifest format
+	for _, p := range *allPairs {
+		mp := sprt.ManifestPair{
+			Index:              0, // filled below
+			Opening:            p.Opening,
+			OpeningName:        p.OpeningName,
+			CandidateFirstColor: p.CandidateFirstColor,
+			Completed:          true,
+			StartTime:          p.StartTime.UTC().Format(time.RFC3339),
+			EndTime:            p.EndTime.UTC().Format(time.RFC3339),
+			Games:              make([]sprt.ManifestGame, 2),
+		}
+		mp.Games[0] = gameToManifestGame(p.BlackGame, "candidate_black")
+		mp.Games[1] = gameToManifestGame(p.WhiteGame, "candidate_white")
+		if p.CandidateFirstColor == "white" {
+			mp.Games[0].Role = "reference_black"
+			mp.Games[1].Role = "candidate_white"
+		}
+		m.Pairs = append(m.Pairs, mp)
+	}
+
+	// Add accumulated stats
+	if accumStats != nil {
+		m.Stats = accumStats.toManifest()
+	}
+
+	return m
+}
+
+func gameToManifestGame(gr game.GameResult, role string) sprt.ManifestGame {
+	mg := sprt.ManifestGame{
+		Role:        role,
+		Result:      gr.Result,
+		BlackScore:  gr.BlackScore,
+		WhiteScore:  gr.WhiteScore,
+		TotalMoves:  gr.TotalMoves,
+		BlackTimeS:  gr.BlackTimeS,
+		WhiteTimeS:  gr.WhiteTimeS,
+		Termination: terminationReason(gr),
+		Moves:       make([]sprt.ManifestMove, len(gr.MoveStats)),
+	}
+	for i, ms := range gr.MoveStats {
+		mg.Moves[i] = sprt.ManifestMove{
+			Ply:         ms.Ply,
+			Color:       ms.Color,
+			Engine:      ms.Engine,
+			Move:        ms.Move,
+			Nodes:       ms.Nodes,
+			Depth:       ms.Depth,
+			TimeMs:      ms.TimeMs,
+			Timeout:     ms.Timeout,
+			Score:       ms.Score,
+			Nps:         ms.Nps,
+			Empties:     ms.Empties,
+			AllocatedMs: ms.AllocatedMs,
+			EndSearch:   ms.EndSearch,
+			BookExit:    ms.BookExit,
+			BookEval:    ms.BookEval,
+		}
+	}
+	return mg
+}
+
+func terminationReason(gr game.GameResult) string {
+	if gr.Disconnect {
+		return "disconnect"
+	}
+	switch gr.Result {
+	case "1-0", "0-1":
+		// Check if it was a time forfeit
+		if gr.BlackTimeS > 100 || gr.WhiteTimeS > 100 {
+			return "time_forfeit"
+		}
+		return "normal"
+	default:
+		return "normal"
+	}
+}
+
+// ── Accumulated stats ──────────────────────────────────────────────────
+
+type accumulatedStats struct {
+	mu        sync.Mutex
+	candPly   map[string]*perPlyAccum
+	refPly    map[string]*perPlyAccum
+	candGame  *gameAccum
+	refGame   *gameAccum
+}
+
+type perPlyAccum struct {
+	nodes, depth, timeMs, nps, scoreCp, unspentMs *sprt.StatAccumulator
+	timeouts, count int
+}
+
+type gameAccum struct {
+	nodesPerGame, depthAvg, timePerGame, overallNps *sprt.StatAccumulator
+	endSearchStartPly, bookExitPly, bookExitEval    *sprt.StatAccumulator
+	timeoutsPerGame *sprt.StatAccumulator
+	totalNodes int64
+	totalTimeS float64
+	timeForfeits, illegalMoves, disconnects, games int
+}
+
+func newAccumulatedStats() *accumulatedStats {
+	return &accumulatedStats{
+		candPly:  make(map[string]*perPlyAccum),
+		refPly:   make(map[string]*perPlyAccum),
+		candGame: newGameAccum(),
+		refGame:  newGameAccum(),
+	}
+}
+
+func newGameAccum() *gameAccum {
+	return &gameAccum{
+		nodesPerGame:    sprt.NewStatAccumulator(),
+		depthAvg:        sprt.NewStatAccumulator(),
+		timePerGame:     sprt.NewStatAccumulator(),
+		overallNps:      sprt.NewStatAccumulator(),
+		endSearchStartPly: sprt.NewStatAccumulator(),
+		bookExitPly:     sprt.NewStatAccumulator(),
+		bookExitEval:    sprt.NewStatAccumulator(),
+		timeoutsPerGame: sprt.NewStatAccumulator(),
+	}
+}
+
+func (as *accumulatedStats) recordGame(gr game.GameResult, candID, refID *sprt.ManifestEngineIdentity) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	// Per-engine game-level stats
+	var gameStats *gameAccum
+	var gameTimeS float64
+
+	// Determine which engine is candidate in this game
+	for _, ms := range gr.MoveStats {
+		var plyAccum *perPlyAccum
+		var engineGame *gameAccum
+
+		if ms.Engine == "candidate" {
+			engineGame = as.candGame
+		} else {
+			engineGame = as.refGame
+		}
+
+		key := fmt.Sprintf("%d", ms.Ply)
+		if ms.Engine == "candidate" {
+			if as.candPly[key] == nil {
+				as.candPly[key] = &perPlyAccum{
+					nodes: sprt.NewStatAccumulator(), depth: sprt.NewStatAccumulator(),
+					timeMs: sprt.NewStatAccumulator(), nps: sprt.NewStatAccumulator(),
+					scoreCp: sprt.NewStatAccumulator(), unspentMs: sprt.NewStatAccumulator(),
+				}
+			}
+			plyAccum = as.candPly[key]
+		} else {
+			if as.refPly[key] == nil {
+				as.refPly[key] = &perPlyAccum{
+					nodes: sprt.NewStatAccumulator(), depth: sprt.NewStatAccumulator(),
+					timeMs: sprt.NewStatAccumulator(), nps: sprt.NewStatAccumulator(),
+					scoreCp: sprt.NewStatAccumulator(), unspentMs: sprt.NewStatAccumulator(),
+				}
+			}
+			plyAccum = as.refPly[key]
+		}
+
+		plyAccum.nodes.Add(float64(ms.Nodes))
+		plyAccum.depth.Add(float64(ms.Depth))
+		plyAccum.timeMs.Add(ms.TimeMs)
+		plyAccum.nps.Add(float64(ms.Nps))
+		plyAccum.scoreCp.Add(float64(ms.Score))
+		if ms.AllocatedMs > 0 {
+			plyAccum.unspentMs.Add(ms.AllocatedMs - ms.TimeMs)
+		}
+		plyAccum.count++
+		if ms.Timeout {
+			plyAccum.timeouts++
+		}
+
+		// Game-level: track end-search start ply and book exit
+		if ms.EndSearch {
+			engineGame.endSearchStartPly.Add(float64(ms.Ply))
+		}
+		if ms.BookExit {
+			engineGame.bookExitPly.Add(float64(ms.Ply))
+			if ms.BookEval != nil {
+				engineGame.bookExitEval.Add(float64(*ms.BookEval))
+			}
+		}
+	}
+
+	// Aggregate per-game stats for candidate
+	for engine, ga := range map[string]*gameAccum{"candidate": as.candGame, "reference": as.refGame} {
+		var totalNodes int64
+		var totalTimeMs float64
+		var depthSum float64
+		var timeouts int
+		var moveCount int
+		for _, ms := range gr.MoveStats {
+			if ms.Engine != engine {
+				continue
+			}
+			totalNodes += ms.Nodes
+			totalTimeMs += ms.TimeMs
+			depthSum += float64(ms.Depth)
+			if ms.Timeout {
+				timeouts++
+			}
+			moveCount++
+		}
+		if moveCount > 0 {
+			ga.nodesPerGame.Add(float64(totalNodes))
+			ga.depthAvg.Add(depthSum / float64(moveCount))
+			ga.timePerGame.Add(totalTimeMs / 1000.0)
+			if totalTimeMs > 0 {
+				ga.overallNps.Add(float64(totalNodes) / (totalTimeMs / 1000.0))
+			}
+			ga.timeoutsPerGame.Add(float64(timeouts))
+			ga.totalNodes += totalNodes
+			ga.totalTimeS += totalTimeMs / 1000.0
+		}
+		ga.games++
+
+		// Track termination reasons
+		if engine == "candidate" {
+			gameStats = ga
+			gameTimeS = gr.BlackTimeS
+			if strings.Contains(gr.BlackName, "reference") {
+				gameTimeS = gr.WhiteTimeS
+			}
+		}
+	}
+
+	_ = gameStats
+	_ = gameTimeS
+}
+
+func (as *accumulatedStats) toManifest() *sprt.ManifestAccumulatedStats {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	ms := &sprt.ManifestAccumulatedStats{}
+	ms.Candidate = buildEngineStats(as.candPly, as.candGame)
+	ms.Reference = buildEngineStats(as.refPly, as.refGame)
+	return ms
+}
+
+func buildEngineStats(plyMap map[string]*perPlyAccum, ga *gameAccum) sprt.EngineStats {
+	es := sprt.EngineStats{
+		PerPly:   make(map[string]sprt.PerPlyStats),
+		FullGame: sprt.FullGameStats{},
+	}
+	for k, pa := range plyMap {
+		pps := sprt.PerPlyStats{
+			TimeoutRate: 0,
+			Timeouts:    pa.timeouts,
+			Count:       pa.count,
+		}
+		if pa.count > 0 {
+			pps.TimeoutRate = float64(pa.timeouts) / float64(pa.count)
+		}
+		addIfNonEmpty := func(s *sprt.StatAccumulator) *sprt.StatAccumulator {
+			if s.Count > 0 {
+				s.Finalize()
+				return s
+			}
+			return nil
+		}
+		pps.Nodes = addIfNonEmpty(pa.nodes)
+		pps.Depth = addIfNonEmpty(pa.depth)
+		pps.TimeMs = addIfNonEmpty(pa.timeMs)
+		pps.Nps = addIfNonEmpty(pa.nps)
+		pps.ScoreCp = addIfNonEmpty(pa.scoreCp)
+		pps.UnspentMs = addIfNonEmpty(pa.unspentMs)
+		es.PerPly[k] = pps
+	}
+	if ga != nil {
+		ga.nodesPerGame.Finalize()
+		ga.depthAvg.Finalize()
+		ga.timePerGame.Finalize()
+		ga.overallNps.Finalize()
+		ga.endSearchStartPly.Finalize()
+		ga.bookExitPly.Finalize()
+		ga.bookExitEval.Finalize()
+		ga.timeoutsPerGame.Finalize()
+		es.FullGame = sprt.FullGameStats{
+			NodesPerGame:      ga.nodesPerGame,
+			DepthAvgPerGame:   ga.depthAvg,
+			TimePerGameS:      ga.timePerGame,
+			OverallNps:        ga.overallNps,
+			EndSearchStartPly: ga.endSearchStartPly,
+			BookExitPly:       ga.bookExitPly,
+			BookExitEvalCp:    ga.bookExitEval,
+			TimeoutsPerGame:   ga.timeoutsPerGame,
+			TotalNodes:        ga.totalNodes,
+			TotalTimeS:        ga.totalTimeS,
+			TimeForfeits:      ga.timeForfeits,
+			IllegalMoves:      ga.illegalMoves,
+			Disconnects:       ga.disconnects,
+			Games:             ga.games,
+		}
+	}
+	return es
+}
+
+// ── Manifest load (for resume) ─────────────────────────────────────────
+
+func loadManifest(path string) (*sprt.Manifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	var m sprt.Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	if m.Status != "running" {
+		return nil, fmt.Errorf("manifest status is %q, not 'running'", m.Status)
+	}
+	return &m, nil
+}
+
+// ── WTHOR Output ───────────────────────────────────────────────────────
+
 func writeWTHOR(path string, summary sprt.Summary, pairs []gameResultPair) {
 	f, err := os.Create(path)
 	if err != nil {
@@ -225,10 +916,12 @@ func writeWTHOR(path string, summary sprt.Summary, pairs []gameResultPair) {
 	}
 	defer f.Close()
 
-	// Header
 	fmt.Fprintf(f, "# SPRT: %s v%s vs %s v%s\n",
 		summary.Candidate.Name, summary.Candidate.Version,
 		summary.Reference.Name, summary.Reference.Version)
+	if summary.Commit != "" {
+		fmt.Fprintf(f, "# candidate_commit: %s\n", summary.Commit)
+	}
 	fmt.Fprintf(f, "# result: %s  elo_est: %+.1f  games: %d  tc: %.1fs\n",
 		summary.Result, summary.EloEstimate, summary.Games, summary.TimeControl)
 	fmt.Fprintf(f, "# timestamp: %s\n", summary.Timestamp)
@@ -261,7 +954,7 @@ func writeWTHORGame(f *os.File, gr game.GameResult) {
 	fmt.Fprintf(f, "%d %d 0 %s\n", blackScore, whiteScore, strings.Join(moves, ""))
 }
 
-// ── JSON Output ───────────────────────────────────────────────────────
+// ── JSON Output ────────────────────────────────────────────────────────
 
 func writeJSON(path string, summary sprt.Summary) {
 	data, err := json.MarshalIndent(summary, "", "  ")
@@ -274,10 +967,10 @@ func writeJSON(path string, summary sprt.Summary) {
 	}
 }
 
-// ── Embedded opening book ─────────────────────────────────────────────
+// ── Embedded opening book ──────────────────────────────────────────────
 
 // 48 balanced 8-ply openings extracted from Othello opening theory.
 // All lines have 45-55% win rates for both colors in tournament play.
+//
 //go:embed openings_8ply.txt
 var embeddedBook string
-
