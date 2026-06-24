@@ -229,12 +229,19 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		if err != nil {
-			slog.Error("genmove failed", "side", sideToMove, "err", err)
-			gr.Disconnect = true
+			// "read timeout" = engine hung, counts as loss
+			// "stream closed" / "write timeout" = infrastructure, no Elo
+			isInfra := strings.Contains(err.Error(), "stream closed") || strings.Contains(err.Error(), "write timeout")
+			gr.Disconnect = isInfra
 			if sideToMove == "b" {
 				gr.Result = "0-1"
 			} else {
 				gr.Result = "1-0"
+			}
+			if isInfra {
+				slog.Error("genmove failed (infra)", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err)
+			} else {
+				slog.Error("genmove failed (engine)", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err)
 			}
 			break
 		}
