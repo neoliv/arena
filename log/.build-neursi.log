@@ -15,17 +15,17 @@ warning: unused variable: `n_empties`
     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_empties`
 
 warning: variable `skipped_count` is assigned to, but never used
-   --> src/endgame.rs:915:9
+   --> src/endgame.rs:921:9
     |
-915 |     let mut skipped_count = 0;
+921 |     let mut skipped_count = 0;
     |         ^^^^^^^^^^^^^^^^^
     |
     = note: consider using `_skipped_count` instead
 
 warning: value assigned to `skipped_count` is never read
-   --> src/endgame.rs:920:13
+   --> src/endgame.rs:926:13
     |
-920 |             skipped_count += 1;
+926 |             skipped_count += 1;
     |             ^^^^^^^^^^^^^^^^^^
     |
     = help: maybe it is overwritten before being read?
@@ -75,9 +75,9 @@ warning: field `last_advisor` is never read
 28 | pub struct GtpEngine {
    |            --------- field in this struct
 ...
-68 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name,...
+68 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name, s...
    |     ^^^^^^^^^^^^
 
 warning: `neursi` (lib) generated 11 warnings (run `cargo fix --lib -p neursi` to apply 2 suggestions)
-    Finished `release` profile [optimized] target(s) in 3.47s
+    Finished `release` profile [optimized] target(s) in 3.59s
 coach-engine/ ready: 2 files

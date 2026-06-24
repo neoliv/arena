@@ -1,6 +1,5 @@
-=== Arena Coach Update === (Wed Jun 24 01:47:59 PM CEST 2026)
+=== Arena Coach Update === (Wed Jun 24 06:28:53 PM CEST 2026)
 1. Coach binary...
-chdir: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
 Already up to date.
    updated (binary changed)
    Added new entry: neursi.yaml
@@ -10,7 +9,7 @@ Already up to date.
 
 ─── edax ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/edax
-   -> /home/oliv/coach/engines/72bde5804922bf9b/
+   -> /home/oliv/coach/engines/b3aa879583dce31e/
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/egaroucid/src
@@ -22,7 +21,7 @@ Already up to date.
 
 ─── neursi ───
    /home/oliv/dev/agent/neursi/engine
-   -> /home/oliv/coach/engines/042f7a6e584a56ca/
+   -> /home/oliv/coach/engines/b8a4d5ff5b4445b7/
 
 ─── Reload ───
 Coach binary was updated — restarting service...
