@@ -35,7 +35,7 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	rows, err := h.DB.Query(`SELECT e.name, eh.match_id, eh.rating_after FROM elo_history eh JOIN engines e ON eh.engine_id=e.id ORDER BY eh.match_id`)
+	rows, err := h.DB.Query(`SELECT e.name, eh.match_id, eh.rating_after FROM elo_history eh JOIN engines e ON eh.engine_id=e.id WHERE eh.id IN (SELECT MAX(eh2.id) FROM elo_history eh2 GROUP BY eh2.engine_id, eh2.match_id) ORDER BY eh.match_id`)
 	if err != nil || rows == nil { io.WriteString(w, "<p>No data yet.</p>"+pageFoot); return }
 	defer rows.Close()
 	type point struct{ Engine string; MatchID int; Elo float64 }
