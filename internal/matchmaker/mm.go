@@ -363,14 +363,13 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	if totalGames == 0 { totalGames = 2 }
 
 	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
-	// Discard incomplete games — no player should gain or lose Elo
-	// from infrastructure failure (coach restart, network drop).
-	// - 0 moves: coach/system failure before play began.
-	// - Disconnect: stream error mid-game. Even a 55-move game
-	//   cut short by a coach restart is discarded.
+	// Only discard games that had 0 moves (infrastructure failure:
+	// coach restart, network drop before play began). Games with
+	// moves are stored regardless of disconnect — timeouts, kills,
+	// and forfeits are real results that must count for Elo.
 	realGames := games[:0]
 	for _, g := range games {
-		if len(g.Moves) > 0 && !g.Disconnect { realGames = append(realGames, g) }
+		if len(g.Moves) > 0 { realGames = append(realGames, g) }
 	}
 	games = realGames
 	if len(games) == 0 {
