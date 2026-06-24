@@ -192,6 +192,12 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
 				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:14px;font-weight:600">%s</span><span style="color:#d4c4a8;font-size:14px;font-weight:600">%s</span></div>`, bName, wName)
 				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
+				// Grey "forced" zone for opening plies
+				if openingPlies > 0 {
+					openW := openingPlies * 14
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#1a2a1a" opacity="0.6"/>`, 34, topPad, openW, chartH)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#555" font-size="13" text-anchor="middle" font-style="italic">forced</text>`, 34+openW/2, chartH/2+topPad+5)
+				}
 				niceStep := maxVal / 4
 				if niceStep >= 100 {
 					niceStep = float64(int(niceStep/100+0.5)) * 100
@@ -223,14 +229,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#d4c4a8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
 					}
 				}
-				// Ply ticks every 10 moves (after opening)
+				// Small tick marks every 10 plies (no labels)
 				for pl := 10; pl <= totalPlies; pl += 10 {
 					tx := 34 + pl*14
-					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad, tx, chartH+topPad)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#6a6" font-size="10" text-anchor="middle">%d</text>`, tx, chartH+16+topPad, pl)
+					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad-2, tx, topPad+2)
 				}
-				// Vertical line after last ply
-				lx := 34 + totalPlies*14 + 6
+				// Vertical end line always at ply 60
+				lx := 34 + 60*14 + 6
 				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, lx, topPad, lx, chartH+topPad)
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+68, yLabel)
 				for i, m := range moves {
