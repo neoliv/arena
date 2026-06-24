@@ -439,7 +439,7 @@ func (s *Server) HandleBisectResult(w http.ResponseWriter, r *http.Request) {
 func (s *Server) RecomputeElo(engineID int) {
 	rows, _ := s.DB.Query(`SELECT g.id,g.black_id,g.white_id,g.result,g.match_id,eb.name,ew.name
 		FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id
-		WHERE g.black_id=? OR g.white_id=? ORDER BY g.created_at, g.id`, engineID, engineID)
+		WHERE (g.black_id=? OR g.white_id=?) AND COALESCE(g.disconnect,0)=0 ORDER BY g.created_at, g.id`, engineID, engineID)
 	defer rows.Close()
 	type gr struct{ ID, BlackID, WhiteID, MatchID int; Result, BlackName, WhiteName string }
 	var games []gr
