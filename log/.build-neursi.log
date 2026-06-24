@@ -31,6 +31,12 @@ warning: value assigned to `skipped_count` is never read
     = help: maybe it is overwritten before being read?
     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
 
+warning: unused variable: `parity`
+  --> src/endgame_edax.rs:66:75
+   |
+66 | ...: u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
+   |                             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
+
 warning: constant `SHALLOW_TT_SIZE` is never used
   --> src/endgame.rs:85:7
    |
@@ -69,6 +75,12 @@ warning: function `count_last_flip` is never used
 300 | fn count_last_flip(sq: u32, player: u64, opponent: u64) -> u32 {
     |    ^^^^^^^^^^^^^^^
 
+warning: function `nws` is never used
+   --> src/endgame_edax.rs:130:4
+    |
+130 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mut ...
+    |    ^^^
+
 warning: field `last_advisor` is never read
   --> src/gtp.rs:68:5
    |
@@ -78,6 +90,6 @@ warning: field `last_advisor` is never read
 68 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name, s...
    |     ^^^^^^^^^^^^
 
-warning: `neursi` (lib) generated 11 warnings (run `cargo fix --lib -p neursi` to apply 2 suggestions)
-    Finished `release` profile [optimized] target(s) in 3.59s
+warning: `neursi` (lib) generated 13 warnings (run `cargo fix --lib -p neursi` to apply 3 suggestions)
+    Finished `release` profile [optimized] target(s) in 3.46s
 coach-engine/ ready: 2 files

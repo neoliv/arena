@@ -35,45 +35,36 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	rows, err := h.DB.Query(`SELECT e.name||' '||e.version, eh.created_at, eh.rating_after FROM elo_history eh JOIN engines e ON eh.engine_id=e.id ORDER BY eh.created_at`)
+	rows, err := h.DB.Query(`SELECT e.name||' '||e.version, eh.match_id, eh.rating_after FROM elo_history eh JOIN engines e ON eh.engine_id=e.id ORDER BY eh.match_id`)
 	if err != nil || rows == nil { io.WriteString(w, "<p>No data yet.</p>"+pageFoot); return }
 	defer rows.Close()
-	type point struct{ Engine, Date string; Elo float64 }
+	type point struct{ Engine string; MatchID int; Elo float64 }
 	var points []point
-	for rows.Next() { var p point; rows.Scan(&p.Engine, &p.Date, &p.Elo); points = append(points, p) }
+	for rows.Next() { var p point; rows.Scan(&p.Engine, &p.MatchID, &p.Elo); points = append(points, p) }
 	if len(points) == 0 { io.WriteString(w, "<p>No data yet.</p>"+pageFoot); return }
 	engineIdx := map[string]int{}
 	var engineNames []string
 	for _, p := range points { if _, ok := engineIdx[p.Engine]; !ok { engineIdx[p.Engine] = len(engineNames); engineNames = append(engineNames, p.Engine) } }
 	minElo, maxElo := points[0].Elo, points[0].Elo
+	minMatch, maxMatch := points[0].MatchID, points[len(points)-1].MatchID
 	for _, p := range points {
 		if p.Elo < minElo { minElo = p.Elo }
 		if p.Elo > maxElo { maxElo = p.Elo }
 	}
 	pad := (maxElo - minElo) * 0.1; if pad < 50 { pad = 50 }
 	minElo -= pad; maxElo += pad
+	matchRange := float64(maxMatch - minMatch); if matchRange <= 0 { matchRange = 1 }
 	svgh := 360; svgw := 700; left := 70; top := 10; graphh := float64(svgh - 50); graphw := float64(svgw - 20)
 
-	// Build engine data for SVG polylines, sequential per engine.
-	// Scale each engine's points so the last lands exactly at graphw,
-	// avoiding vertical artefact from clamp at the right edge.
+	// X-axis: global match ID — all engines share the same time axis.
+	// A new engine's curve starts at the match where it joined.
 	type ep struct{ x, y float64 }
 	engineData := make([][]ep, len(engineNames))
 	for _, p := range points {
 		idx := engineIdx[p.Engine]
+		x := float64(p.MatchID-minMatch) / matchRange * graphw
 		y := graphh - (p.Elo-minElo)/(maxElo-minElo)*graphh
-		engineData[idx] = append(engineData[idx], ep{x: 0, y: y}) // x filled in below
-	}
-	for i, data := range engineData {
-		n := len(data)
-		if n == 0 { continue }
-		for j := 0; j < n; j++ {
-			if n == 1 {
-				engineData[i][j].x = graphw / 2 // center single point
-			} else {
-				engineData[i][j].x = float64(j) / float64(n-1) * graphw
-			}
-		}
+		engineData[idx] = append(engineData[idx], ep{x: x, y: y})
 	}
 
 	fmt.Fprintf(w, `<svg viewBox="0 0 %d %d" style="width:100%%;max-width:860px"><g transform="translate(%d,%d)">`, svgw+left+20, svgh+20, left, top)
