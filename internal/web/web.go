@@ -37,9 +37,10 @@ input,select{background:var(--bg);color:var(--fg);border:1px solid var(--nav-hl)
 </style>`
 
 const searchJS = `<scr` + `ipt>
-function filter(){let q=document.getElementById('filterBox').value.toLowerCase().trim();if(!q){document.querySelectorAll('tr.filter-row').forEach(r=>r.style.display='');document.querySelectorAll('.filter-item').forEach(r=>r.style.display='');return}
+function filter(){let q=document.getElementById('filterBox').value.toLowerCase().trim();if(!q){document.querySelectorAll('tr.filter-row').forEach(r=>r.style.display='');document.querySelectorAll('.filter-item').forEach(r=>r.style.display='');updateCounts();return}
 let words=q.split(/\s+/);document.querySelectorAll('tr.filter-row').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=words.every(function(w){return t.includes(w)})?'':'none'})
-document.querySelectorAll('.filter-item').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=words.every(function(w){return t.includes(w)})?'':'none'})}
+document.querySelectorAll('.filter-item').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=words.every(function(w){return t.includes(w)})?'':'none'});updateCounts()}
+function updateCounts(){document.querySelectorAll('h2').forEach(function(h){let t=h.nextElementSibling;if(!t||t.tagName!=='TABLE')return;let n=0;t.querySelectorAll('tr.filter-row').forEach(function(r){if(r.style.display!=='none')n++});let s=h.querySelector('.section-count');let txt=' ('+n+')';if(s){s.textContent=txt}else{let el=document.createElement('span');el.className='section-count';el.style.fontWeight='normal';el.style.color='var(--muted)';el.textContent=txt;h.appendChild(el)}})}
 var sc=-1,sa=!0;
 function st(t,c,n){var b=t.querySelector("tbody")||t,r=Array.from(b.querySelectorAll("tr.filter-row"));
 if(c===sc)sa=!sa;else{sa=!0;sc=c}
