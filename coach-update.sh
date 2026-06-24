@@ -180,5 +180,7 @@ if [ $BUILD_ERRORS -gt 0 ]; then
 else
     echo "All $BUILD_COUNT engines built successfully"
 fi
+PLAYER_COUNT=$(find "$ENGINES_DIR" -name '*.yaml' -path '*/players.d/*' 2>/dev/null | wc -l)
+echo "Deployed $PLAYER_COUNT players from $ENGINES_DIR"
 echo "Log saved to: $SCRIPT_DIR/log/coach-update.log"
 $DRY_RUN && echo "(dry run — no changes made)"
