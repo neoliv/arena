@@ -39,6 +39,7 @@ type config struct {
 	MaxCores   int        `yaml:"max_cores"`
 	MaxRAMMB   int        `yaml:"max_ram_mb"`
 	EnginesDir string     `yaml:"engines_dir"`
+		ShareDir   string     `yaml:"share_dir"`
 	AIs        []aiConfig `yaml:"-"` // populated from engines dirs
 }
 
@@ -131,6 +132,14 @@ func main() {
 		enginesDir = filepath.Join(os.Getenv("HOME"), enginesDir[2:])
 	}
 	slog.Info("scanning for players", "engines_dir", enginesDir)
+
+	if cfg.ShareDir == "" {
+		cfg.ShareDir = filepath.Join(os.Getenv("HOME"), "coach", "share")
+	}
+	if strings.HasPrefix(cfg.ShareDir, "~/") {
+		cfg.ShareDir = filepath.Join(os.Getenv("HOME"), cfg.ShareDir[2:])
+	}
+	slog.Info("share dir", "share_dir", cfg.ShareDir)
 
 	var mu sync.Mutex           // protects running map
 	var cfgMu sync.RWMutex      // protects cfg.AIs slice
@@ -244,6 +253,7 @@ func main() {
 			gameSecs := parseGameTime(t.TimeControl)
 			if gameSecs > 0 {
 				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%game_time%", fmt.Sprintf("%.0f", gameSecs), -1)
+				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%share_dir%", cfg.ShareDir, -1)
 			}
 			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir, gameSecs, t.NumGames)
 			if err != nil {

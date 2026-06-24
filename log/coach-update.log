@@ -1,32 +1,33 @@
-=== Arena Coach Update === (Wed Jun 17 01:32:29 AM CEST 2026)
+=== Arena Coach Update === (Wed Jun 24 12:34:05 PM CEST 2026)
 1. Coach binary...
+chdir: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
 Already up to date.
    updated (binary changed)
-
-─── darwersi ───
-   /home/oliv/dev/agent/darwersi/Arena
-   -> /home/oliv/coach/engines/cd4b6591c12197e5/
+   Added new entry: neursi.yaml
+   Added new entry: edax.yaml
+   Added new entry: egaroucid.yaml
+   Added new entry: neural-reversi.yaml
 
 ─── edax ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/edax
-   -> /home/oliv/coach/engines/02e34659aa7e2ccb/
+   -> /home/oliv/coach/engines/dcbc76aa57b864aa/
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/egaroucid/src
-   -> /home/oliv/coach/engines/792ec8aa634360a6/
+   -> /home/oliv/coach/engines/0094f8a06ba524cc/
 
 ─── neural-reversi ───
    /home/oliv/dev/agent/othello-refs/neural-reversi/src
-   -> /home/oliv/coach/engines/d33bd81993f25724/
+   -> /home/oliv/coach/engines/c6cb9fcf6f4e82bb/
 
 ─── neursi ───
    /home/oliv/dev/agent/neursi/engine
-   -> /home/oliv/coach/engines/55f26ced4caaff78/
+   -> /home/oliv/coach/engines/51884fafb295dfbf/
 
 ─── Reload ───
 Coach binary was updated — restarting service...
 Coach not running.
 
 === Done ===
-All 5 engines built successfully
+All 4 engines built successfully
 Log saved to: /home/oliv/dev/agent/arena/log/coach-update.log

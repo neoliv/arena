@@ -25,7 +25,7 @@ func (h *Handler) handleRanks(w http.ResponseWriter, r *http.Request) {
 		if e.Games >= 10 {
 			var oldElo float64
 			h.DB.QueryRow(`SELECT rating_before FROM elo_history WHERE engine_id=? ORDER BY created_at ASC LIMIT 1`, e.ID).Scan(&oldElo)
-			if oldElo > 0 { if e.Elo > oldElo+10 { trend = "↑" } else if e.Elo < oldElo-10 { trend = "↓" } else { trend = "→" } }
+			if oldElo > 0 { if e.Elo > oldElo+10 { trend = "▲" } else if e.Elo < oldElo-10 { trend = "▼" } else { trend = "→" } }
 		}
 		var wr string
 		if e.Games > 0 { wr = fmt.Sprintf("%d/%d/%d", e.W, e.L, e.D) } else { wr = "—" }

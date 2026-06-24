@@ -54,21 +54,26 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	minElo -= pad; maxElo += pad
 	svgh := 360; svgw := 700; left := 70; top := 10; graphh := float64(svgh - 50); graphw := float64(svgw - 20)
 
-	// Build engine data for SVG polylines
+	// Build engine data for SVG polylines, sequential per engine.
+	// Scale each engine's points so the last lands exactly at graphw,
+	// avoiding vertical artefact from clamp at the right edge.
 	type ep struct{ x, y float64 }
 	engineData := make([][]ep, len(engineNames))
-	totalPts := 0
-	for _, p := range points { for _, e := range engineNames { if p.Engine == e { totalPts++ } } }
 	for _, p := range points {
 		idx := engineIdx[p.Engine]
-		_, _ = parseTime(p.Date)
-		x := 0.0
-		if totalPts > 1 {
-			x = float64(len(engineData[idx])) / float64(max(totalPts/len(engineNames), 1)) * graphw
-			if x > graphw { x = graphw }
-		}
 		y := graphh - (p.Elo-minElo)/(maxElo-minElo)*graphh
-		engineData[idx] = append(engineData[idx], ep{x: x, y: y})
+		engineData[idx] = append(engineData[idx], ep{x: 0, y: y}) // x filled in below
+	}
+	for i, data := range engineData {
+		n := len(data)
+		if n == 0 { continue }
+		for j := 0; j < n; j++ {
+			if n == 1 {
+				engineData[i][j].x = graphw / 2 // center single point
+			} else {
+				engineData[i][j].x = float64(j) / float64(n-1) * graphw
+			}
+		}
 	}
 
 	fmt.Fprintf(w, `<svg viewBox="0 0 %d %d" style="width:100%%;max-width:860px"><g transform="translate(%d,%d)">`, svgw+left+20, svgh+20, left, top)

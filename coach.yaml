@@ -3,3 +3,4 @@ label: "Sandbox under Claude + DeepSeek control (dev)"
 arena_url: "https://arena.arsac.org"
 max_cores: 6
 max_ram_mb: 16384
+share_dir: "~/coach/share"

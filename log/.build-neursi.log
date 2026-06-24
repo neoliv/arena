@@ -1,15 +1,83 @@
 make: 'coach-build' is up to date.
-warning: field `tt` is never read
-  --> src/gtp.rs:24:5
+   Compiling neursi v0.1.0 (/home/oliv/dev/agent/neursi/engine)
+warning: unused variable: `offset`
+   --> src/board.rs:478:13
+    |
+478 |         let offset = DIR_OFFSETS[dir];
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_offset`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `n_empties`
+   --> src/endgame.rs:537:9
+    |
+537 |     let n_empties = empties as usize;
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_empties`
+
+warning: variable `skipped_count` is assigned to, but never used
+   --> src/endgame.rs:915:9
+    |
+915 |     let mut skipped_count = 0;
+    |         ^^^^^^^^^^^^^^^^^
+    |
+    = note: consider using `_skipped_count` instead
+
+warning: value assigned to `skipped_count` is never read
+   --> src/endgame.rs:920:13
+    |
+920 |             skipped_count += 1;
+    |             ^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `SHALLOW_TT_SIZE` is never used
+  --> src/endgame.rs:85:7
    |
-13 | pub struct GtpEngine {
-   |            --------- field in this struct
-...
-24 |     tt: TranspositionTable,
-   |     ^^
+85 | const SHALLOW_TT_SIZE: usize = 1024;
+   |       ^^^^^^^^^^^^^^^
    |
    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
-warning: `neursi` (lib) generated 1 warning
-    Finished `release` profile [optimized] target(s) in 0.01s
+warning: constant `SHALLOW_TT_MASK` is never used
+  --> src/endgame.rs:86:7
+   |
+86 | const SHALLOW_TT_MASK: usize = SHALLOW_TT_SIZE - 1;
+   |       ^^^^^^^^^^^^^^^
+
+warning: constant `EC_CACHE_MASK` is never used
+  --> src/endgame.rs:90:7
+   |
+90 | const EC_CACHE_MASK: usize = EC_CACHE_SIZE - 1;
+   |       ^^^^^^^^^^^^^
+
+warning: static `EDGE_STABILITY` is never used
+   --> src/endgame.rs:198:12
+    |
+198 | static mut EDGE_STABILITY: [[u8; 256]; 2] = [[0; 256]; 2];
+    |            ^^^^^^^^^^^^^^
+
+warning: function `init_edge_stability` is never used
+   --> src/endgame.rs:201:4
+    |
+201 | fn init_edge_stability() {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `count_last_flip` is never used
+   --> src/endgame.rs:300:4
+    |
+300 | fn count_last_flip(sq: u32, player: u64, opponent: u64) -> u32 {
+    |    ^^^^^^^^^^^^^^^
+
+warning: field `last_advisor` is never read
+  --> src/gtp.rs:68:5
+   |
+28 | pub struct GtpEngine {
+   |            --------- field in this struct
+...
+68 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name, s...
+   |     ^^^^^^^^^^^^
+
+warning: `neursi` (lib) generated 11 warnings (run `cargo fix --lib -p neursi` to apply 2 suggestions)
+    Finished `release` profile [optimized] target(s) in 3.44s
 coach-engine/ ready: 2 files

@@ -1,13 +1,12 @@
 ### Prompts
 
-On the detail game page
-Split the top lines like:
-Note that the players elo and names are justify to align on the center of the screen with a few spaces as central margin.
-#2958 44-20    (1531 +30)    (-14 1470)
-      edax-master l20-30s    dw-amoeba d4-es60-30s
-      
-        Match #1481 (game 1) | other game | Time: 30s (unspent B:27s W:28s)
+- The "games" page still does not update automatically. (3rd try, so be thorough in you analysis.)
 
+
+
+
+
+### redesign?
 
 - Regarding the matchmaker vs coach allocation issue. This is still not working as intended. (I often see 6/6 with 0 game in progress and 0% CPU on the host). We need to discuss the flow to understand the catch. Don't implement yet, only analyse and recommend.
 - Is it True that a game can run between AIs managed by different coaches (probably on different hosts). Is arena relaying the moves or is it P2P?

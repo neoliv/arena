@@ -99,15 +99,16 @@ fi
 
 cd "$SCRIPT_DIR"
 
-# Sync: pull in any new entries from coach-adapters
-ADAPTERS_DIR="$HOME/dev/agent/othello-refs/coach-adapters/builds.d"
-if [ -d "$ADAPTERS_DIR" ]; then
-    for f in "$ADAPTERS_DIR"/*.yaml; do
-        [ -f "$f" ] || continue
-        dst="$BUILDS_DIR/$(basename "$f")"
-        [ -f "$dst" ] || { cp "$f" "$dst"; echo "   Added new entry: $(basename "$f")"; }
-    done
-fi
+# Sync: pull in any new entries from arena's own builds.d + coach-adapters
+for src_dir in "$SCRIPT_DIR/builds.d" "$HOME/dev/agent/othello-refs/coach-adapters/builds.d"; do
+    if [ -d "$src_dir" ]; then
+        for f in "$src_dir"/*.yaml; do
+            [ -f "$f" ] || continue
+            dst="$BUILDS_DIR/$(basename "$f")"
+            [ -f "$dst" ] || { cp "$f" "$dst"; echo "   Added new entry: $(basename "$f")"; }
+        done
+    fi
+done
 
 BUILD_ERRORS=0; BUILD_COUNT=0
 for f in "$BUILDS_DIR"/*.yaml; do
