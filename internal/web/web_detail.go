@@ -213,6 +213,15 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#d4c4a8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
 					}
 				}
+				// Ply ticks every 10 moves (after opening)
+				for pl := 10; pl <= totalPlies; pl += 10 {
+					tx := 34 + pl*14
+					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad, tx, chartH+topPad)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#6a6" font-size="10" text-anchor="middle">%d</text>`, tx, chartH+16+topPad, pl)
+				}
+				// Vertical line after last ply
+				lx := 34 + totalPlies*14 + 6
+				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, lx, topPad, lx, chartH+topPad)
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+68, yLabel)
 				for i, m := range moves {
 					var val float64
@@ -277,6 +286,10 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			renderChart("diff", maxDiscDiff, 0, "", "Disc diff (B-W)")
 			renderChart("score", maxBScore, maxWScore, "", "Score (cP)")
 
+			// Show opening line below graphs
+			if opening != "" {
+				io.WriteString(w, fmt.Sprintf(`<div style="margin-top:1em;padding:8px 12px;background:#222a24;border-radius:4px;color:var(--muted);font-size:.9em">Opening: <span style="font-family:monospace">%s</span></div>`, htmlEscape(opening)))
+			}
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th><th>Score</th></tr>`)
 			for _, m := range moves {
 				side := "Black"
