@@ -362,7 +362,7 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	totalGames := a.NumGames
 	if totalGames == 0 { totalGames = 2 }
 
-	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec)
+	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec, assignmentID)
 	// Only discard games that had 0 moves (infrastructure failure:
 	// coach restart, network drop before play began). Games with
 	// moves are stored regardless of disconnect — timeouts, kills,
