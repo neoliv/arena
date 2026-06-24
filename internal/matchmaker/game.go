@@ -2,6 +2,7 @@ package matchmaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -251,7 +252,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-			// Consume all # stats lines, keeping the last (engine data overwrites coach-injected).
+			// Consume all # stats lines, keeping the last.
+			// Prefer JSON format (# neursi-stats v1: {...}), fall back to legacy.
 			var nodes int64
 			var depth int
 			var timeout bool
@@ -263,10 +265,27 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 					s := strings.TrimSpace(statsLine)
 					if s == "" { continue }
 					if strings.HasPrefix(s, "#") {
-						n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t",
-							&coachMs, &nodes, &depth, &score, &timeout)
-						if n == 0 {
-							fmt.Sscanf(s, "# time_ms %f", &coachMs)
+						// Try JSON format first
+						if idx := strings.Index(s, "{"); idx >= 0 {
+							var ns struct {
+								Nodes   int64 `json:"nodes"`
+								Depth   int   `json:"depth"`
+								Score   int   `json:"score"`
+								Timeout bool  `json:"timeout"`
+							}
+							if err := json.Unmarshal([]byte(s[idx:]), &ns); err == nil {
+								nodes = ns.Nodes
+								depth = ns.Depth
+								score = ns.Score
+								timeout = ns.Timeout
+							}
+						} else {
+							// Legacy format: # time_ms X nodes Y depth Z score W timeout T
+							n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t",
+								&coachMs, &nodes, &depth, &score, &timeout)
+							if n == 0 {
+								fmt.Sscanf(s, "# time_ms %f", &coachMs)
+							}
 						}
 						continue
 					}

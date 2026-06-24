@@ -651,13 +651,16 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				sn, sd, ss := searchNodes, searchDepth, searchScore
 				searchNodes, searchDepth, searchScore = 0, 0, 0
 				searchMu.Unlock()
-				injectLine = fmt.Sprintf("# time_ms %d nodes %d depth %d score %d timeout false", lastElapsedMs, sn, sd, ss)
+				injectLine = fmt.Sprintf(`# time_ms %d {"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, lastElapsedMs, sn, sd, ss)
 			}
 			// If engine sent its own stats, enrich with real time.
+			// Legacy format: "= nodes X depth Y score Z" -> translate to JSON
 			if strings.HasPrefix(line, "= nodes ") {
 				injectLine = "" // engine provided data, skip injection
-				rewritten := fmt.Sprintf("# time_ms %d nodes %s",
-					lastElapsedMs, strings.TrimPrefix(line, "= nodes "))
+				var ns struct{ N int64; D, S int }
+				fmt.Sscanf(line, "= nodes %d depth %d score %d", &ns.N, &ns.D, &ns.S)
+				statsJson := fmt.Sprintf(`{"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, ns.N, ns.D, ns.S)
+				rewritten := fmt.Sprintf("# time_ms %d %s", lastElapsedMs, statsJson)
 				raw = []byte(rewritten)
 				statsSent = true
 			}
