@@ -79,9 +79,9 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		return gr
 	}
 
-	// Play opening moves. If any move is rejected, clear the opening
-	// and restart from the initial position — corrupted openings must
-	// not produce corrupt games.
+	// Play opening moves. An engine rejecting a valid opening move means
+	// the engine has a bug or the opening line is corrupt — either way
+	// this is a hard error. We abort the game, do NOT continue silently.
 	openMoves := parseMoveList(opening)
 	for i, mv := range openMoves {
 		color := "B"
@@ -89,22 +89,15 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			color = "W"
 		}
 		cmd := "play " + color + " " + mv
-		rejected := false
 		for _, s := range []*Session{black, white} {
 			resp := s.Send(cmd)
 			if strings.HasPrefix(resp, "?") {
-				slog.Warn("opening move rejected, restarting from initial position",
-					"move", mv, "color", color, "opening", opening)
-				rejected = true
-				break
+				slog.Error("opening move REJECTED by engine — this is a BUG in the engine or a corrupt opening line",
+					"move", mv, "color", color, "opening", opening, "response", strings.TrimSpace(resp))
+				gr.Result = "0-1"
+				gr.Disconnect = true
+				return gr
 			}
-		}
-		if rejected {
-			black.Send("clear_board")
-			white.Send("clear_board")
-			openMoves = nil
-			gr.OpeningLine = ""
-			break
 		}
 	}
 

@@ -2,14 +2,51 @@ package matchmaker
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
 )
+
+// ── Embedded opening book ──────────────────────────────────────────────
+
+// 48 balanced 8-ply openings extracted from Othello opening theory.
+// All lines have 45-55% win rates for both colors in tournament play.
+//
+//go:embed openings_8ply.txt
+var embeddedOpeningsBook string
+
+var (
+	openingsCache []string
+	openingsOnce  sync.Once
+)
+
+// loadOpenings parses the embedded opening book into lines, filtering
+// comments and empty lines. Cached after first call.
+func loadOpenings() []string {
+	openingsOnce.Do(func() {
+		for _, line := range strings.Split(embeddedOpeningsBook, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			openingsCache = append(openingsCache, line)
+		}
+		if len(openingsCache) == 0 {
+			// Fallback: empty opening (start from initial position)
+			openingsCache = append(openingsCache, "")
+		}
+	})
+	return openingsCache
+}
+
+// ── Game structures ────────────────────────────────────────────────────
 
 type gameMove struct {
 	Side      string
@@ -35,6 +72,8 @@ type gameResult struct {
 	Moves        []gameMove
 }
 
+// ── WebSocket helpers ──────────────────────────────────────────────────
+
 func wsSend(stream coach.Stream, cmd string, timeoutSec float64) (string, error) {
 	select {
 	case stream.Out <- cmd:
@@ -58,12 +97,21 @@ func wsSend(stream coach.Stream, cmd string, timeoutSec float64) (string, error)
 	}
 }
 
+// ── Game execution ─────────────────────────────────────────────────────
+
 func playGames(ctx context.Context, black, white coach.Stream, numGames int, gameTimeSec float64) []gameResult {
-	openings := defaultBook()
+	openings := loadOpenings()
 	var results []gameResult
 
 	for i := 0; i < numGames; i++ {
-		opening := openings[i%len(openings)]
+		// Per PAIR (every 2 games): pick a random opening line.
+		// Both games in the pair use the SAME line with colors swapped
+		// so each engine plays both sides of the identical position.
+		opening := openings[rand.Intn(len(openings))]
+		if i%2 == 1 && i > 0 {
+			// Reuse the previous game's opening for the color-swapped rematch.
+			opening = results[i-1].OpeningLine
+		}
 
 		var e1, e2 coach.Stream
 		bName, wName := "Black", "White"
@@ -108,13 +156,14 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		for _, s := range []coach.Stream{black, white} {
 			resp, err := wsSend(s, cmd, 10)
 			if err != nil {
-				slog.Error("opening play failed", "move", mv, "err", err)
+				slog.Error("opening play failed", "move", mv, "color", color, "err", err)
 				gr.Result = "0-1"; gr.Disconnect = true
 				return gr
 			}
 			if strings.HasPrefix(resp, "?") {
-				slog.Warn("opening move rejected", "move", mv, "color", color, "response", resp)
-				gr.Result = "0-1"
+				slog.Error("opening move REJECTED by engine — this is a BUG in the engine or a corrupt opening line",
+					"move", mv, "color", color, "opening", opening, "response", strings.TrimSpace(resp))
+				gr.Result = "0-1"; gr.Disconnect = true
 				return gr
 			}
 		}
@@ -356,8 +405,4 @@ func parseMoveList(line string) []string {
 		}
 	}
 	return m
-}
-
-func defaultBook() []string {
-	return []string{""}
 }

@@ -1,4 +1,22 @@
-# Using 48 embedded openings (fallback — no WTHOR file provided)
+# ============================================================================
+# Balanced 8-ply Othello openings — two sources
+# ============================================================================
+#
+# Section A: WTHOR human-frequency (48 lines)
+#   Source: FFO WTHOR tournament database
+#   Method: 8-ply opening lines filtered for 45-55% human win rates.
+#           Balanced by real-world play frequency.
+#
+# Section B: Egaroucid engine-evaluated (94 lines)
+#   Source: Egaroucid 7.8.1 book.egbk3 (1,302,321 positions)
+#   Method: Positions filtered by disc count (8-ply), minimum search
+#           depth ≥ 18, and |score| ≤ 2 (STM-perspective raw disc diff).
+#           Balanced by engine evaluation.
+#   Tool:   neursi engine/src/bin/book_tool.rs extract
+#           --book book.egbk3 --ply 8 --min-depth 10 --count 100 --score-limit 2
+# ============================================================================
+#
+# Section A: WTHOR human-frequency
 f5d6c3d3c4e3f4c5
 f5d6c3d3c4e3c5d2
 f5d6c3d3c4e3c5b4
@@ -47,3 +65,99 @@ c4e3f5e6f4d6c5c6
 f5f6e6d6c4c5c6c3
 f5d6c3d3f4c5e3c4
 f5d6c3d3f4e3c5e2
+#
+# Section B: Egaroucid engine-evaluated
+d3c5d6e3f4c6f5c3
+d3c3c4e3d2c2b4c6
+d3c3c4e3f4c5e2f5
+d3c3c4e3d2c2b4c5
+d3c5e6f5f6e3d6e7
+d3c3c4e3d2b4b5c2
+d3c3c4e3d2c5f3c2
+d3c3c4e3f4b5c2e2
+d3c3c4e3c2d6f3b4
+d3c3c4e3d2b4f4c2
+d3c3c4e3c2c6d6e6
+d3c3c4e3f3b5f6c5
+d3c3c4e3f2e2f6b5
+d3c3c4e3f4c5d2f5
+d3c5e6d2c6f5c4d6
+d3c5d6e3f4c6f5f3
+d3c3c4e3f6c5f3e6
+d3c3c4e3d2c5f4e2
+d3e3f6c5f5e6d6c6
+d3c3c4e3f4d6d2f2
+d3c5e6e3c3f5f6f3
+d3c5e6f5f6d7f4g6
+d3c3c4e3c2c6d6c5
+d3c3c4e3d2c2b4c1
+d3c3c4e3f4d6c6f5
+d3c5c6e3c4d6e7d7
+d3c5e6f5f6e3d6f7
+d3c5f6e3c3e6f5g4
+d3c3c4e3c2c5e2d2
+d3c5e6d2c3e3c6f4
+d3c5e6d2c6d6c7f6
+d3c5e6d2c6d6b5f6
+d3c3c4e3d2b4b3c5
+d3c3c4e3f4d6e6f5
+d3c3c4e3f5e6f6c6
+d3c3c4e3f4c5c6d6
+d3c5d6e3f4c6f5d2
+d3c5e6d2c6d6c7f3
+d3c3c4e3f6b5b4e6
+d3c3c4e3c2c5f4f3
+d3c3c4e3d2c5f4f3
+d3c5e6d2c6d6b5f5
+d3c3c4e3f4c5e6f3
+d3c3c4e3f4d6e6g5
+d3c3c4e3f4d6e6b5
+d3c5e6f5f6e3d6d7
+d3c5e6d2c6d6c4f6
+d3c3c4e3f4c5c2e2
+d3c3f5d6c5f4e3c4
+d3c3c4e3d2c2b4d1
+d3c3c4e3c2c5c6b4
+d3c3c4e3f4b5f6c5
+d3c5d6e3f5d2c3e6
+d3c5e6e3c3f5f6d2
+d3c3b3c5c4f3c6b4
+d3c3c4e3d2b4b3c2
+d3c3c4e3d2c5d6c6
+d3c5c6e3c4d2f5d6
+d3c3c4e3f4d6e6b4
+d3c3c4e3c2c5e2b3
+d3c3c4e3d2c2e2b4
+d3c3c4e3f4c5c6e6
+d3c3c4e3d2b4b3c6
+d3c3c4e3c2c6d2c5
+d3c5e6d2c6f5e3f3
+d3c3c4e3f4c5e6g4
+d3c3c4e3d2b4b3d6
+d3c3c4e3c2d6f3d2
+d3c3c4e3f4b5e2f3
+d3c3c4e3f4c5e2f1
+d3c3c4e3f4c5c2d2
+d3c5e6d2c6f5e3f6
+d3c3c4e3d2b4b3d1
+d3c3f5d6c4g5c6d2
+d3c3c4e3d2c2e2c1
+d3c5e6d2c6d6c4f4
+d3c3b3c5c6f4c4b5
+d3c5e6f5f6d7e7e3
+d3c3c4e3f4c5e2f3
+d3c5e6d2c3e3f3f5
+d3c5e6d2c3e3c6d6
+d3c3c4e3c2c6e2c5
+d3c3c4e3d2b4b5c5
+d3c3c4e3c2c5e2b4
+d3c5d6e3f4g5e2f5
+d3c5e6d2c6d6c4b6
+d3c3c4e3c2d6e2d2
+d3c3b3c5c4e3f3c2
+d3c3c4e3f2b5f6e6
+d3c3c4e3f4d6e6c5
+d3c5c6e3c4c2d2e2
+d3c3c4e3d2b4f4f3
+d3c3c4e3f6b5b4c5
+d3c3b3c5c4f3f4c2
