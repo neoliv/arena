@@ -146,8 +146,10 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 
 		if len(moves) > 0 {
 			tab := r.URL.Query().Get("tab")
+			openingPlies := len(opening) / 2
 			chartH := 320; topPad := 30
-			chartW := fmt.Sprintf("%d", max(600, len(moves)*14+50))
+			totalPlies := openingPlies + len(moves)
+			chartW := fmt.Sprintf("%d", max(600, totalPlies*14+50))
 			if tab == "" { tab = "time" }
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
 			for _, t := range []struct{ key, label string }{
@@ -178,7 +180,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
-				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#6bc4ff;font-size:14px;font-weight:600">%s %s</span><span style="color:#e8e8e8;font-size:14px;font-weight:600">%s %s</span></div>`, bName, bVer, wName, wVer)
+				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:14px;font-weight:600">%s</span><span style="color:#d4c4a8;font-size:14px;font-weight:600">%s</span></div>`, bName, wName)
 				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
 				niceStep := maxVal / 4
 				if niceStep >= 100 {
@@ -194,7 +196,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					if pct == 100 {
 						val = maxVal
 					}
-					tickColor := "#6a6"; if metric == "score" { tickColor = "#6bc4ff" }
+					tickColor := "#6a6"; if metric == "score" { tickColor = "#22d3ee" }
 				fmt.Fprintf(w, `<text x="0" y="%d" fill="%s" font-size="11">%s%s</text>`, y, tickColor, fmtVal(val), unit)
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 				}
@@ -208,7 +210,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					for pct := 0; pct <= 100; pct += 25 {
 						y := chartH - pct*chartH/100 + 44
 						valR := float64(pct) / 100.0 * niceStepR * 4; if pct == 100 { valR = maxValR }
-						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#e8e8e8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
+						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#d4c4a8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
 					}
 				}
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+68, yLabel)
@@ -249,9 +251,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						if h < 2 { h = 2 }
 						if val >= 0 { barY = int(mid) - h + topPad } else { barY = int(mid) + topPad }
 					}
-					color := "#6bc4ff"
-					if m.side == "w" { color = "#e8e8e8" }
-					x := 34 + i*14
+					color := "#22d3ee"
+					if m.side == "w" { color = "#d4c4a8" }
+					x := 34 + (openingPlies+i)*14
 					titleVal := fmtVal(val)
 					if metric == "diff" { titleVal = fmt.Sprintf("%+d", discDiffs[i]) }
 					tip := fmt.Sprintf("%s %s: %s%s", m.side, m.move, titleVal, unit)
@@ -262,8 +264,10 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "score": tip = fmt.Sprintf("%s %s: %+d cP", m.side, m.move, m.score)
 					case "diff": tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
+					// Show ply number alongside move name
+					plyLabel := fmt.Sprintf("%d:%s", openingPlies+i+1, m.move)
 					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, barY, h, color, tip)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, htmlEscape(m.move))
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, htmlEscape(plyLabel))
 				}
 				io.WriteString(w, `</svg></div>`)
 			}
@@ -280,7 +284,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					side = "White"
 				}
 				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td><td>%+d</td></tr>`,
-					m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps, m.score)
+					openingPlies+m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps, m.score)
 			}
 			io.WriteString(w, "</table>"+`</div>`+pageFoot)
 		} else {

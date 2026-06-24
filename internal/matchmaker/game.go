@@ -359,21 +359,39 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	if gr.Result == "" {
-		bCount := popcount(board.black)
-		wCount := popcount(board.white)
+	// Aggregate game-level stats from per-move data
+	for _, m := range gr.Moves {
+		if m.Side == "b" {
+			gr.BlackNodes += m.Nodes
+			if m.Depth > gr.BlackDepth { gr.BlackDepth = m.Depth }
+		} else {
+			gr.WhiteNodes += m.Nodes
+			if m.Depth > gr.WhiteDepth { gr.WhiteDepth = m.Depth }
+		}
+	}
+
+	// Compute final score from the board (works for all endings: timeout, resign, normal)
+	bCount := popcount(board.black)
+	wCount := popcount(board.white)
+	if gr.FinalScore == 0 {
 		if bCount > wCount {
-			gr.Result = "1-0"
 			gr.FinalScore = bCount - wCount
 		} else if wCount > bCount {
-			gr.Result = "0-1"
 			gr.FinalScore = wCount - bCount
+		}
+	}
+
+	if gr.Result == "" {
+		if bCount > wCount {
+			gr.Result = "1-0"
+		} else if wCount > bCount {
+			gr.Result = "0-1"
 		} else {
 			gr.Result = "1/2"
 		}
 	}
 
-	slog.Info("game result", "result", gr.Result, "moves", len(gr.Moves), "black_s", gr.BlackTimeS, "white_s", gr.WhiteTimeS)
+	slog.Info("game result", "result", gr.Result, "score", gr.FinalScore, "moves", len(gr.Moves), "black_s", gr.BlackTimeS, "white_s", gr.WhiteTimeS)
 	return gr
 }
 
