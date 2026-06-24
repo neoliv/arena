@@ -1,4 +1,4 @@
-=== Arena Coach Update === (Wed Jun 24 12:34:05 PM CEST 2026)
+=== Arena Coach Update === (Wed Jun 24 01:47:59 PM CEST 2026)
 1. Coach binary...
 chdir: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
 Already up to date.
@@ -10,7 +10,7 @@ Already up to date.
 
 ─── edax ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/edax
-   -> /home/oliv/coach/engines/dcbc76aa57b864aa/
+   -> /home/oliv/coach/engines/72bde5804922bf9b/
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/egaroucid/src
@@ -22,7 +22,7 @@ Already up to date.
 
 ─── neursi ───
    /home/oliv/dev/agent/neursi/engine
-   -> /home/oliv/coach/engines/51884fafb295dfbf/
+   -> /home/oliv/coach/engines/042f7a6e584a56ca/
 
 ─── Reload ───
 Coach binary was updated — restarting service...
@@ -30,4 +30,5 @@ Coach not running.
 
 === Done ===
 All 4 engines built successfully
+Deployed 10 players from /home/oliv/coach/engines
 Log saved to: /home/oliv/dev/agent/arena/log/coach-update.log

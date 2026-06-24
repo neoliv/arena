@@ -75,9 +75,9 @@ warning: field `last_advisor` is never read
 28 | pub struct GtpEngine {
    |            --------- field in this struct
 ...
-68 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name, s...
+68 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name,...
    |     ^^^^^^^^^^^^
 
 warning: `neursi` (lib) generated 11 warnings (run `cargo fix --lib -p neursi` to apply 2 suggestions)
-    Finished `release` profile [optimized] target(s) in 3.44s
+    Finished `release` profile [optimized] target(s) in 3.47s
 coach-engine/ ready: 2 files

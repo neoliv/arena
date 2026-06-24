@@ -10,7 +10,8 @@ import (
 
 func (h *Handler) handleMatches(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+`<div hx-get="." hx-trigger="every 30s" hx-swap="outerHTML">`+searchJS+`<h1>Matches</h1>`+filterBox)
+	open, closing := htmxWrap(r, ".")
+	io.WriteString(w, open+`<h1>Matches</h1>`+filterBox)
 
 	var inProgressCount int
 	h.DB.QueryRow("SELECT COUNT(*) FROM match_assignments WHERE status='in_progress'").Scan(&inProgressCount)
@@ -24,14 +25,14 @@ func (h *Handler) handleMatches(w http.ResponseWriter, r *http.Request) {
 				elapsed := time.Since(t).Round(time.Second)
 				tcDisplay = fmt.Sprintf("%s / %s", elapsed, tcDisplay)
 			}; startDisplay := started[:min(19, len(started))]; if t, err := time.Parse(time.RFC3339, started); err == nil { startDisplay = niceDuration(t) } else if t, err := time.Parse("2006-01-02 15:04:05", started[:19]); err == nil { startDisplay = niceDuration(t) }; fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`, id, e1, e2, tcDisplay, games, startDisplay) } }
-	io.WriteString(w, "</table>"+`</div>`+pageFoot)
+	io.WriteString(w, "</table>"+closing)
 
 	var completedCount int
 	h.DB.QueryRow("SELECT COUNT(*) FROM matches").Scan(&completedCount)
 	fmt.Fprintf(w, `<h2>Completed %d</h2><table><tr><th>ID</th><th>Black</th><th>White</th><th>Score</th><th>Games</th><th>Date</th></tr>`, completedCount)
 	rows, _ := h.DB.Query(`SELECT m.id, (SELECT name||' '||version FROM engines WHERE id=m.engine1_id), (SELECT name||' '||version FROM engines WHERE id=m.engine2_id), m.wins_1, m.wins_2, m.draws, m.total_games, COALESCE(m.created_at,'') FROM matches m ORDER BY m.id DESC LIMIT 100`)
 	if rows != nil { defer rows.Close(); for rows.Next() { var id, w1, w2, d, t int; var e1, e2, created string; rows.Scan(&id, &e1, &e2, &w1, &w2, &d, &t, &created); fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/matches/%d">%d</a></td><td>%s</td><td>%s</td><td>%d-%d-%d</td><td>%d</td><td>%s</td></tr>`, id, id, htmlEscape(e1), htmlEscape(e2), w1, w2, d, t, htmlEscape(created[:min(10,len(created))])) } }
-	io.WriteString(w, "</table>"+`</div>`+pageFoot)
+	io.WriteString(w, "</table>"+closing)
 }
 
 func (h *Handler) handleMatch(w http.ResponseWriter, r *http.Request) {

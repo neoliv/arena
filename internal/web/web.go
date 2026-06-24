@@ -67,6 +67,19 @@ const htmxScript = `<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sh
 const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + htmxScript + `</head><body>`
 const pageFoot = `</body></html>`
 
+// htmxWrap wraps auto-refresh content. When the request came from HTMX
+// (HX-Request header), it returns only the inner div — no page chrome.
+// This prevents nested <html> documents on auto-refreshing pages.
+func htmxWrap(r *http.Request, path string) (open, closing string) {
+	open = `<div hx-get="` + path + `" hx-trigger="every 30s" hx-swap="outerHTML">` + searchJS + filterBox
+	closing = `</div>`
+	if r.Header.Get("HX-Request") != "true" {
+		open = pageHead + navHTML + open
+		closing = closing + pageFoot
+	}
+	return
+}
+
 // chartColors are chalk/pastel hues visible on both light and dark backgrounds.
 var chartColors = [8]string{"#4caf50","#6bd4ff","#ffe66b","#6bff8a","#ff8a6b","#c46bff","#6bffe6","#ffb86b"}
 
