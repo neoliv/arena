@@ -12,21 +12,21 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, pageHead+navHTML)
 
-	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth int
+	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth, disconnect int
 	var result, opening, bName, bVer, wName, wVer, tcJSON string
 	var bTime, wTime, gameTimeSec float64
 	var bElo, wElo, bEloBefore, wEloBefore float64
 	err := h.DB.QueryRow(
 		"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
 			"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
-			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), eb.name, eb.version, ew.name, ew.version, "+
+			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), COALESCE(g.disconnect,0), eb.name, eb.version, ew.name, ew.version, "+
 			"COALESCE(m.time_control,'{}'), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.black_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.white_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0) "+
 			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id JOIN matches m ON m.id=g.match_id WHERE g.id=?",
-		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
+		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &disconnect, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
 	if err != nil {
 		io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
 		return
@@ -55,13 +55,23 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		bScore = 64 - finalScore
 	}
 
-	// Line 1: game number + score, Elos right/left aligned
+	// Line 1: game number + score with timeout/disconnect warnings
+	bTimedOut := gameTimeSec > 0 && bTime > gameTimeSec*1.05
+	wTimedOut := gameTimeSec > 0 && wTime > gameTimeSec*1.05
+	statusBadge := ""
+	if disconnect != 0 {
+		statusBadge = ` <span style="color:#f44336;font-weight:900">[DISCONNECTED]</span>`
+	} else if bTimedOut {
+		statusBadge = ` <span style="color:#22d3ee;font-weight:900">[BLACK TIMEOUT]</span>`
+	} else if wTimedOut {
+		statusBadge = ` <span style="color:#d4c4a8;font-weight:900">[WHITE TIMEOUT]</span>`
+	}
 	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.2em">
-		<div style="flex:1"><h1 style="margin:0;font-size:1.4em">#%s <span style="color:var(--muted);font-weight:400">%d-%d</span></h1></div>
+		<div style="flex:1"><h1 style="margin:0;font-size:1.6em;font-weight:800">#%s <span style="font-weight:800">%d-%d</span>%s</h1></div>
 		<div style="flex:1;text-align:right;font-size:1.1em;padding-right:1.5em"><span style="color:%s">(%.0f %+d)</span></div>
 		<div style="flex:1;text-align:left;font-size:1.1em;padding-left:1.5em"><span style="color:%s">(%+d %.0f)</span></div>
 		<div style="flex:1"></div></div>`,
-		id, bScore, wScore, deltaColor(bDelta), bElo, int(bDelta), deltaColor(wDelta), int(wDelta), wElo)
+		id, bScore, wScore, statusBadge, deltaColor(bDelta), bElo, int(bDelta), deltaColor(wDelta), int(wDelta), wElo)
 	// Line 2: player names — Black right-aligned, White left-aligned
 	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.6em">
 		<div style="flex:1"></div>

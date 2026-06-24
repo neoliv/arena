@@ -440,10 +440,11 @@ func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name
 				if whiteID == e1ID { wins1++ } else { wins2++ }
 			} else { draws++ }
 
-		res, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		disc := 0; if g.Disconnect { disc = 1 }
+		res, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			matchID, i+1, blackID, whiteID, g.Result, g.FinalScore, g.OpeningLine,
-			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth)
+			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc)
 		if err != nil { return matchID, err }
 		gameID, _ := res.LastInsertId()
 		if len(g.Moves) > 0 {
