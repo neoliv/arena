@@ -309,7 +309,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 			// Consume all # stats lines, keeping the last.
-			// Prefer JSON format (# neursi-stats v1: {...}), fall back to legacy.
+			// Prefer JSON format (# arena-stats v1: {...}), fall back to legacy.
 			var nodes int64
 			var depth int
 			var timeout bool

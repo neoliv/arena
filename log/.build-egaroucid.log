@@ -11,4 +11,6 @@ gmake[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/bui
 mkdir -p coach-engine/players.d
 cp bin/Egaroucid_for_Console.out coach-engine/egaroucid-gtp
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
-coach-engine/ ready: 5 files
+# Copy companion files required at runtime
+cp -r bin/resources coach-engine/ 2>/dev/null || true
+coach-engine/ ready: 42 files

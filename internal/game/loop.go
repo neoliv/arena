@@ -28,7 +28,7 @@ type MoveStats struct {
 	BookEval    *int    `json:"book_eval,omitempty"`
 }
 
-// neursiStatsV1 is the JSON payload from a # neursi-stats v1: GTP comment line.
+// neursiStatsV1 is the JSON payload from a # arena-stats v1: GTP comment line.
 type neursiStatsV1 struct {
 	Nodes       int64   `json:"nodes"`
 	Depth       int     `json:"depth"`

@@ -10,8 +10,8 @@ options.c: In function ‘options_read’:
 util.h:278:20: warning: unused variable ‘ggs_log’ [-Wunused-variable]
   278 |         extern Log ggs_log; \
       |                    ^~~~~~~
-options.c:228:17: note: in expansion of macro ‘info’
-  228 |                 info("<set option %s %s>\n", option, value);
+options.c:231:17: note: in expansion of macro ‘info’
+  231 |                 info("<set option %s %s>\n", option, value);
       |                 ^~~~
 In file included from all.c:39:
 game.c: In function ‘game_export_pgn’:
@@ -33,4 +33,4 @@ mkdir -p coach-engine/players.d coach-engine/data
 cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/bin/lEdax-native coach-engine/edax
 cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/data/eval.dat coach-engine/data/
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
-coach-engine/ ready: 6 files
+coach-engine/ ready: 5 files

@@ -78,18 +78,18 @@ warning: function `count_last_flip` is never used
 warning: function `nws` is never used
    --> src/endgame_edax.rs:130:4
     |
-130 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mut ...
+130 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mu...
     |    ^^^
 
 warning: field `last_advisor` is never read
-  --> src/gtp.rs:68:5
+  --> src/gtp.rs:70:5
    |
 28 | pub struct GtpEngine {
    |            --------- field in this struct
 ...
-68 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name, s...
+70 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name,...
    |     ^^^^^^^^^^^^
 
 warning: `neursi` (lib) generated 13 warnings (run `cargo fix --lib -p neursi` to apply 3 suggestions)
-    Finished `release` profile [optimized] target(s) in 3.46s
-coach-engine/ ready: 2 files
+    Finished `release` profile [optimized] target(s) in 3.53s
+coach-engine/ ready: 4 files

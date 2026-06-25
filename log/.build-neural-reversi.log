@@ -1,9 +1,18 @@
 rm -rf coach-engine
 # Download weight files needed at compile time (include_bytes!)
 cargo build --release -p cli
-    Finished `release` profile [optimized] target(s) in 0.08s
+warning: unused variable: `mode`
+   --> crates/cli/src/gtp.rs:628:13
+    |
+628 |             mode => {
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_mode`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cli` (bin "cli") generated 1 warning (run `cargo fix --bin "cli" -p cli` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.10s
 mkdir -p coach-engine/players.d
 cp target/release/cli coach-engine/neural-reversi-gtp
 cp eval-e6bbc4f6.zst eval_sm-e6bbc4f6.zst coach-engine/
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
-coach-engine/ ready: 4 files
+coach-engine/ ready: 6 files

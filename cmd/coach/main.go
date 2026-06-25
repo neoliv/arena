@@ -613,14 +613,14 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 
 			// Engine # stats: prepend measured time and forward.
 			if strings.HasPrefix(line, "#") {
-				// Parse neursi JSON stats: # neursi-stats v1: {"nodes":N,"depth":D,...}
-				if strings.HasPrefix(line, "# neursi-stats v1: ") {
+				// Parse neursi JSON stats: # arena-stats v1: {"nodes":N,"depth":D,...}
+				if strings.HasPrefix(line, "# arena-stats v1: ") {
 					var ns struct {
 						Nodes  int64 `json:"nodes"`
 						Depth  int   `json:"depth"`
 						Score  int   `json:"score"`
 					}
-					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "# neursi-stats v1: ")), &ns); err == nil {
+					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "# arena-stats v1: ")), &ns); err == nil {
 						searchMu.Lock()
 						searchNodes, searchDepth, searchScore = ns.Nodes, ns.Depth, ns.Score
 						searchMu.Unlock()
