@@ -162,6 +162,10 @@ func main() {
 	var cfgMu sync.RWMutex // protects cfg.AIs slice
 	running := make(map[string]*runningEngine)
 
+	// Tracks engines that failed to start or crashed repeatedly.
+	// Cleared on successful completion. Sent to matchmaker on registration.
+	healthErrors := make(map[string]string) // key: "name:version" → reason
+
 	loadAndRegister := func() {
 		var ais []aiConfig
 		matches, err := filepath.Glob(filepath.Join(enginesDir, "*", "players.d", "*.yaml"))
@@ -213,7 +217,7 @@ func main() {
 		}
 
 		// Register with matchmaker (in-memory engine list for pairing)
-		if err := registerWithMatchmaker(client, cfg, &cfgMu); err != nil {
+		if err := registerWithMatchmaker(client, cfg, &cfgMu, healthErrors); err != nil {
 			slog.Error("MATCHMAKER REGISTRATION FAILED", "err", err)
 		} else {
 			slog.Info("matchmaker registration succeeded")
@@ -299,6 +303,13 @@ func main() {
 			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, a.SessionID, logDir, gameSecs)
 			if err != nil {
 				slog.Error("launch engine", "ai", ai.Name, "session", a.SessionID, "err", err)
+				mu.Lock()
+				healthErrors[ai.Name+":"+ai.Version] = err.Error()
+				mu.Unlock()
+				select {
+				case notifyChange <- struct{}{}:
+				default:
+				}
 				continue
 			}
 
@@ -313,12 +324,16 @@ func main() {
 			}
 
 			// Wait for engine to exit (relay closes after matchmaker finishes game)
-			go func(sid string) {
+			go func(sid string, engineKey string) {
 				err := re.cmd.Wait()
 				if err != nil {
 					slog.Warn("engine exited with error", "session", sid, "err", err)
 				} else {
 					slog.Info("engine exited cleanly", "session", sid)
+					// Clear any previous health errors on clean exit.
+					mu.Lock()
+					delete(healthErrors, engineKey)
+					mu.Unlock()
 				}
 				re.cancel() // cleanup context
 				mu.Lock()
@@ -329,7 +344,7 @@ func main() {
 				case notifyChange <- struct{}{}:
 				default:
 				}
-			}(a.SessionID)
+			}(a.SessionID, ai.Name+":"+ai.Version)
 		}
 
 		select {
@@ -416,31 +431,35 @@ func registerWithArena(client *http.Client, cfg config, cfgMu *sync.RWMutex) err
 }
 
 // registerWithMatchmaker registers engines with the in-memory WantedList.
-func registerWithMatchmaker(client *http.Client, cfg config, cfgMu *sync.RWMutex) error {
+func registerWithMatchmaker(client *http.Client, cfg config, cfgMu *sync.RWMutex, healthErrors map[string]string) error {
 	type engineReg struct {
-		Name         string `json:"name"`
-		Version      string `json:"version"`
-		Cores        int    `json:"cores"`
-		MemoryMB     int    `json:"memory_mb"`
-		MaxInstances int    `json:"max_instances"`
-		Available    bool   `json:"available"`
+		Name              string `json:"name"`
+		Version           string `json:"version"`
+		Cores             int    `json:"cores"`
+		MemoryMB          int    `json:"memory_mb"`
+		MaxInstances      int    `json:"max_instances"`
+		Available         bool   `json:"available"`
+		UnavailableReason string `json:"unavailable_reason,omitempty"`
 	}
 	cfgMu.RLock()
 	var engines []engineReg
 	for _, a := range cfg.AIs {
+		key := a.Name + ":" + a.Version
 		cores := a.Cores
-		if cores == 0 {
-			cores = 1
-		}
+		if cores == 0 { cores = 1 }
 		mem := a.MemoryMB
-		if mem == 0 {
-			mem = 64
-		}
+		if mem == 0 { mem = 64 }
 		maxInst := a.MaxInstances
-		if maxInst == 0 {
-			maxInst = 1
+		if maxInst == 0 { maxInst = 1 }
+		available := true
+		reason := ""
+		if healthErrors != nil {
+			if r, ok := healthErrors[key]; ok {
+				available = false
+				reason = r
+			}
 		}
-		engines = append(engines, engineReg{a.Name, a.Version, cores, mem, maxInst, true})
+		engines = append(engines, engineReg{a.Name, a.Version, cores, mem, maxInst, available, reason})
 	}
 	cfgMu.RUnlock()
 	body := map[string]any{

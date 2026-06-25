@@ -1,4 +1,4 @@
-=== Arena Coach Update === (Thu Jun 25 11:53:35 PM CEST 2026)
+=== Arena Coach Update === (Fri Jun 26 12:20:54 AM CEST 2026)
 1. Coach binary...
 Already up to date.
    updated (binary changed)
@@ -13,7 +13,7 @@ Already up to date.
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid
-   -> /home/oliv/coach/engines/08672edf8e1d7943/
+   -> /home/oliv/coach/engines/f8c74dc3c1bbaf1f/
 
 ─── neural-reversi ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi

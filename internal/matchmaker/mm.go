@@ -14,6 +14,7 @@ import (
 	"github.com/neoliv/arena/internal/coach"
 	"github.com/neoliv/arena/internal/db"
 	"github.com/neoliv/arena/internal/elo"
+	"github.com/neoliv/arena/internal/web"
 )
 
 // ── MatchMaker ──────────────────────────────────────────────────────────
@@ -349,6 +350,28 @@ func (m *MatchMaker) executeMatch(blackStream, whiteStream coach.Stream, gameTim
 // ── HTTP handlers ───────────────────────────────────────────────────────
 
 // HandleStatus returns current matchmaker state for the dashboard.
+// EngineStatus returns a snapshot of all registered engines with their
+// availability state. Used by the web dashboard (Players page).
+func (m *MatchMaker) EngineStatus() []web.EngineStatus {
+	m.Wanted.mu.RLock()
+	defer m.Wanted.mu.RUnlock()
+	var out []web.EngineStatus
+	for _, c := range m.Wanted.coaches {
+		for _, e := range c.Engines {
+			out = append(out, web.EngineStatus{
+				Name:              e.Name,
+				Version:           e.Version,
+				CoachID:           c.ID,
+				Available:         e.Available,
+				UnavailableReason: e.UnavailableReason,
+			})
+		}
+	}
+	return out
+}
+
+var _ = web.EngineStatus{} // compile-time check
+
 func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	m.Wanted.mu.RLock()
 	defer m.Wanted.mu.RUnlock()

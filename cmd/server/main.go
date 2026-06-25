@@ -149,7 +149,7 @@ func main() {
 
 	sessions := web.NewSessionStore(database)
 	limiter := web.NewRateLimiter()
-	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter}
+	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus}
 	webHandler.RegisterRoutes(mux)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

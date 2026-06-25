@@ -89,11 +89,21 @@ func htmxWrap(r *http.Request, path string) (open, closing string) {
 // chartColors are chalk/pastel hues visible on both light and dark backgrounds.
 var chartColors = [8]string{"#4caf50","#6bd4ff","#ffe66b","#6bff8a","#ff8a6b","#c46bff","#6bffe6","#ffb86b"}
 
+// EngineStatus is a point-in-time snapshot of a registered engine.
+type EngineStatus struct {
+	Name              string
+	Version           string
+	CoachID           string
+	Available         bool
+	UnavailableReason string
+}
+
 type Handler struct {
-	DB       *db.DB
-	Token    string
-	Sessions *SessionStore
-	Limiter  *RateLimiter
+	DB               *db.DB
+	Token            string
+	Sessions         *SessionStore
+	Limiter          *RateLimiter
+	EngineStatusFunc func() []EngineStatus
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {

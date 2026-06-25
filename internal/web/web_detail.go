@@ -71,11 +71,12 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	wNameEsc := htmlEscape(wName)
 	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
 		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:1.05em"><span style="color:%s">%s %.0f %+d</span></div>
-		<div style="flex:1;text-align:center"><h1 style="margin:0;font-size:1.6em;font-weight:800">#%s&nbsp;&nbsp;<span style="font-weight:800">%d-%d</span>%s</h1></div>
+		<div style="flex:1;text-align:center"><h1 style="margin:0;font-size:1.6em;font-weight:800"><span style="font-weight:800">%d-%d</span>%s</h1></div>
 		<div style="flex:2;text-align:left;padding-left:1.5em;font-size:1.05em"><span style="color:%s">%+d %.0f %s</span></div></div>`,
 		deltaColor(bDelta), bNameEsc, bElo, int(bDelta),
-		id, bScore, wScore, statusBadge,
+		bScore, wScore, statusBadge,
 		deltaColor(wDelta), int(wDelta), wElo, wNameEsc)
+	fmt.Fprintf(w, `<div style="text-align:left;margin-bottom:.6em;font-size:.95em;color:var(--muted);padding-left:.5em">#%s</div>`, id)
 	// Version line
 	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.6em">
 		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:.95em"><a href="/engines/%s">%s</a></div>
@@ -101,9 +102,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `Match <a href="/matches/%d">#%d</a> (game %d) | <a href="/games/%d">other game</a>`, mid, mid, gnum, otherGame)
 	if tcLabel != "" {
 		fmt.Fprintf(w, ` | Time: %s (unspent B:%.0fs W:%.0fs)`, tcLabel, bUnspent, wUnspent)
-	}
-	if opening != "" {
-		fmt.Fprintf(w, ` | Opening: %s`, htmlEscape(opening))
 	}
 	io.WriteString(w, `</div><br>`)
 
@@ -497,14 +495,17 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			io.WriteString(w, `</table></div>`)
 
-			// Opening info + totals
-			if opening != "" {
-				openPlies := len(opening) / 2
-				io.WriteString(w, fmt.Sprintf(`<div style="margin-top:1em;padding:8px 12px;background:#222a24;border-radius:4px;color:var(--muted);font-size:.9em">Opening (%d plies): <span style="font-family:monospace">%s</span></div>`, openPlies, htmlEscape(opening)))
-			}
+			// ── Moves summary (below graphs, above stats table) ──
 			totalTime := bTime + wTime
 			totalMoves := bStats.moves + wStats.moves
-			fmt.Fprintf(w, `<div style="margin-top:.5em;color:var(--muted);font-size:.85em;text-align:center">Total: %.2fs · %d moves · last ply %d · %s nodes</div>`, totalTime, totalMoves, totalPlies, fmtVal(bStats.totalNodes+wStats.totalNodes))
+			if opening != "" {
+				openPlies := len(opening) / 2
+				fmt.Fprintf(w, `<div style="margin-top:1em;color:var(--muted);font-size:.95em;text-align:center">Moves: %d forced · %d played · last ply %d · <span style="font-family:monospace">%s</span> · %.2fs · %s nodes</div>`,
+					openPlies, totalMoves, totalPlies, htmlEscape(opening), totalTime, fmtVal(bStats.totalNodes+wStats.totalNodes))
+			} else {
+				fmt.Fprintf(w, `<div style="margin-top:1em;color:var(--muted);font-size:.95em;text-align:center">Moves: %d played · last ply %d · %.2fs · %s nodes</div>`,
+					totalMoves, totalPlies, totalTime, fmtVal(bStats.totalNodes+wStats.totalNodes))
+			}
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th><th>Score</th></tr>`)
 			for _, m := range moves {
 				side := "Black"
