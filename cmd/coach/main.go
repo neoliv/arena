@@ -270,7 +270,7 @@ func main() {
 			sendHeartbeat(client, cfg, &mu, &cfgMu, running)
 
 			go func(sid string, aid int) {
-				err := re.cmd.Wait()
+				re.cancel(); err := re.cmd.Wait()
 				stderrOut := strings.TrimSpace(re.stderrBuf.String())
 				if err != nil {
 					if stderrOut != "" && strings.Contains(stderrOut, "auto-exit") {
