@@ -17,9 +17,10 @@ body{font-family:system-ui,sans-serif;max-width:960px;margin:0 auto;padding:1em;
 h1{font-size:1.4em;margin:0 0 .5em}
 nav{margin-bottom:1.5em;border-bottom:1px solid var(--border);padding-bottom:.5em}
 nav a{display:inline-block;margin-right:.3em;text-decoration:none;color:#e8e6e3;font-size:1.1em;font-weight:600;padding:.35em .7em;border-radius:5px;border:1px solid var(--nav-hl);background:rgba(56,136,85,0.06);transition:all .15s}
+nav a:visited,nav a:link{color:#e8e6e3}
 nav a:hover{background:var(--nav-hl);color:#fff;border-color:var(--nav-hl)}
 nav a.logout:hover{background:#c33;border-color:#c33;color:#fff}
-nav a.active,.chart-tabs a.active{background:var(--nav-hl);color:#fff}
+nav a.active,.chart-tabs a.active,nav a.active:visited{background:var(--nav-hl);color:#fff !important}
 	.chart-tab{transition:all .15s}.chart-tab:hover{background:var(--nav-hl)!important;color:#fff!important}
 table{border-collapse:collapse;width:100%;margin-bottom:2em}
 th,td{text-align:left;padding:.4em .6em;border-bottom:1px solid var(--border)}
