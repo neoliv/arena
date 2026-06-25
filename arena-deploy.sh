@@ -49,6 +49,7 @@ done
 echo "--- Cleaning old server logs ---"
 ssh "${VPS_USER}@${VPS}" "journalctl --vacuum-time=1h 2>/dev/null || true"
 ssh "${VPS_USER}@${VPS}" "truncate -s 0 /var/log/caddy/arena.log 2>/dev/null || true"
+	ssh "${VPS_USER}@${VPS}" "truncate -s 0 /var/log/caddy/access.log 2>/dev/null || true"
 ssh "${VPS_USER}@${VPS}" "truncate -s 0 /var/log/arena/server.log"
 echo "  logs reset"
 
