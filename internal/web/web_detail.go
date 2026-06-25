@@ -192,11 +192,11 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
 				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:14px;font-weight:600">%s</span><span style="color:#d4c4a8;font-size:14px;font-weight:600">%s</span></div>`, bName, wName)
 				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
-				// Grey "forced" zone for opening plies
+				// Grey "forced" zone for opening plies (rendered first = behind bars)
 				if openingPlies > 0 {
 					openW := openingPlies * 14
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#1a2a1a" opacity="0.6"/>`, 34, topPad, openW, chartH)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#555" font-size="13" text-anchor="middle" font-style="italic">forced</text>`, 34+openW/2, chartH/2+topPad+5)
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced</text>`, 34+openW/2, chartH+topPad-6)
 				}
 				niceStep := maxVal / 4
 				if niceStep >= 100 {
