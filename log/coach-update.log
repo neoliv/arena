@@ -1,4 +1,4 @@
-=== Arena Coach Update === (Fri Jun 26 12:52:21 AM CEST 2026)
+=== Arena Coach Update === (Fri Jun 26 12:57:37 AM CEST 2026)
 1. Coach binary...
 Already up to date.
    updated (binary changed)
@@ -15,9 +15,9 @@ Already up to date.
    /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid
    ERROR: build failed for egaroucid
    Last 10 lines:
-/home/oliv/dev/agent/othello-refs/egaroucid/src/src/engine/level.hpp:178:19: error: ‘g_mid_depth_override’ was not declared in this scope
-  178 |         *depth = (g_mid_depth_override >= 0) ? g_mid_depth_override : level_status.mid_lookahead;
-      |                   ^~~~~~~~~~~~~~~~~~~~
+   18 | #include "engine/level.hpp"
+      |          ^~~~~~~~~~~~~~~~~~
+compilation terminated.
 gmake[4]: *** [CMakeFiles/Egaroucid_for_Console.out.dir/build.make:79: CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o] Error 1
 gmake[3]: *** [CMakeFiles/Makefile2:87: CMakeFiles/Egaroucid_for_Console.out.dir/all] Error 2
 gmake[2]: *** [CMakeFiles/Makefile2:94: CMakeFiles/Egaroucid_for_Console.out.dir/rule] Error 2

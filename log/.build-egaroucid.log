@@ -16,16 +16,13 @@ cd /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/sr
 -- Build files have been written to: /home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach
 gmake[1]: Entering directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
 [ 50%] Building CXX object CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o
-In file included from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/engine/ai.hpp:16,
-                 from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/engine/engine_all.hpp:12,
-                 from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/Egaroucid_for_Console.cpp:12:
-/home/oliv/dev/agent/othello-refs/egaroucid/src/src/engine/level.hpp: In function ‘void get_level(int, int, bool*, int*, uint_fast8_t*)’:
-/home/oliv/dev/agent/othello-refs/egaroucid/src/src/engine/level.hpp:176:23: error: ‘g_end_depth_override’ was not declared in this scope
-  176 |     if (n_empties > ((g_end_depth_override >= 0) ? g_end_depth_override : level_status.complete0)) {
-      |                       ^~~~~~~~~~~~~~~~~~~~
-/home/oliv/dev/agent/othello-refs/egaroucid/src/src/engine/level.hpp:178:19: error: ‘g_mid_depth_override’ was not declared in this scope
-  178 |         *depth = (g_mid_depth_override >= 0) ? g_mid_depth_override : level_status.mid_lookahead;
-      |                   ^~~~~~~~~~~~~~~~~~~~
+In file included from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/console/close.hpp:14,
+                 from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/console/console_all.hpp:13,
+                 from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/Egaroucid_for_Console.cpp:13:
+/home/oliv/dev/agent/othello-refs/egaroucid/src/src/console/option.hpp:18:10: fatal error: engine/level.hpp: No such file or directory
+   18 | #include "engine/level.hpp"
+      |          ^~~~~~~~~~~~~~~~~~
+compilation terminated.
 gmake[4]: *** [CMakeFiles/Egaroucid_for_Console.out.dir/build.make:79: CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o] Error 1
 gmake[3]: *** [CMakeFiles/Makefile2:87: CMakeFiles/Egaroucid_for_Console.out.dir/all] Error 2
 gmake[2]: *** [CMakeFiles/Makefile2:94: CMakeFiles/Egaroucid_for_Console.out.dir/rule] Error 2
