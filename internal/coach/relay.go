@@ -20,8 +20,9 @@ type Stream struct {
 
 // Relay manages WebSocket sessions for GTP relay.
 type Relay struct {
-	mu       sync.Mutex
-	sessions map[string]*relaySlot
+	mu        sync.Mutex
+	sessions  map[string]*relaySlot
+	OnConnect func(sessionID string) // called when a coach connects (optional)
 }
 
 type relaySlot struct {
@@ -114,6 +115,9 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	r.mu.Unlock()
 
 	slog.Info("relay engine connected", "session", sessionID)
+	if r.OnConnect != nil {
+		r.OnConnect(sessionID)
+	}
 
 	select {
 	case <-slot.done:

@@ -39,7 +39,7 @@ type config struct {
 	MaxCores   int        `yaml:"max_cores"`
 	MaxRAMMB   int        `yaml:"max_ram_mb"`
 	EnginesDir string     `yaml:"engines_dir"`
-		ShareDir   string     `yaml:"share_dir"`
+	ShareDir   string     `yaml:"share_dir"`
 	AIs        []aiConfig `yaml:"-"` // populated from engines dirs
 }
 
@@ -61,22 +61,31 @@ type aiConfig struct {
 }
 
 type runningEngine struct {
-	ai          aiConfig
-	cmd         *exec.Cmd
-	cancel      context.CancelFunc
-	sessionID   string
-	stderrBuf   *bytes.Buffer
-	stderrPipeW *io.PipeWriter
+	ai        aiConfig
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	sessionID string
+}
+
+// assignment is a single side assignment from the matchmaker.
+type assignment struct {
+	SessionID   string `json:"session_id"`
+	Engine      string `json:"engine"` // "name:version"
+	Side        string `json:"side"`   // "black" or "white"
+	TimeControl string `json:"time_control"`
+	Opening     string `json:"opening"`
 }
 
 var coachSession string
 
 func main() {
-	b := make([]byte, 8); crand.Read(b); coachSession = hex.EncodeToString(b)
+	b := make([]byte, 8)
+	crand.Read(b)
+	coachSession = hex.EncodeToString(b)
 	configPath := flag.String("config", "coach.yaml", "Path to coach config file")
 	playersDir := flag.String("players", "players.d", "Directory containing player .yaml files")
-	showVer    := flag.Bool("version", false, "Print version and exit")
-	aisFilter  := flag.String("ais", "", "Comma-separated list of AI names to load from coach.d/ (default: all)")
+	showVer   := flag.Bool("version", false, "Print version and exit")
+	aisFilter := flag.String("ais", "", "Comma-separated list of AI names to load from coach.d/ (default: all)")
 	handleShortFlags("coach")
 	flag.Parse()
 
@@ -108,14 +117,22 @@ func main() {
 		slog.Error("parse config", "err", err)
 		os.Exit(1)
 	}
-	if cfg.CoachID == "" { slog.Error("coach_id is required"); os.Exit(1) }
-	if cfg.ArenaURL == "" { cfg.ArenaURL = "https://arena.arsac.org" }
+	if cfg.CoachID == "" {
+		slog.Error("coach_id is required")
+		os.Exit(1)
+	}
+	if cfg.ArenaURL == "" {
+		cfg.ArenaURL = "https://arena.arsac.org"
+	}
 	tokenSource := "coach.yaml"
-	if cfg.Token == "" { cfg.Token = os.Getenv("ARENA_TOKEN"); tokenSource = "ARENA_TOKEN env" }
+	if cfg.Token == "" {
+		cfg.Token = os.Getenv("ARENA_TOKEN")
+		tokenSource = "ARENA_TOKEN env"
+	}
 	if cfg.Token == "" {
 		slog.Error("NO TOKEN CONFIGURED — set token in coach.yaml or ARENA_TOKEN env var")
 	} else {
-		obs := cfg.Token[:min(4,len(cfg.Token))] + "..." + cfg.Token[max(0,len(cfg.Token)-4):]
+		obs := cfg.Token[:min(4, len(cfg.Token))] + "..." + cfg.Token[max(0, len(cfg.Token)-4):]
 		slog.Info("using token", "source", tokenSource, "token", obs)
 	}
 
@@ -141,8 +158,8 @@ func main() {
 	}
 	slog.Info("share dir", "share_dir", cfg.ShareDir)
 
-	var mu sync.Mutex           // protects running map
-	var cfgMu sync.RWMutex      // protects cfg.AIs slice
+	var mu sync.Mutex      // protects running map
+	var cfgMu sync.RWMutex // protects cfg.AIs slice
 	running := make(map[string]*runningEngine)
 
 	loadAndRegister := func() {
@@ -152,13 +169,21 @@ func main() {
 			for _, yamlPath := range matches {
 				engineDir := filepath.Dir(filepath.Dir(yamlPath))
 				aiData, err := os.ReadFile(yamlPath)
-				if err != nil { slog.Warn("read ai config", "file", yamlPath, "err", err); continue }
+				if err != nil {
+					slog.Warn("read ai config", "file", yamlPath, "err", err)
+					continue
+				}
 				var ai aiConfig
 				if err := yaml.Unmarshal(aiData, &ai); err != nil {
-					slog.Warn("parse ai config", "file", yamlPath, "err", err); continue
+					slog.Warn("parse ai config", "file", yamlPath, "err", err)
+					continue
 				}
-				if ai.Name == "" || ai.Version == "" { continue }
-				if len(allowedAIs) > 0 && !allowedAIs[ai.Name] { continue }
+				if ai.Name == "" || ai.Version == "" {
+					continue
+				}
+				if len(allowedAIs) > 0 && !allowedAIs[ai.Name] {
+					continue
+				}
 				if ai.Binary != "" && !strings.HasPrefix(ai.Binary, "/") {
 					ai.Binary = filepath.Join(engineDir, ai.Binary)
 				}
@@ -167,19 +192,31 @@ func main() {
 				ais = append(ais, ai)
 			}
 		}
-		if len(ais) == 0 { slog.Error("no players found in " + enginesDir + "/*/players.d/*.yaml"); return }
+		if len(ais) == 0 {
+			slog.Error("no players found in " + enginesDir + "/*/players.d/*.yaml")
+			return
+		}
 		slog.Info("loaded AIs", "count", len(ais))
 		cfgMu.Lock()
 		cfg.AIs = ais
 		cfgMu.Unlock()
+
+		// Register with arena DB (persistence for web dashboard)
 		slog.Info("registering with arena", "url", cfg.ArenaURL, "ais", len(ais))
 		for _, a := range ais {
-			slog.Info("  player", "name", a.Name, "version", a.Version, "binary", a.Binary, "args", a.Args, "engine_id", a.EngineID[:min(16,len(a.EngineID))])
+			slog.Info("  player", "name", a.Name, "version", a.Version, "binary", a.Binary, "args", a.Args, "engine_id", a.EngineID[:min(16, len(a.EngineID))])
 		}
-		if err := register(client, cfg, &cfgMu); err != nil {
+		if err := registerWithArena(client, cfg, &cfgMu); err != nil {
 			slog.Error("REGISTRATION FAILED", "err", err)
 		} else {
 			slog.Info("REGISTRATION SUCCEEDED", "ais", len(ais))
+		}
+
+		// Register with matchmaker (in-memory engine list for pairing)
+		if err := registerWithMatchmaker(client, cfg, &cfgMu); err != nil {
+			slog.Error("MATCHMAKER REGISTRATION FAILED", "err", err)
+		} else {
+			slog.Info("matchmaker registration succeeded")
 		}
 	}
 	loadAndRegister()
@@ -202,29 +239,36 @@ func main() {
 		}
 	}()
 
-	go heartbeatLoop(ctx, client, cfg, &mu, &cfgMu, running, loadAndRegister)
+	// notifyChange triggers an immediate heartbeat when resources change.
+	notifyChange := make(chan struct{}, 1)
+	go heartbeatLoop(ctx, client, cfg, &mu, &cfgMu, running, loadAndRegister, notifyChange)
 
-	slog.Info("starting task poll loop")
+	// ── Assignment poll loop ──────────────────────────────────────────
+	// Replaces the old task-based push model. The coach polls the
+	// matchmaker for assignments, launches engines, and bridges them
+	// to the relay. The matchmaker executes the game when both sides
+	// connect.
+	slog.Info("starting assignment poll loop")
 	lastReReg := time.Now().Add(-5 * time.Minute)
 	for ctx.Err() == nil {
 		if time.Since(lastReReg) > 5*time.Minute {
 			loadAndRegister()
 			lastReReg = time.Now()
 		}
-		tasks := pollTasks(client, cfg)
-		for _, t := range tasks {
+
+		assignments := pollAssignments(client, cfg)
+		for _, a := range assignments {
 			cfgMu.RLock()
-			ai := findAI(cfg, t.EngineName, t.EngineVersion)
+			ai := findAIByKey(cfg, a.Engine)
 			cfgMu.RUnlock()
 			if ai == nil {
-				slog.Warn("task for unknown AI", "name", t.EngineName, "version", t.EngineVersion)
+				slog.Warn("assignment for unknown AI", "engine", a.Engine)
 				continue
 			}
 
 			mu.Lock()
-			if _, exists := running[t.SessionID]; exists {
+			if _, exists := running[a.SessionID]; exists {
 				mu.Unlock()
-				slog.Warn("duplicate session, skipping", "session", t.SessionID)
 				continue
 			}
 			usedCores, usedMem := 0, 0
@@ -238,57 +282,56 @@ func main() {
 			}
 			if instCount >= ai.MaxInstances || usedCores+ai.Cores > totalCores(cfg) || usedMem+ai.MemoryMB > totalMem(cfg) {
 				mu.Unlock()
-				slog.Info("declining task (at capacity)", "ai", ai.Name,
-					"instances", instCount, "max_instances", ai.MaxInstances,
-					"cores_used", usedCores, "cores_needed", ai.Cores, "cores_total", totalCores(cfg),
-					"mem_used", usedMem, "mem_needed", ai.MemoryMB, "mem_total", totalMem(cfg))
-				declineTask(client, cfg, t.AssignmentID, fmt.Sprintf("at capacity: %d/%d instances, %d/%d cores, %d/%d MB for %s",
-					instCount, ai.MaxInstances, usedCores, totalCores(cfg), usedMem, totalMem(cfg), ai.Name))
+				slog.Debug("at capacity, skipping assignment", "ai", ai.Name,
+					"instances", instCount, "max", ai.MaxInstances,
+					"cores_used", usedCores, "cores_needed", ai.Cores)
 				continue
 			}
 			mu.Unlock()
 
-			acceptTask(client, cfg, t.AssignmentID)
 			aiCopy := *ai
-			gameSecs := parseGameTime(t.TimeControl)
+			gameSecs := parseGameTime(a.TimeControl)
 			if gameSecs > 0 {
 				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%game_time%", fmt.Sprintf("%.0f", gameSecs), -1)
 				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%share_dir%", cfg.ShareDir, -1)
 			}
-			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, t.RelayPath, t.SessionID, logDir, gameSecs, t.NumGames)
+
+			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, a.SessionID, logDir, gameSecs)
 			if err != nil {
-				slog.Error("launch engine", "ai", ai.Name, "err", err)
-				failTask(client, cfg, t.AssignmentID, "launch failed: "+err.Error())
+				slog.Error("launch engine", "ai", ai.Name, "session", a.SessionID, "err", err)
 				continue
 			}
 
 			mu.Lock()
-			running[t.SessionID] = re
+			running[a.SessionID] = re
 			mu.Unlock()
 
-			readyTask(client, cfg, t.AssignmentID, t.SessionID)
-			sendHeartbeat(client, cfg, &mu, &cfgMu, running)
+			// Notify heartbeat of resource change (non-blocking).
+			select {
+			case notifyChange <- struct{}{}:
+			default:
+			}
 
-			go func(sid string, aid int) {
-				re.cancel(); err := re.cmd.Wait()
-				stderrOut := strings.TrimSpace(re.stderrBuf.String())
+			// Wait for engine to exit (relay closes after matchmaker finishes game)
+			go func(sid string) {
+				err := re.cmd.Wait()
 				if err != nil {
-					if stderrOut != "" && strings.Contains(stderrOut, "auto-exit") {
-					slog.Info("engine auto-exited cleanly", "session", sid, "stderr", strings.TrimSpace(stderrOut))
+					slog.Warn("engine exited with error", "session", sid, "err", err)
 				} else {
-					slog.Warn("engine exited with error", "session", sid, "err", err, "stderr", stderrOut)
+					slog.Info("engine exited cleanly", "session", sid)
 				}
-				} else if stderrOut != "" {
-					slog.Info("engine exited", "session", sid, "stderr", stderrOut)
-				} else {
-					slog.Info("engine exited", "session", sid)
-				}
+				re.cancel() // cleanup context
 				mu.Lock()
 				delete(running, sid)
 				mu.Unlock()
-				sendHeartbeat(client, cfg, &mu, &cfgMu, running)
-			}(t.SessionID, t.AssignmentID)
+				// Notify heartbeat of resource change (non-blocking).
+				select {
+				case notifyChange <- struct{}{}:
+				default:
+				}
+			}(a.SessionID)
 		}
+
 		select {
 		case <-ctx.Done():
 			break
@@ -318,7 +361,8 @@ func postJSON(client *http.Client, cfg config, path string, body any) (*http.Res
 	return client.Do(req)
 }
 
-func register(client *http.Client, cfg config, cfgMu *sync.RWMutex) error {
+// registerWithArena persists engine info to the arena database.
+func registerWithArena(client *http.Client, cfg config, cfgMu *sync.RWMutex) error {
 	type aiReg struct {
 		Name             string `json:"name"`
 		Version          string `json:"version"`
@@ -340,15 +384,26 @@ func register(client *http.Client, cfg config, cfgMu *sync.RWMutex) error {
 	cfgMu.RLock()
 	var ais []aiReg
 	for _, a := range cfg.AIs {
-		cores := a.Cores; if cores == 0 { cores = 1 }
-		mem := a.MemoryMB; if mem == 0 { mem = 64 }
-		maxInst := a.MaxInstances; if maxInst == 0 { maxInst = 1 }
+		cores := a.Cores
+		if cores == 0 {
+			cores = 1
+		}
+		mem := a.MemoryMB
+		if mem == 0 {
+			mem = 64
+		}
+		maxInst := a.MaxInstances
+		if maxInst == 0 {
+			maxInst = 1
+		}
 		ais = append(ais, aiReg{a.Name, a.Version, a.Created, a.ChangelogShort, a.ChangelogFull, a.BuildCmd, a.RunCmd, a.EngineID, a.EngineManifest, cores, mem, maxInst})
 	}
 	cfgMu.RUnlock()
 	body["ais"] = ais
 	resp, err := postJSON(client, cfg, "/api/coach/register", body)
-	if err != nil { return fmt.Errorf("register POST failed: %w", err) }
+	if err != nil {
+		return fmt.Errorf("register POST failed: %w", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		var errResp map[string]string
@@ -356,6 +411,51 @@ func register(client *http.Client, cfg config, cfgMu *sync.RWMutex) error {
 		json.Unmarshal(bodyBytes, &errResp)
 		slog.Error("registration failed", "status", resp.StatusCode, "body", string(bodyBytes))
 		return fmt.Errorf("register: %s (%s)", resp.Status, errResp["error"])
+	}
+	return nil
+}
+
+// registerWithMatchmaker registers engines with the in-memory WantedList.
+func registerWithMatchmaker(client *http.Client, cfg config, cfgMu *sync.RWMutex) error {
+	type engineReg struct {
+		Name         string `json:"name"`
+		Version      string `json:"version"`
+		Cores        int    `json:"cores"`
+		MemoryMB     int    `json:"memory_mb"`
+		MaxInstances int    `json:"max_instances"`
+		Available    bool   `json:"available"`
+	}
+	cfgMu.RLock()
+	var engines []engineReg
+	for _, a := range cfg.AIs {
+		cores := a.Cores
+		if cores == 0 {
+			cores = 1
+		}
+		mem := a.MemoryMB
+		if mem == 0 {
+			mem = 64
+		}
+		maxInst := a.MaxInstances
+		if maxInst == 0 {
+			maxInst = 1
+		}
+		engines = append(engines, engineReg{a.Name, a.Version, cores, mem, maxInst, true})
+	}
+	cfgMu.RUnlock()
+	body := map[string]any{
+		"coach_id":    cfg.CoachID,
+		"cores_total": totalCores(cfg),
+		"engines":     engines,
+	}
+	resp, err := postJSON(client, cfg, "/api/matchmaker/register", body)
+	if err != nil {
+		return fmt.Errorf("matchmaker register: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("matchmaker register failed: %s — %s", resp.Status, string(bodyBytes))
 	}
 	return nil
 }
@@ -385,22 +485,25 @@ func sendHeartbeat(client *http.Client, cfg config, mu *sync.Mutex, cfgMu *sync.
 	body := map[string]any{
 		"coach_id": cfg.CoachID, "token": cfg.Token, "session_id": coachSession,
 		"ais_available": ais,
-		"resources": map[string]int{"cores_used": usedCores, "memory_mb_used": usedMem},
+		"resources":     map[string]int{"cores_used": usedCores, "memory_mb_used": usedMem},
 	}
 	resp, err := postJSON(client, cfg, "/api/coach/heartbeat", body)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	resp.Body.Close()
 }
 
-func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *sync.Mutex, cfgMu *sync.RWMutex, running map[string]*runningEngine, reload func()) {
-	ticker := time.NewTicker(30 * time.Second)
+func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *sync.Mutex, cfgMu *sync.RWMutex, running map[string]*runningEngine, reload func(), notifyChange <-chan struct{}) {
+	// Send a heartbeat at least every 10s, and immediately when resources change.
+	// Event-driven sends are batched: drain the channel for up to 1s before sending
+	// to avoid thundering-herd POSTs when multiple engines start/stop together.
+	const interval = 10 * time.Second
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	var lastServerGen string
-	for {
-		select {
-		case <-ctx.Done(): return
-		case <-ticker.C:
-		}
+
+	send := func() {
 		mu.Lock()
 		counts := map[string]int{}
 		usedCores, usedMem := 0, 0
@@ -425,10 +528,13 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 		body := map[string]any{
 			"coach_id": cfg.CoachID, "token": cfg.Token, "session_id": coachSession,
 			"ais_available": ais,
-			"resources": map[string]int{"cores_used": usedCores, "memory_mb_used": usedMem},
+			"resources":     map[string]int{"cores_used": usedCores, "memory_mb_used": usedMem},
 		}
 		resp, err := postJSON(client, cfg, "/api/coach/heartbeat", body)
-		if err != nil { slog.Warn("heartbeat failed", "err", err); continue }
+		if err != nil {
+			slog.Warn("heartbeat failed", "err", err)
+			return
+		}
 		var hb struct {
 			ServerGen string `json:"server_gen"`
 		}
@@ -440,74 +546,70 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 			reload()
 		}
 	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			send()
+		case <-notifyChange:
+			// Batch: drain any additional events within a 1s window.
+			send()
+			drainLoop:
+			for {
+				select {
+				case <-notifyChange:
+					// Another event arrived — drain and wait again.
+				case <-time.After(1 * time.Second):
+					break drainLoop
+				}
+			}
+		}
+	}
 }
 
-type taskItem struct {
-	AssignmentID  int    `json:"assignment_id"`
-	EngineName    string `json:"engine_name"`
-	EngineVersion string `json:"engine_version"`
-	TimeControl   string `json:"time_control"`
-	NumGames      int    `json:"num_games"`
-	SessionID     string `json:"session_id"`
-	RelayPath     string `json:"relay_path"`
-}
+// ── Assignment polling ───────────────────────────────────────────────────
 
-func pollTasks(client *http.Client, cfg config) []taskItem {
-	req, _ := http.NewRequest("GET", cfg.ArenaURL+"/api/coach/tasks?coach_id="+cfg.CoachID, nil)
-	if cfg.Token != "" { req.Header.Set("Authorization", "Bearer "+cfg.Token) }
+func pollAssignments(client *http.Client, cfg config) []assignment {
+	req, _ := http.NewRequest("GET", cfg.ArenaURL+"/api/matchmaker/poll?coach="+cfg.CoachID, nil)
+	if cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	}
 	resp, err := client.Do(req)
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
 	defer resp.Body.Close()
-	var result struct{ Tasks []taskItem }
+	var result struct {
+		Assignments []assignment `json:"assignments"`
+	}
 	json.NewDecoder(resp.Body).Decode(&result)
-	return result.Tasks
-}
-
-func acceptTask(client *http.Client, cfg config, id int) {
-	postJSON(client, cfg, fmt.Sprintf("/api/coach/tasks/%d/status", id), map[string]string{
-		"coach_id": cfg.CoachID, "token": cfg.Token, "status": "accepted",
-	})
-}
-
-func declineTask(client *http.Client, cfg config, id int, reason string) {
-	postJSON(client, cfg, fmt.Sprintf("/api/coach/tasks/%d/status", id), map[string]string{
-		"coach_id": cfg.CoachID, "token": cfg.Token, "status": "declined", "reason": reason,
-	})
-}
-
-func readyTask(client *http.Client, cfg config, id int, sessionID string) {
-	postJSON(client, cfg, fmt.Sprintf("/api/coach/tasks/%d/status", id), map[string]string{
-		"coach_id": cfg.CoachID, "token": cfg.Token, "status": "ready", "session_id": sessionID,
-	})
-}
-
-func failTask(client *http.Client, cfg config, id int, reason string) {
-	postJSON(client, cfg, fmt.Sprintf("/api/coach/tasks/%d/status", id), map[string]string{
-		"coach_id": cfg.CoachID, "token": cfg.Token, "status": "failed", "reason": reason,
-	})
+	return result.Assignments
 }
 
 // ── Engine lifecycle ─────────────────────────────────────────────────────
 
-func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, sessionID, logDir string, gameTimeSec float64, numGames int) (*runningEngine, error) {
+func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir string, gameTimeSec float64) (*runningEngine, error) {
 	parts := strings.Fields(ai.RunCmd)
-	if len(parts) == 0 { return nil, fmt.Errorf("empty run command") }
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty run command")
+	}
 
 	engCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(engCtx, parts[0], parts[1:]...)
 	cmd.Dir = filepath.Dir(parts[0])
-	var stderrBuf bytes.Buffer
-	stderrPipeR, stderrPipeW := io.Pipe()
-		// Drain stderr pipe to prevent engine blocking on writes
-		go func() { defer stderrPipeR.Close(); io.Copy(io.Discard, stderrPipeR) }()
+
 	engineLogDir := filepath.Join(logDir, "engines")
 	os.MkdirAll(engineLogDir, 0755)
 	errLog, _ := os.Create(filepath.Join(engineLogDir, sessionID+".err"))
-	stderrWriters := io.MultiWriter(os.Stderr, &stderrBuf, stderrPipeW)
-	if errLog != nil { stderrWriters = io.MultiWriter(stderrWriters, errLog) }
+	stderrWriters := io.MultiWriter(os.Stderr)
+	if errLog != nil {
+		stderrWriters = io.MultiWriter(os.Stderr, errLog)
+	}
 	cmd.Stderr = stderrWriters
 
-	// All engines now use # arena-stats v1: JSON on stdout.
+	// All engines use # arena-stats v1: JSON on stdout.
 	var searchMu sync.Mutex
 	var searchNodes int64
 	var searchDepth int
@@ -520,13 +622,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 
 	if err := cmd.Start(); err != nil {
 		cancel()
-		slog.Error("engine start failed", "binary", parts[0], "err", err, "stderr", stderrBuf.String())
+		slog.Error("engine start failed", "binary", parts[0], "err", err)
 		return nil, fmt.Errorf("start: %w", err)
 	}
 
 	// Pre-flight GTP health check — catch engines that crash on startup
-	// before telling the server we're ready. Read byte-by-byte so the
-	// WS bridging scanner gets all remaining stdout bytes.
+	// before bridging to the relay.
 	stdin.Write([]byte("name\n"))
 	healthCh := make(chan string, 1)
 	go func() {
@@ -545,17 +646,17 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		if !strings.HasPrefix(resp, "= ") {
 			cmd.Process.Kill()
 			cancel()
-			slog.Error("engine health check failed", "session", sessionID, "response", resp, "stderr", stderrBuf.String())
+			slog.Error("engine health check failed", "session", sessionID, "response", resp)
 			return nil, fmt.Errorf("health check failed: %s", resp)
 		}
 		slog.Info("engine health check OK", "session", sessionID, "name", strings.TrimPrefix(resp, "= "))
 	case <-time.After(3 * time.Second):
 		cmd.Process.Kill()
 		cancel()
-		stderrPipeW.Close()
 		return nil, fmt.Errorf("health check timeout")
 	}
 
+	relayPath := "/api/relay/" + sessionID
 	wsURL := strings.Replace(arenaURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 	wsURL += relayPath
@@ -564,28 +665,22 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	conn, _, err := websocket.Dial(wsCtx, wsURL, &websocket.DialOptions{})
 	wsCancel()
 	if err != nil {
-		stderrPipeW.Close()
 		cmd.Process.Kill()
 		cancel()
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
 
-
 	// GTP-aware timing: track genmove wall-clock time and enforce
-	// the time budget. If the engine exceeds gameTimeSec * 1.05
-	// total thinking time, kill it. The arena no longer sends
-	// game_time GTP commands — time enforcement is coach-side.
+	// the time budget. The matchmaker no longer sends game_time GTP
+	// commands — time enforcement is coach-side.
 	var timingMu sync.Mutex
 	var genmoveStart time.Time
 	var totalThinkMs int64
-	budgetMs := int64(gameTimeSec * 1000 * 105 / 100) // 5% margin per game
-	if numGames > 0 {
-		budgetMs = int64(gameTimeSec * 1000 * 105 / 100 * float64(numGames))
-	}
+	budgetMs := int64(gameTimeSec * 1000 * 105 / 100 * 2) // 2 games, 5% margin each
 	engineTimedOut := false
 
-	// stdout → WS: track genmove response timing and always
-	// emit a stats line with real wall-clock time.
+	// stdout → WS: track genmove response timing and inject
+	// measured wall-clock time into stats lines.
 	var lastElapsedMs int64
 	go func() {
 		defer conn.Close(websocket.StatusNormalClosure, "done")
@@ -594,29 +689,31 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 			raw := scanner.Bytes()
 			line := string(raw)
 
-			// Engine # stats: prepend measured time and forward.
-			if strings.HasPrefix(line, "#") {
-				// Parse neursi JSON stats: # arena-stats v1: {"nodes":N,"depth":D,...}
-				if strings.HasPrefix(line, "# arena-stats v1: ") {
-					var ns struct {
-						Nodes   int64 `json:"nodes"`
-						Depth   int   `json:"depth"`
-						Score   int   `json:"score"`
-						TimeMs  int64 `json:"time_ms"`
-					}
-					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "# arena-stats v1: ")), &ns); err == nil {
-						searchMu.Lock()
-						searchNodes, searchDepth, searchScore = ns.Nodes, ns.Depth, ns.Score
-						adapterTimeMs = ns.TimeMs
-						searchMu.Unlock()
-					}
+			// Parse engine JSON stats
+			if strings.HasPrefix(line, "# arena-stats v1: ") {
+				var ns struct {
+					Nodes  int64 `json:"nodes"`
+					Depth  int   `json:"depth"`
+					Score  int   `json:"score"`
+					TimeMs int64 `json:"time_ms"`
 				}
+				if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "# arena-stats v1: ")), &ns); err == nil {
+					searchMu.Lock()
+					searchNodes, searchDepth, searchScore = ns.Nodes, ns.Depth, ns.Score
+					adapterTimeMs = ns.TimeMs
+					searchMu.Unlock()
+				}
+			}
+
+			// Inject measured wall-clock time into stats lines
+			if strings.HasPrefix(line, "#") {
 				timingMu.Lock()
 				ms := lastElapsedMs
 				timingMu.Unlock()
 				raw = []byte(fmt.Sprintf("# time_ms %d %s", ms, strings.TrimPrefix(line, "# ")))
 			}
 
+			// Check for genmove response (= ...) and track timing
 			var injectLine string
 			timingMu.Lock()
 			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && len(strings.TrimPrefix(line, "= ")) > 0 {
@@ -628,21 +725,21 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 					engineTimedOut = true
 					timingMu.Unlock()
 					slog.Warn("engine time budget exceeded", "session", sessionID, "total_ms", totalThinkMs, "budget_ms", budgetMs)
-					// Signal timeout to matchmaker before closing connection
 					conn.Write(context.Background(), websocket.MessageText, []byte("? timeout"))
 					cmd.Process.Kill()
 					return
 				}
-				// Inject timing + optional search-log data.
+				// Inject timing + search-log data
 				searchMu.Lock()
 				sn, sd, ss, at := searchNodes, searchDepth, searchScore, adapterTimeMs
 				searchNodes, searchDepth, searchScore, adapterTimeMs = 0, 0, 0, 0
 				searchMu.Unlock()
-				// Trust adapter timing unless it differs >100ms from coach measurement
 				timeMs := lastElapsedMs
 				if at > 0 {
 					diff := lastElapsedMs - at
-					if diff < 0 { diff = -diff }
+					if diff < 0 {
+						diff = -diff
+					}
 					if diff > 100 {
 						slog.Warn("adapter time differs from coach", "session", sessionID, "adapter_ms", at, "coach_ms", lastElapsedMs)
 					} else {
@@ -651,8 +748,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				}
 				injectLine = fmt.Sprintf(`# time_ms %d {"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, timeMs, sn, sd, ss)
 			}
-			// All engines use # arena-stats v1: JSON — no legacy format needed.
 			timingMu.Unlock()
+
 			if err := conn.Write(context.Background(), websocket.MessageText, raw); err != nil {
 				break
 			}
@@ -667,7 +764,9 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		defer stdin.Close()
 		for {
 			_, msg, err := conn.Read(context.Background())
-			if err != nil { break }
+			if err != nil {
+				break
+			}
 			cmdStr := string(msg)
 			if strings.HasPrefix(cmdStr, "genmove") {
 				timingMu.Lock()
@@ -678,15 +777,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 		}
 	}()
 
-	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID, stderrBuf: &stderrBuf, stderrPipeW: stderrPipeW}
+	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID}
 
 	// Watchdog: if the engine doesn't respond at all within
-	// 2x the per-game budget, kill it.
+	// 2x the per-game budget (for 2 games), kill it.
 	if gameTimeSec > 0 {
-		wdSec := int(gameTimeSec * 2)
-		if numGames > 0 {
-			wdSec = int(gameTimeSec * 2 * float64(numGames))
-		}
+		wdSec := int(gameTimeSec * 2 * 2) // 2 games * 2x margin
 		if wdSec < 10 {
 			wdSec = 10
 		}
@@ -721,14 +817,16 @@ func parseGameTime(tcJSON string) float64 {
 		Seconds float64 `json:"seconds"`
 	}
 	if err := json.Unmarshal([]byte(tcJSON), &tc); err != nil {
-		return 0
+		// Try parsing as "30s" format
+		fmt.Sscanf(tcJSON, "%fs", &tc.Seconds)
 	}
 	return tc.Seconds
 }
 
-func findAI(cfg config, name, version string) *aiConfig {
+func findAIByKey(cfg config, key string) *aiConfig {
+	// key is "name:version"
 	for i := range cfg.AIs {
-		if cfg.AIs[i].Name == name && cfg.AIs[i].Version == version {
+		if cfg.AIs[i].Name+":"+cfg.AIs[i].Version == key {
 			return &cfg.AIs[i]
 		}
 	}
@@ -736,18 +834,26 @@ func findAI(cfg config, name, version string) *aiConfig {
 }
 
 func totalCores(cfg config) int {
-	if cfg.MaxCores > 0 { return cfg.MaxCores }
+	if cfg.MaxCores > 0 {
+		return cfg.MaxCores
+	}
 	return 1
 }
 
 func computeEngineIdentity(ai aiConfig) (string, string) {
 	parts := strings.Fields(ai.RunCmd)
-	if len(parts) == 0 { return "", "" }
+	if len(parts) == 0 {
+		return "", ""
+	}
 	binPath := parts[0]
 	var manifest strings.Builder
 	fmt.Fprintf(&manifest, "Engine: %s %s\n", ai.Name, ai.Version)
-	if ai.Created != "" { fmt.Fprintf(&manifest, "Date: %s\n", ai.Created) }
-	if ai.ChangelogShort != "" { fmt.Fprintf(&manifest, "Changes: %s\n", ai.ChangelogShort) }
+	if ai.Created != "" {
+		fmt.Fprintf(&manifest, "Date: %s\n", ai.Created)
+	}
+	if ai.ChangelogShort != "" {
+		fmt.Fprintf(&manifest, "Changes: %s\n", ai.ChangelogShort)
+	}
 	fmt.Fprintf(&manifest, "Command: %s\n", ai.RunCmd)
 	fmt.Fprintf(&manifest, "Resources: %d core(s), %d MB\n\n", ai.Cores, ai.MemoryMB)
 
@@ -767,16 +873,24 @@ func computeEngineIdentity(ai aiConfig) (string, string) {
 	seen := map[string]bool{}
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		for _, e := range entries {
-			if e.IsDir() { continue }
+			if e.IsDir() {
+				continue
+			}
 			ext := strings.ToLower(filepath.Ext(e.Name()))
 			if ext == ".brn" || ext == ".bin" || ext == ".safetensors" || ext == ".raw" || ext == ".dat" || ext == ".txt" {
-				if seen[e.Name()] { continue }
+				if seen[e.Name()] {
+					continue
+				}
 				seen[e.Name()] = true
 				path := filepath.Join(dir, e.Name())
 				data, err := os.ReadFile(path)
-				if err != nil { continue }
+				if err != nil {
+					continue
+				}
 				info, _ := os.Stat(path)
 				h := sha256.Sum256(data)
 				hasher.Write(h[:])
@@ -792,15 +906,23 @@ func computeEngineIdentity(ai aiConfig) (string, string) {
 }
 
 func niceSize(n int64) string {
-	suf := []string{"B","KB","MB","GB","TB"}
-	f := float64(n); i := 0
-	for i < len(suf)-1 && f >= 995 { f /= 1024; i++ }
-	if f < 10 { return fmt.Sprintf("%.1f %s", f, suf[i]) }
+	suf := []string{"B", "KB", "MB", "GB", "TB"}
+	f := float64(n)
+	i := 0
+	for i < len(suf)-1 && f >= 995 {
+		f /= 1024
+		i++
+	}
+	if f < 10 {
+		return fmt.Sprintf("%.1f %s", f, suf[i])
+	}
 	return fmt.Sprintf("%.0f %s", f, suf[i])
 }
 
 func totalMem(cfg config) int {
-	if cfg.MaxRAMMB > 0 { return cfg.MaxRAMMB }
+	if cfg.MaxRAMMB > 0 {
+		return cfg.MaxRAMMB
+	}
 	return 256
 }
 

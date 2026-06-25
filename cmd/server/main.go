@@ -23,7 +23,6 @@ import (
 	"github.com/neoliv/arena/internal/stats"
 	"github.com/neoliv/arena/internal/version"
 	"github.com/neoliv/arena/internal/web"
-	"gopkg.in/yaml.v3"
 )
 
 type statusRecorder struct {
@@ -93,7 +92,11 @@ func main() {
 		rows, _ := database.Query("SELECT DISTINCT id FROM engines")
 		if rows != nil {
 			var ids []int
-			for rows.Next() { var id int; rows.Scan(&id); ids = append(ids, id) }
+			for rows.Next() {
+				var id int
+				rows.Scan(&id)
+				ids = append(ids, id)
+			}
 			rows.Close()
 			for _, id := range ids {
 				apiSrv.RecomputeElo(id)
@@ -111,8 +114,12 @@ func main() {
 	slog.Info("backup manager started", "dir", filepath.Dir(*dbPath)+"/backup", "max", 63)
 
 	validateToken := func(t string) bool {
-		if t == "" { return false }
-		if *token != "" && t == *token { return true }
+		if t == "" {
+			return false
+		}
+		if *token != "" && t == *token {
+			return true
+		}
 		valid, _ := database.ValidateToken(t)
 		return valid
 	}
@@ -125,33 +132,27 @@ func main() {
 	var serverGen [8]byte
 	rand.Read(serverGen[:])
 	coachHandler := coach.NewHandler(database, *token, relay, validateToken, hex.EncodeToString(serverGen[:]))
+
+	// Coach endpoints (DB persistence)
 	mux.HandleFunc("POST /api/coach/register", coachHandler.HandleRegister)
 	mux.HandleFunc("POST /api/coach/heartbeat", coachHandler.HandleHeartbeat)
-	mux.HandleFunc("GET /api/coach/tasks", coachHandler.HandleTasks)
-	mux.HandleFunc("POST /api/coach/tasks/{id}/status", coachHandler.HandleTaskStatus)
+
+	// Relay endpoint (WebSocket upgrade for game sessions)
 	mux.HandleFunc("GET /api/relay/{session_id}", relay.HandleRelay)
 
-	mmCfg := matchmaker.DefaultConfig()
-	if data, err := os.ReadFile("matchmaker.yaml"); err == nil {
-		if err := yaml.Unmarshal(data, &mmCfg); err != nil {
-			slog.Warn("parse matchmaker.yaml, using defaults", "err", err)
-		}
-	}
-	if mmCfg.Token == "" { mmCfg.Token = *token }
-	if mmCfg.ArenaURL == "" { mmCfg.ArenaURL = "https://arena.arsac.org" }
-
-	mm := matchmaker.New(database, relay, mmCfg)
-	coachHandler.SetMatchMaker(mm.OnBothReady)
-		coachHandler.SetHeartbeatHook(mm.NotifyNewPlayers)
+	// Matchmaker (in-memory engine registry + pull-based assignment)
+	mm := matchmaker.New(database, relay)
 	mux.HandleFunc("GET /api/matchmaker/status", mm.HandleStatus)
-	go mm.Run()
+	mux.HandleFunc("POST /api/matchmaker/register", mm.HandleRegister)
+	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)
+	mux.HandleFunc("POST /api/matchmaker/complete", mm.HandleComplete)
 
 	sessions := web.NewSessionStore(database)
 	limiter := web.NewRateLimiter()
 	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter}
 	webHandler.RegisterRoutes(mux)
 
-handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				buf := make([]byte, 4096)
@@ -176,7 +177,9 @@ handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 }
 
 func envDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" { return v }
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
 	return def
 }
 

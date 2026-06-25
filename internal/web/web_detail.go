@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 )
 
@@ -55,7 +56,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		bScore = 64 - finalScore
 	}
 
-	// Line 1: game number + score with timeout/disconnect warnings
+	// ── Top bar: player info + centered score ──────────────────────
 	bTimedOut := gameTimeSec > 0 && bTime > gameTimeSec*1.05
 	wTimedOut := gameTimeSec > 0 && wTime > gameTimeSec*1.05
 	statusBadge := ""
@@ -66,19 +67,21 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	} else if wTimedOut {
 		statusBadge = ` <span style="color:#d4c4a8;font-weight:900">[WHITE TIMEOUT]</span>`
 	}
-	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.2em">
-		<div style="flex:1"><h1 style="margin:0;font-size:1.6em;font-weight:800">#%s&nbsp;&nbsp;&nbsp;<span style="font-weight:800">%d-%d</span>%s</h1></div>
-		<div style="flex:1;text-align:right;font-size:1.1em;padding-right:1.5em"><span style="color:%s">(%.0f %+d)</span></div>
-		<div style="flex:1;text-align:left;font-size:1.1em;padding-left:1.5em"><span style="color:%s">(%+d %.0f)</span></div>
-		<div style="flex:1"></div></div>`,
-		id, bScore, wScore, statusBadge, deltaColor(bDelta), bElo, int(bDelta), deltaColor(wDelta), int(wDelta), wElo)
-	// Line 2: player names — Black right-aligned, White left-aligned
+	bNameEsc := htmlEscape(bName)
+	wNameEsc := htmlEscape(wName)
+	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
+		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:1.05em"><span style="color:%s">%s %.0f %+d</span></div>
+		<div style="flex:1;text-align:center"><h1 style="margin:0;font-size:1.6em;font-weight:800">#%s&nbsp;&nbsp;<span style="font-weight:800">%d-%d</span>%s</h1></div>
+		<div style="flex:2;text-align:left;padding-left:1.5em;font-size:1.05em"><span style="color:%s">%+d %.0f %s</span></div></div>`,
+		deltaColor(bDelta), bNameEsc, bElo, int(bDelta),
+		id, bScore, wScore, statusBadge,
+		deltaColor(wDelta), int(wDelta), wElo, wNameEsc)
+	// Version line
 	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.6em">
+		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:.95em"><a href="/engines/%s">%s</a></div>
 		<div style="flex:1"></div>
-		<div style="flex:1;text-align:right;font-size:1.15em;padding-right:1.5em"><a href="/engines/%s">%s %s</a></div>
-		<div style="flex:1;text-align:left;font-size:1.15em;padding-left:1.5em"><a href="/engines/%s">%s %s</a></div>
-		<div style="flex:1"></div></div>`,
-		htmlEscape(bName), htmlEscape(bName), htmlEscape(bVer), htmlEscape(wName), htmlEscape(wName), htmlEscape(wVer))
+		<div style="flex:2;text-align:left;padding-left:1.5em;font-size:.95em"><a href="/engines/%s">%s</a></div></div>`,
+		bNameEsc, htmlEscape(bVer), wNameEsc, htmlEscape(wVer))
 
 	bUnspent := 0.0
 	wUnspent := 0.0
@@ -94,7 +97,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	if gnum == 2 {
 		otherGame = gid - 1
 	}
-	io.WriteString(w, `<br><br><div style="text-align:center;margin-bottom:.3em;color:var(--muted);font-size:.85em">`)
+	io.WriteString(w, `<br><div style="text-align:center;margin-bottom:.3em;color:var(--muted);font-size:.85em">`)
 	fmt.Fprintf(w, `Match <a href="/matches/%d">#%d</a> (game %d) | <a href="/games/%d">other game</a>`, mid, mid, gnum, otherGame)
 	if tcLabel != "" {
 		fmt.Fprintf(w, ` | Time: %s (unspent B:%.0fs W:%.0fs)`, tcLabel, bUnspent, wUnspent)
@@ -121,15 +124,37 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		for mRows.Next() {
 			var m moveRow
 			mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.score)
-				if m.timeMs > 0 { m.nps = int(float64(m.nodes) * 1000.0 / m.timeMs) }
+			if m.timeMs > 0 {
+				m.nps = int(float64(m.nodes) * 1000.0 / m.timeMs)
+			}
 			moves = append(moves, m)
 			if m.timeMs > maxTime {
 				maxTime = m.timeMs
 			}
-			if float64(m.nodes) > maxNodes { maxNodes = float64(m.nodes) }
-			if float64(m.nps) > maxNPS { maxNPS = float64(m.nps) }
-			if m.side == "b" { abs := float64(m.score); if abs < 0 { abs = -abs }; if abs > maxBScore { maxBScore = abs } }
-			if m.side == "w" { abs := float64(m.score); if abs < 0 { abs = -abs }; if abs > maxWScore { maxWScore = abs } }
+			if float64(m.nodes) > maxNodes {
+				maxNodes = float64(m.nodes)
+			}
+			if float64(m.nps) > maxNPS {
+				maxNPS = float64(m.nps)
+			}
+			if m.side == "b" {
+				abs := float64(m.score)
+				if abs < 0 {
+					abs = -abs
+				}
+				if abs > maxBScore {
+					maxBScore = abs
+				}
+			}
+			if m.side == "w" {
+				abs := float64(m.score)
+				if abs < 0 {
+					abs = -abs
+				}
+				if abs > maxWScore {
+					maxWScore = abs
+				}
+			}
 		}
 
 		discDiffs := make([]int, len(moves))
@@ -157,10 +182,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		if len(moves) > 0 {
 			tab := r.URL.Query().Get("tab")
 			openingPlies := len(opening) / 2
-			chartH := 320; topPad := 30
+			chartH := 320
+			topPad := 30
 			totalPlies := openingPlies + len(moves)
 			chartW := fmt.Sprintf("%d", max(600, totalPlies*14+50))
-			if tab == "" { tab = "time" }
+			if tab == "" {
+				tab = "time"
+			}
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
 			for _, t := range []struct{ key, label string }{
 				{"time", "Time"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"diff", "Diff"}, {"score", "Score"},
@@ -192,11 +220,11 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
 				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:18px;font-weight:700">%s</span><span style="color:#d4c4a8;font-size:18px;font-weight:700">%s</span></div>`, bName, wName)
 				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
-				// Grey "forced" zone for opening plies (rendered first = behind bars)
+				// Grey "forced" zone for opening plies
 				if openingPlies > 0 {
 					openW := openingPlies * 14
 					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced</text>`, 34+openW/2, chartH+topPad-6)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced %dpl</text>`, 34+openW/2, chartH+topPad-6, openingPlies)
 				}
 				niceStep := maxVal / 4
 				if niceStep >= 100 {
@@ -212,8 +240,11 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					if pct == 100 {
 						val = maxVal
 					}
-					tickColor := "#6a6"; if metric == "score" { tickColor = "#22d3ee" }
-				fmt.Fprintf(w, `<text x="0" y="%d" fill="%s" font-size="11">%s%s</text>`, y, tickColor, fmtVal(val), unit)
+					tickColor := "#6a6"
+					if metric == "score" {
+						tickColor = "#22d3ee"
+					}
+					fmt.Fprintf(w, `<text x="0" y="%d" fill="%s" font-size="11">%s%s</text>`, y, tickColor, fmtVal(val), unit)
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-pct*chartH/100, chartH-pct*chartH/100)
 				}
 				if metric == "diff" {
@@ -222,21 +253,31 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				}
 				if metric == "score" && maxValR > 0 {
 					niceStepR := maxValR / 4
-					if niceStepR >= 100 { niceStepR = float64(int(niceStepR/100+0.5)) * 100 } else if niceStepR >= 10 { niceStepR = float64(int(niceStepR/10+0.5)) * 10 } else { niceStepR = float64(int(niceStepR + 0.5)) }
+					if niceStepR >= 100 {
+						niceStepR = float64(int(niceStepR/100+0.5)) * 100
+					} else if niceStepR >= 10 {
+						niceStepR = float64(int(niceStepR/10+0.5)) * 10
+					} else {
+						niceStepR = float64(int(niceStepR + 0.5))
+					}
 					for pct := 0; pct <= 100; pct += 25 {
 						y := chartH - pct*chartH/100 + 44
-						valR := float64(pct) / 100.0 * niceStepR * 4; if pct == 100 { valR = maxValR }
+						valR := float64(pct) / 100.0 * niceStepR * 4
+						if pct == 100 {
+							valR = maxValR
+						}
 						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#d4c4a8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
 					}
 				}
-				// Small tick marks every 10 plies (no labels)
+				// Tick marks every 10 plies
 				for pl := 10; pl <= totalPlies; pl += 10 {
 					tx := 34 + pl*14
 					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad-2, tx, topPad+2)
 				}
-				// Vertical end line always at ply 60
-				lx := 34 + 60*14 + 6
+				// Vertical end line at actual last ply
+				lx := 34 + totalPlies*14 + 6
 				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, lx, topPad, lx, chartH+topPad)
+				fmt.Fprintf(w, `<text x="%d" y="%d" text-anchor="middle" fill="#6a6" font-size="10">end %dpl</text>`, lx, chartH+topPad+14, totalPlies)
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+68, yLabel)
 				for i, m := range moves {
 					var val float64
@@ -248,8 +289,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "nps":
 						val = float64(m.nps)
 					case "score":
-						maxVal = maxBScore; if m.side == "w" { maxVal = maxWScore }
-						if maxVal < 1 { maxVal = 1 }
+						maxVal = maxBScore
+						if m.side == "w" {
+							maxVal = maxWScore
+						}
+						if maxVal < 1 {
+							maxVal = 1
+						}
 						val = float64(m.score)
 					case "diff":
 						val = float64(discDiffs[i])
@@ -266,29 +312,47 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 							h = int(val / maxVal * float64(chartH))
 						}
 					}
-					if h < 2 { h = 2 }
+					if h < 2 {
+						h = 2
+					}
 					barY := chartH - h + topPad
 					if metric == "score" {
 						mid := float64(chartH / 2)
 						h = int((val / maxVal) * mid)
-						if h < 0 { h = -h }
-						if h < 2 { h = 2 }
-						if val >= 0 { barY = int(mid) - h + topPad } else { barY = int(mid) + topPad }
+						if h < 0 {
+							h = -h
+						}
+						if h < 2 {
+							h = 2
+						}
+						if val >= 0 {
+							barY = int(mid) - h + topPad
+						} else {
+							barY = int(mid) + topPad
+						}
 					}
 					color := "#22d3ee"
-					if m.side == "w" { color = "#d4c4a8" }
+					if m.side == "w" {
+						color = "#d4c4a8"
+					}
 					x := 34 + (openingPlies+i)*14
 					titleVal := fmtVal(val)
-					if metric == "diff" { titleVal = fmt.Sprintf("%+d", discDiffs[i]) }
+					if metric == "diff" {
+						titleVal = fmt.Sprintf("%+d", discDiffs[i])
+					}
 					tip := fmt.Sprintf("%s %s: %s%s", m.side, m.move, titleVal, unit)
 					switch metric {
-					case "time": tip = fmt.Sprintf("%s %s: %.0fms, %s nodes", m.side, m.move, m.timeMs, fmtVal(float64(m.nodes)))
-					case "nodes": tip = fmt.Sprintf("%s %s: %s nodes, depth %d", m.side, m.move, fmtVal(float64(m.nodes)), m.depth)
-					case "nps": tip = fmt.Sprintf("%s %s: %s n/s, %.0fms", m.side, m.move, fmtVal(float64(m.nps)), m.timeMs)
-					case "score": tip = fmt.Sprintf("%s %s: %+d cP", m.side, m.move, m.score)
-					case "diff": tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
+					case "time":
+						tip = fmt.Sprintf("%s %s: %.0fms, %s nodes", m.side, m.move, m.timeMs, fmtVal(float64(m.nodes)))
+					case "nodes":
+						tip = fmt.Sprintf("%s %s: %s nodes, depth %d", m.side, m.move, fmtVal(float64(m.nodes)), m.depth)
+					case "nps":
+						tip = fmt.Sprintf("%s %s: %s n/s, %.0fms", m.side, m.move, fmtVal(float64(m.nps)), m.timeMs)
+					case "score":
+						tip = fmt.Sprintf("%s %s: %+d cP", m.side, m.move, m.score)
+					case "diff":
+						tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
-					// Show ply number alongside move name
 					plyLabel := fmt.Sprintf("%d:%s", openingPlies+i+1, m.move)
 					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, barY, h, color, tip)
 					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, htmlEscape(plyLabel))
@@ -301,10 +365,146 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			renderChart("diff", maxDiscDiff, 0, "", "Disc diff (B-W)")
 			renderChart("score", maxBScore, maxWScore, "", "Score (cP)")
 
-			// Show opening line below graphs
-			if opening != "" {
-				io.WriteString(w, fmt.Sprintf(`<div style="margin-top:1em;padding:8px 12px;background:#222a24;border-radius:4px;color:var(--muted);font-size:.9em">Opening: <span style="font-family:monospace">%s</span></div>`, htmlEscape(opening)))
+			// ── Stats summary ──────────────────────────────────────────
+			type sideStats struct {
+				moves                                  int
+				totalTime, totalNodes                  float64
+				times, nodes, depths, npsVals          []float64
+				timeMin, timeMax, timeAvg, timeStd     float64
+				nodeMin, nodeMax, nodeAvg, nodeStd     float64
+				depthMin, depthMax, depthAvg           float64
+				npsMin, npsMax, npsAvg, npsStd         float64
+				firstES                                 int
 			}
+			var bStats, wStats sideStats
+			for _, m := range moves {
+				s := &bStats
+				if m.side == "w" {
+					s = &wStats
+				}
+				s.moves++
+				s.totalTime += m.timeMs
+				s.totalNodes += float64(m.nodes)
+				s.times = append(s.times, m.timeMs)
+				s.nodes = append(s.nodes, float64(m.nodes))
+				s.depths = append(s.depths, float64(m.depth))
+				nps := float64(m.nps)
+				if nps == 0 && m.timeMs > 0 {
+					nps = float64(m.nodes) * 1000.0 / m.timeMs
+				}
+				s.npsVals = append(s.npsVals, nps)
+				if s.firstES == 0 && (m.depth >= 20 || m.score == 6400 || m.score == -6400) {
+					s.firstES = openingPlies + m.num
+				}
+			}
+			computeStats := func(s *sideStats) {
+				if s.moves == 0 {
+					return
+				}
+				s.timeMin, s.timeMax = s.times[0], s.times[0]
+				s.nodeMin, s.nodeMax = s.nodes[0], s.nodes[0]
+				s.depthMin, s.depthMax = s.depths[0], s.depths[0]
+				s.npsMin, s.npsMax = s.npsVals[0], s.npsVals[0]
+				var tSum, nSum, dSum, npsSum float64
+				for i := 0; i < s.moves; i++ {
+					t, n, d, np := s.times[i], s.nodes[i], s.depths[i], s.npsVals[i]
+					tSum += t
+					nSum += n
+					dSum += d
+					npsSum += np
+					if t < s.timeMin {
+						s.timeMin = t
+					}
+					if t > s.timeMax {
+						s.timeMax = t
+					}
+					if n < s.nodeMin {
+						s.nodeMin = n
+					}
+					if n > s.nodeMax {
+						s.nodeMax = n
+					}
+					if d < s.depthMin {
+						s.depthMin = d
+					}
+					if d > s.depthMax {
+						s.depthMax = d
+					}
+					if np < s.npsMin {
+						s.npsMin = np
+					}
+					if np > s.npsMax {
+						s.npsMax = np
+					}
+				}
+				s.timeAvg = tSum / float64(s.moves)
+				s.nodeAvg = nSum / float64(s.moves)
+				s.depthAvg = dSum / float64(s.moves)
+				s.npsAvg = npsSum / float64(s.moves)
+				if s.moves > 1 {
+					var tV, nV, npsV float64
+					for i := 0; i < s.moves; i++ {
+						d := s.times[i] - s.timeAvg
+						tV += d * d
+						d = s.nodes[i] - s.nodeAvg
+						nV += d * d
+						d = s.npsVals[i] - s.npsAvg
+						npsV += d * d
+					}
+					s.timeStd = math.Sqrt(tV / float64(s.moves-1))
+					s.nodeStd = math.Sqrt(nV / float64(s.moves-1))
+					s.npsStd = math.Sqrt(npsV / float64(s.moves-1))
+				}
+			}
+			computeStats(&bStats)
+			computeStats(&wStats)
+
+			writeStatRow := func(label, bVal, wVal string) {
+				fmt.Fprintf(w, `<tr><td style="text-align:right;padding-right:1.5em;font-weight:600;color:var(--muted)">%s</td><td style="text-align:right;padding-right:1.5em">%s</td><td style="text-align:left;padding-left:1.5em">%s</td></tr>`, label, bVal, wVal)
+			}
+
+			io.WriteString(w, `<div style="display:flex;justify-content:center;margin-top:1.5em"><table class="stats-table" style="width:auto;min-width:500px">`)
+			io.WriteString(w, `<tr><th></th><th style="text-align:right;padding-right:1.5em;color:#22d3ee">Black</th><th style="text-align:left;padding-left:1.5em;color:#d4c4a8">White</th></tr>`)
+
+			writeStatRow("Score", fmt.Sprintf("%d", bScore), fmt.Sprintf("%d", wScore))
+			writeStatRow("Total time", fmt.Sprintf("%.2fs", bTime), fmt.Sprintf("%.2fs", wTime))
+			writeStatRow("Moves played", fmt.Sprintf("%d", bStats.moves), fmt.Sprintf("%d", wStats.moves))
+			writeStatRow("Total nodes", fmtVal(bStats.totalNodes), fmtVal(wStats.totalNodes))
+			writeStatRow("Time/ply (min/avg/max)",
+				fmt.Sprintf("%.0f/%.0f/%.0fms", bStats.timeMin, bStats.timeAvg, bStats.timeMax),
+				fmt.Sprintf("%.0f/%.0f/%.0fms", wStats.timeMin, wStats.timeAvg, wStats.timeMax))
+			writeStatRow("Time/ply stdev", fmt.Sprintf("%.0fms", bStats.timeStd), fmt.Sprintf("%.0fms", wStats.timeStd))
+			writeStatRow("Depth/ply (min/avg/max)",
+				fmt.Sprintf("%.0f/%.1f/%.0f", bStats.depthMin, bStats.depthAvg, bStats.depthMax),
+				fmt.Sprintf("%.0f/%.1f/%.0f", wStats.depthMin, wStats.depthAvg, wStats.depthMax))
+			writeStatRow("Nodes/ply (min/avg/max)",
+				fmt.Sprintf("%s/%s/%s", fmtVal(bStats.nodeMin), fmtVal(bStats.nodeAvg), fmtVal(bStats.nodeMax)),
+				fmt.Sprintf("%s/%s/%s", fmtVal(wStats.nodeMin), fmtVal(wStats.nodeAvg), fmtVal(wStats.nodeMax)))
+			writeStatRow("Nodes/ply stdev", fmtVal(bStats.nodeStd), fmtVal(wStats.nodeStd))
+			writeStatRow("NpS/ply (min/avg/max)",
+				fmt.Sprintf("%s/%s/%s", fmtVal(bStats.npsMin), fmtVal(bStats.npsAvg), fmtVal(bStats.npsMax)),
+				fmt.Sprintf("%s/%s/%s", fmtVal(wStats.npsMin), fmtVal(wStats.npsAvg), fmtVal(wStats.npsMax)))
+
+			if bStats.firstES > 0 || wStats.firstES > 0 {
+				bES, wES := "-", "-"
+				if bStats.firstES > 0 {
+					bES = fmt.Sprintf("ply %d", bStats.firstES)
+				}
+				if wStats.firstES > 0 {
+					wES = fmt.Sprintf("ply %d", wStats.firstES)
+				}
+				writeStatRow("First ES", bES, wES)
+			}
+			io.WriteString(w, `</table></div>`)
+
+			// Opening info + totals
+			if opening != "" {
+				openPlies := len(opening) / 2
+				io.WriteString(w, fmt.Sprintf(`<div style="margin-top:1em;padding:8px 12px;background:#222a24;border-radius:4px;color:var(--muted);font-size:.9em">Opening (%d plies): <span style="font-family:monospace">%s</span></div>`, openPlies, htmlEscape(opening)))
+			}
+			totalTime := bTime + wTime
+			totalMoves := bStats.moves + wStats.moves
+			fmt.Fprintf(w, `<div style="margin-top:.5em;color:var(--muted);font-size:.85em;text-align:center">Total: %.2fs · %d moves · last ply %d · %s nodes</div>`, totalTime, totalMoves, totalPlies, fmtVal(bStats.totalNodes+wStats.totalNodes))
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th><th>Score</th></tr>`)
 			for _, m := range moves {
 				side := "Black"
@@ -332,4 +532,3 @@ func deltaColor(d float64) string {
 	}
 	return "var(--muted)"
 }
-

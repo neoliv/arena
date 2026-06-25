@@ -1,72 +1,21 @@
 # ============================================================================
-# Balanced 8-ply Othello openings — two sources
+# Balanced 8-ply Othello openings — engine-evaluated
 # ============================================================================
 #
-# Section A: WTHOR human-frequency (48 lines)
-#   Source: FFO WTHOR tournament database
-#   Method: 8-ply opening lines filtered for 45-55% human win rates.
-#           Balanced by real-world play frequency.
+# Source: Egaroucid 7.8.1 book.egbk3 (1,302,321 positions)
+# Method: Positions filtered by disc count (8-ply), minimum search
+#         depth ≥ 18, and |score| ≤ 2 (STM-perspective raw disc diff).
+#         Balanced by engine evaluation.
+# Tool:   neursi engine/src/bin/book_tool.rs extract
+#         --book book.egbk3 --ply 8 --min-depth 10 --count 100 --score-limit 2
 #
-# Section B: Egaroucid engine-evaluated (94 lines)
-#   Source: Egaroucid 7.8.1 book.egbk3 (1,302,321 positions)
-#   Method: Positions filtered by disc count (8-ply), minimum search
-#           depth ≥ 18, and |score| ≤ 2 (STM-perspective raw disc diff).
-#           Balanced by engine evaluation.
-#   Tool:   neursi engine/src/bin/book_tool.rs extract
-#           --book book.egbk3 --ply 8 --min-depth 10 --count 100 --score-limit 2
+# WARNING: All openings are validated at load time against a standard
+# Othello board. Invalid lines (e.g. from coordinate system mismatches)
+# are skipped. The original WTHOR human-frequency section was removed
+# (2026-06-25) because 36/48 lines contained illegal move sequences.
+# See neursi/DATA.md "WTHOR Coordinate Corruption".
 # ============================================================================
-#
-# Section A: WTHOR human-frequency
-f5d6c3d3c4e3f4c5
-f5d6c3d3c4e3c5d2
-f5d6c3d3c4e3c5b4
-f5d6c3d3c4e3c5b3
-f5d6c3d3c4f4d2c5
-f5d6c3d3c4f4d2e2
-f5d6c3d3c4f4c5d2
-f5d6c3d3c4f4c5b3
-f5f6e6f4c3c4d6c6
-f5f6e6f4c3c4d6e3
-f5f6e6f4c3c4d6d3
-e6f6f5e3d3c5c6f4
-e6f6f5e3d3c5c6d6
-e6f6f5e3d3c5f4c6
-c4e3f5e6f4c5d6f3
-c4e3f5e6f4c5d6c3
-f5d6c4d3c5f4e3c6
-f5d6c4d3c5f4e3d2
-f5d6c4d3c6f4e3c5
-f5d6c4d3c6f4e3d2
-e6f4c5d6f5e3c6d3
-e6f4c5d6f5e3c6g5
-d3c5f4e3f5e6c4f6
-d3c5f4e3f5e6c4d6
-f5d6c4d3c6f4d2c3
-f5d6c4d3c6f4d2e3
-c4e3f6e6f5c5d6f4
-e6f4c3d6c4d3c5f5
-c4c3d3c5d6e3f4f5
-c4c3d3c5d6e3f4e6
-f5f6e6c4d6c5d3f4
-f5f6e3d6c5f4e6c6
-c4e3f4c5d6f5e6c6
-c4e3f5c5d6f4d3e6
-c4e3f5c5d6f4d3c6
-e6f6c5f5d6c4e3d3
-f5d6c3d3g4e3f4c5
-f5f6e6f4e3d6c5c4
-d3c5f6f5e6e3c4f4
-f5d6c3d3f4e3c5c4
-e6f6f5d6c4d3c5f4
-f5f6e6f4e3d6c5d3
-f5d6c4d3c5f4g5f6
-f5f6e6d6c5f4g5g6
-c4e3f5e6f4d6c5c6
-f5f6e6d6c4c5c6c3
-f5d6c3d3f4c5e3c4
-f5d6c3d3f4e3c5e2
-#
-# Section B: Egaroucid engine-evaluated
+
 d3c5d6e3f4c6f5c3
 d3c3c4e3d2c2b4c6
 d3c3c4e3f4c5e2f5

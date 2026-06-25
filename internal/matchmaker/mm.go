@@ -1,18 +1,14 @@
-// Package matchmaker schedules and executes distributed matches.
+// Package matchmaker — game pairing, relay, and execution.
 package matchmaker
 
 import (
 	"context"
-	"sync"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
-	"math/rand"
-	crand "crypto/rand"
 	"net/http"
-	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
@@ -20,483 +16,400 @@ import (
 	"github.com/neoliv/arena/internal/elo"
 )
 
-// TimeControl configures a time control tier.
-type TimeControl struct {
-	Seconds int     `yaml:"seconds"`
-	Weight  float64 `yaml:"weight"`
-	Label   string  `yaml:"label"`
-}
+// ── MatchMaker ──────────────────────────────────────────────────────────
 
-// Config holds matchmaker configuration.
-type Config struct {
-	ArenaURL         string        `yaml:"arena_url"`
-	Token            string        `yaml:"token"`
-	TimeControls     []TimeControl `yaml:"time_controls"`
-	ProvisionalGames int           `yaml:"provisional_games"`
-	GamesPerMatch    int           `yaml:"games_per_match"`
-	TickInterval     time.Duration `yaml:"tick_interval"`
-}
-
-// DefaultConfig returns sensible defaults.
-func DefaultConfig() Config {
-	return Config{
-		TimeControls: []TimeControl{
-			{Seconds: 30, Weight: 1.0, Label: "blitz"},
-		},
-		ProvisionalGames: 20,
-		GamesPerMatch:    2,
-		TickInterval:     15 * time.Second,
-	}
-}
-
-// MatchMaker schedules matches and executes them.
+// MatchMaker orchestrates engine pairing, relay-based game execution,
+// and result storage. It owns the WantedList (in-memory engine registry
+// and wanted-pair generation) and a dedicated SQLite writer goroutine.
 type MatchMaker struct {
-	DB     *db.DB
-	eloMu  sync.Mutex
-	Relay  interface {
-		WaitForStream(sessionID string, timeoutSec int) (coach.Stream, error)
-		Cleanup(sessionID string)
-	}
-	Config Config
-	ticker *time.Ticker
-	wakeup chan struct{} // signals when a match completes
+	DB      *db.DB
+	Relay   *coach.Relay
+	Wanted  *WantedList
+	storeCh chan GameResult // game results → storage goroutine
+	eloMu   sync.Mutex
+	wakeup  chan struct{}
+	quit    chan struct{}
 }
 
-// New creates a new MatchMaker.
-func New(database *db.DB, relay interface {
-	WaitForStream(sessionID string, timeoutSec int) (coach.Stream, error)
-	Cleanup(sessionID string)
-}, cfg Config) *MatchMaker {
-	interval := cfg.TickInterval
-	if interval == 0 { interval = 60 * time.Second }
-	if s := os.Getenv("MATCHMAKER_TICK"); s != "" {
-		if d, err := time.ParseDuration(s); err == nil && d >= time.Second {
-			interval = d
-		}
-	}
-	if cfg.Token == "" { cfg.Token = os.Getenv("ARENA_TOKEN") }
-	return &MatchMaker{
-		DB:     database,
-		Relay:  relay,
-		Config: cfg,
-		ticker: time.NewTicker(interval),
-		wakeup: make(chan struct{}, 8),
-	}
+// GameResult carries completed game data for storage.
+type GameResult struct {
+	Games                  []gameResult
+	E1Name, E1Ver, E2Name, E2Ver string
 }
 
-// Run starts the scheduler loop. Call as a goroutine.
-func (m *MatchMaker) Run() {
-	slog.Info("matchmaker started")
-	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='server restarted' WHERE status IN ('pending','assigned','accepted','ready','in_progress','declined')")
-	for {
-		select {
-		case <-m.ticker.C:
-		case <-m.wakeup:
-		}
-		m.tick()
+func New(database *db.DB, relay *coach.Relay) *MatchMaker {
+	storeCh := make(chan GameResult, 64)
+	m := &MatchMaker{
+		DB:      database,
+		Relay:   relay,
+		Wanted:  NewWantedList(database, storeCh),
+		storeCh: storeCh,
+		wakeup:  make(chan struct{}, 1),
+		quit:    make(chan struct{}),
 	}
-}
-
-// tick runs one scheduling cycle.
-func (m *MatchMaker) tick() {
-	if err := m.DB.RetryExpiredAssignments(); err != nil {
-		slog.Error("matchmaker retry", "err", err)
-	}
-	m.DB.Exec("UPDATE match_assignments SET status='failed', decline_reason='timeout' WHERE (status='in_progress' AND in_progress_at < datetime('now','-5 minutes')) OR (status='ready' AND assigned_at < datetime('now','-2 minutes'))")
-	m.DB.Exec("UPDATE match_assignments SET status='retry', decline_reason='accepted timeout', retry_after=datetime('now') WHERE status='accepted' AND assigned_at < datetime('now','-90 seconds')")
-	if err := m.DB.FailStaleAssignments(); err != nil {
-		slog.Error("matchmaker fail stale", "err", err)
-	}
-
-	coaches, err := m.DB.GetOnlineCoaches(90)
-	if err != nil {
-		slog.Error("matchmaker get online coaches", "err", err)
-		return
-	}
-	if len(coaches) == 0 {
-		return
-	}
-	slog.Info("matchmaker tick", "coaches", len(coaches))
-	for _, c := range coaches {
-		rows, _ := m.DB.Query("SELECT engine_name, engine_version, instances_running, max_instances, is_available FROM coach_ais WHERE coach_id=?", c.ID)
-		if rows != nil {
-			for rows.Next() {
-				var n, v string; var run, max, avail int
-				rows.Scan(&n, &v, &run, &max, &avail)
-				slog.Info("  ai", "coach", c.CoachID, "name", n, "ver", v, "running", run, "max", max, "avail", avail)
-			}
-			rows.Close()
+	// When a coach dials the relay, check if both sides of a pair are ready.
+	relay.OnConnect = func(sessionID string) {
+		start, p := m.Wanted.ClaimSide(sessionID)
+		if start {
+			slog.Info("both sides connected, starting match", "pair", p.ID,
+				"black", p.BlackEngine, "white", p.WhiteEngine)
+			go m.executeConnectedPair(p)
 		}
 	}
 
-	type availAI struct {
-		ai     db.CoachAIRow
-		coach  db.CoachRow
+	go m.storageLoop()
+	go m.tickLoop()
+	return m
+}
+
+// ── Storage goroutine (single SQLite writer) ────────────────────────────
+
+func (m *MatchMaker) storageLoop() {
+	for gr := range m.storeCh {
+		m.storeMatch(gr)
 	}
-	var allAIs []availAI
-	for _, c := range coaches {
-		ais, err := m.DB.GetAvailableAIs(c.ID)
-		if err != nil { continue }
-		for _, ai := range ais {
-			allAIs = append(allAIs, availAI{ai: ai, coach: c})
-		}
-	}
-	if len(allAIs) < 2 {
-		slog.Info("matchmaker not enough AIs", "available", len(allAIs), "coaches", len(coaches))
-		for _, c := range coaches {
-			rows, _ := m.DB.Query("SELECT engine_name, engine_version, instances_running, max_instances FROM coach_ais WHERE coach_id=?", c.ID)
-			if rows != nil {
-				for rows.Next() {
-					var name, ver string; var running, max int
-					rows.Scan(&name, &ver, &running, &max)
-					slog.Info("  coach ai", "coach", c.CoachID, "ai", name+":"+ver, "running", running, "max", max)
-				}
-				rows.Close()
-			}
-		}
+}
+
+func (m *MatchMaker) storeMatch(gr GameResult) {
+	e1ID := m.resolveEngine(gr.E1Name, gr.E1Ver)
+	e2ID := m.resolveEngine(gr.E2Name, gr.E2Ver)
+	if e1ID == 0 || e2ID == 0 {
 		return
 	}
 
-	type pair struct {
-		a        availAI
-		b        availAI
-		priority float64
-		aEngID   int
-		bEngID   int
-	}
-	var pairs []pair
-	for i := 0; i < len(allAIs); i++ {
-		for j := i + 1; j < len(allAIs); j++ {
-			a, b := allAIs[i], allAIs[j]
-			if a.ai.EngineName == b.ai.EngineName && a.ai.EngineVersion == b.ai.EngineVersion {
-				continue
-			}
-			if a.coach.ID == b.coach.ID {
-				usedCores := 0
-				for _, ca := range allAIs {
-					if ca.coach.ID == a.coach.ID {
-						usedCores += ca.ai.CoresPerInstance * ca.ai.InstancesRunning
-					}
-				}
-				freeCores := a.coach.CoresTotal - usedCores
-				if freeCores < a.ai.CoresPerInstance+b.ai.CoresPerInstance {
-					continue
-				}
-			}
-
-			aEngID, _ := m.DB.GetEngineID(a.ai.EngineName, a.ai.EngineVersion)
-			bEngID, _ := m.DB.GetEngineID(b.ai.EngineName, b.ai.EngineVersion)
-			if aEngID == 0 || bEngID == 0 { continue }
-
-			aGames := m.countGames(aEngID)
-			bGames := m.countGames(bEngID)
-			ciA := 400.0 / math.Sqrt(math.Max(float64(aGames), 1))
-			ciB := 400.0 / math.Sqrt(math.Max(float64(bGames), 1))
-			priority := math.Sqrt(ciA*ciA+ciB*ciB) * (1.0 + m.hoursSinceLastMatch(aEngID, bEngID)/48.0)
-
-			pairs = append(pairs, pair{a: a, b: b, priority: priority, aEngID: aEngID, bEngID: bEngID})
-		}
-	}
-
-	if len(pairs) == 0 {
-		slog.Info("matchmaker no feasible pairs", "coaches", len(coaches), "ais", len(allAIs))
+	tc, _ := json.Marshal(map[string]interface{}{"type": "total", "seconds": 30})
+	res, err := m.DB.Exec(`INSERT INTO matches (engine1_id, engine2_id, time_control, runner_id, total_games)
+		VALUES (?,?,?,?,?)`, e1ID, e2ID, tc, "matchmaker", len(gr.Games))
+	if err != nil || res == nil {
+		slog.Error("storeMatch: insert matches failed", "err", err)
 		return
 	}
-
-	rand.Shuffle(len(pairs), func(i, j int) { pairs[i], pairs[j] = pairs[j], pairs[i] })
-	var best pair
-	bestPriority := -1.0
-	for _, p := range pairs {
-		if p.priority > bestPriority { bestPriority = p.priority; best = p }
-	}
-	if best.a.ai.ID == 0 { return }
-
-	ciA := 400.0 / math.Sqrt(math.Max(float64(m.countGames(best.aEngID)), 1))
-	ciB := 400.0 / math.Sqrt(math.Max(float64(m.countGames(best.bEngID)), 1))
-	combinedCI := (ciA + ciB) / 2.0
-	uncertaintyBoost := combinedCI / 400.0
-
-	var totalWeight float64
-	var weights []float64
-	for _, tc := range m.Config.TimeControls {
-		w := tc.Weight + tc.Weight*uncertaintyBoost*2
-		weights = append(weights, w)
-		totalWeight += w
-	}
-	r := rand.Float64() * totalWeight
-	var chosen TimeControl
-	cumulative := 0.0
-	for i, w := range weights {
-		cumulative += w
-		if r <= cumulative { chosen = m.Config.TimeControls[i]; break }
-	}
-	if chosen.Seconds == 0 { chosen = m.Config.TimeControls[0] }
-
-	timeSuffix := fmt.Sprintf("-%ds", chosen.Seconds)
-	aVerTimed := best.a.ai.EngineVersion + timeSuffix
-	bVerTimed := best.b.ai.EngineVersion + timeSuffix
-
-	aEngID, _ := m.DB.GetEngineID(best.a.ai.EngineName, aVerTimed)
-	if aEngID == 0 {
-		m.DB.Exec("INSERT OR IGNORE INTO engines (name, version, created) SELECT ?, ?, COALESCE((SELECT created FROM engines WHERE name=? AND version=?), datetime('now'))", best.a.ai.EngineName, aVerTimed, best.a.ai.EngineName, best.a.ai.EngineVersion)
-		aEngID, _ = m.DB.GetEngineID(best.a.ai.EngineName, aVerTimed)
-	}
-	bEngID, _ := m.DB.GetEngineID(best.b.ai.EngineName, bVerTimed)
-	if bEngID == 0 {
-		m.DB.Exec("INSERT OR IGNORE INTO engines (name, version) VALUES (?,?)", best.b.ai.EngineName, bVerTimed)
-		bEngID, _ = m.DB.GetEngineID(best.b.ai.EngineName, bVerTimed)
-	}
-
-	s1 := randomSessionID()
-	s2 := randomSessionID()
-	numGames := m.Config.GamesPerMatch
-	if numGames == 0 { numGames = 2 }
-	tcJSON := fmt.Sprintf(`{"type":"total","seconds":%d}`, chosen.Seconds)
-	id, err := m.DB.CreateAssignment(aEngID, bEngID, best.a.ai.ID, best.b.ai.ID, tcJSON, numGames, s1, s2)
-	if err != nil {
-		slog.Error("matchmaker create assignment", "err", err)
-		return
-	}
-	slog.Info("matchmaker assigned", "id", id,
-		"e1", best.a.ai.EngineName+":"+aVerTimed+"@"+best.a.coach.CoachID,
-		"e2", best.b.ai.EngineName+":"+bVerTimed+"@"+best.b.coach.CoachID,
-		"time", chosen.Label, "priority", bestPriority)
-}
-
-func (m *MatchMaker) NotifyNewPlayers() {
-	select { case m.wakeup <- struct{}{}: default: }
-}
-
-func (m *MatchMaker) OnBothReady(assignmentID int) {
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("match execution panicked", "assignment", assignmentID, "panic", r)
-				m.DB.UpdateAssignmentStatus(assignmentID, "failed", "internal error")
-				var a db.AssignmentRow
-				if err := m.DB.QueryRow("SELECT COALESCE(session1_id,''), COALESCE(session2_id,'') FROM match_assignments WHERE id=?", assignmentID).Scan(&a.Session1ID, &a.Session2ID); err == nil {
-					if a.Session1ID != "" { m.Relay.Cleanup(a.Session1ID) }
-					if a.Session2ID != "" { m.Relay.Cleanup(a.Session2ID) }
-				}
-			}
-		}()
-		m.executeMatch(assignmentID)
-	}()
-}
-
-func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
-	coaches, _ := m.DB.GetOnlineCoaches(90)
-	var out []map[string]any
-	for _, c := range coaches {
-		ais, _ := m.DB.GetAvailableAIs(c.ID)
-		out = append(out, map[string]any{
-			"coach_id": c.CoachID, "label": c.Label,
-			"cores_total": c.CoresTotal, "last_seen": c.LastSeen,
-			"ais": len(ais),
-		})
-	}
-	var pending int
-	m.DB.QueryRow("SELECT COUNT(*) FROM match_assignments WHERE status IN ('pending','assigned','accepted','ready','in_progress')").Scan(&pending)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"coaches": out, "pending_assignments": pending})
-}
-
-func (m *MatchMaker) countGames(engineID int) int {
-	var count int
-	m.DB.QueryRow("SELECT COUNT(*) FROM games WHERE black_id=? OR white_id=?", engineID, engineID).Scan(&count)
-	return count
-}
-
-func (m *MatchMaker) hoursSinceLastMatch(e1, e2 int) float64 {
-	var lastTime string
-	err := m.DB.QueryRow(`SELECT created_at FROM games WHERE (black_id=? AND white_id=?) OR (black_id=? AND white_id=?) ORDER BY created_at DESC LIMIT 1`,
-		e1, e2, e2, e1).Scan(&lastTime)
-	if err != nil { return 999.0 }
-	t, err := time.Parse(time.RFC3339, lastTime)
-	if err != nil { return 999.0 }
-	return time.Since(t).Hours()
-}
-
-func randomSessionID() string {
-	b := make([]byte, 8)
-	crand.Read(b)
-	return fmt.Sprintf("%x", b)
-}
-
-func (m *MatchMaker) executeMatch(assignmentID int) {
-	ctx := context.Background()
-
-	var a db.AssignmentRow
-	row := m.DB.QueryRow(`SELECT id, engine1_id, engine2_id, coach1_ai_id, coach2_ai_id,
-		COALESCE(time_control,'{}'), num_games, COALESCE(session1_id,''), COALESCE(session2_id,''), status
-		FROM match_assignments WHERE id=?`, assignmentID)
-	if err := row.Scan(&a.ID, &a.Engine1ID, &a.Engine2ID, &a.Coach1AIID, &a.Coach2AIID,
-		&a.TimeControl, &a.NumGames, &a.Session1ID, &a.Session2ID, &a.Status); err != nil {
-		slog.Error("executeMatch get assignment", "err", err)
-		return
-	}
-
-	defer m.Relay.Cleanup(a.Session1ID)
-	defer m.Relay.Cleanup(a.Session2ID)
-
-	blackStream, err := m.Relay.WaitForStream(a.Session1ID, 120)
-	if err != nil {
-		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "timeout waiting for coach 1 (black)")
-		return
-	}
-	whiteStream, err := m.Relay.WaitForStream(a.Session2ID, 120)
-	if err != nil {
-		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "timeout waiting for coach 2 (white)")
-		return
-	}
-
-	m.DB.UpdateAssignmentStatus(assignmentID, "in_progress", "")
-
-	var e1Name, e1Ver, e2Name, e2Ver string
-	m.DB.QueryRow("SELECT name, version FROM engines WHERE id=?", a.Engine1ID).Scan(&e1Name, &e1Ver)
-	m.DB.QueryRow("SELECT name, version FROM engines WHERE id=?", a.Engine2ID).Scan(&e2Name, &e2Ver)
-
-	var gameTimeSec float64 = 60
-	var tc struct{ Seconds float64 `json:"seconds"` }; json.Unmarshal([]byte(a.TimeControl), &tc); gameTimeSec = tc.Seconds
-
-	totalGames := a.NumGames
-	if totalGames == 0 { totalGames = 2 }
-
-	games := playGames(ctx, blackStream, whiteStream, totalGames, gameTimeSec, assignmentID)
-	// Only discard games that had 0 moves (infrastructure failure:
-	// coach restart, network drop before play began). Games with
-	// moves are stored regardless of disconnect — timeouts, kills,
-	// and forfeits are real results that must count for Elo.
-	realGames := games[:0]
-	for _, g := range games {
-		if len(g.Moves) > 0 { realGames = append(realGames, g) }
-	}
-	games = realGames
-	if len(games) == 0 {
-		slog.Warn("all games ended without moves, skipping store", "assignment", assignmentID)
-		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "no moves played")
-		m.Relay.Cleanup(a.Session1ID)
-		m.Relay.Cleanup(a.Session2ID)
-		select { case m.wakeup <- struct{}{}: default: }
-		return
-	}
-	slog.Info("playGames completed", "assignment", assignmentID, "games", len(games))
-
-	var matchID int
-	for attempt := 0; attempt < 5; attempt++ {
-		matchID, err = m.storeResults(a, games, e1Name, e1Ver, e2Name, e2Ver)
-		if err == nil {
-			break
-		}
-		if strings.Contains(err.Error(), "locked") {
-			time.Sleep(time.Duration(500*(attempt+1)) * time.Millisecond)
-			continue
-		}
-		break
-	}
-	if err != nil {
-		slog.Error("executeMatch store results", "err", err)
-		m.DB.UpdateAssignmentStatus(assignmentID, "failed", "store results: "+err.Error())
-		return
-	}
-
-	slog.Info("matchmaker match complete", "assignment", assignmentID, "match", matchID)
-	m.DB.UpdateAssignmentStatus(assignmentID, "completed", "")
-
-	select { case m.wakeup <- struct{}{}: default: }
-}
-
-func (m *MatchMaker) storeResults(a db.AssignmentRow, games []gameResult, e1Name, e1Ver, e2Name, e2Ver string) (int, error) {
-	e1ID := a.Engine1ID
-	e2ID := a.Engine2ID
-	if e1ID == 0 {
-		m.DB.Exec("INSERT OR IGNORE INTO engines (name,version,created) VALUES (?,?,datetime('now'))", e1Name, e1Ver)
-		e1ID, _ = m.DB.GetEngineID(e1Name, e1Ver)
-	}
-	if e2ID == 0 {
-		m.DB.Exec("INSERT OR IGNORE INTO engines (name,version,created) VALUES (?,?,datetime('now'))", e2Name, e2Ver)
-		e2ID, _ = m.DB.GetEngineID(e2Name, e2Ver)
-	}
-
-	res, err := m.DB.Exec(`INSERT INTO matches (engine1_id, engine2_id, time_control, total_games, runner_id)
-		VALUES (?,?,?,?,?)`, e1ID, e2ID, a.TimeControl, len(games), "matchmaker")
-	if err != nil { return 0, err }
 	matchID64, _ := res.LastInsertId()
 	matchID := int(matchID64)
 
 	wins1, wins2, draws := 0, 0, 0
-	for i, g := range games {
+	for i, g := range gr.Games {
 		var blackID, whiteID int
 		if i%2 == 0 {
 			blackID, whiteID = e1ID, e2ID
 		} else {
 			blackID, whiteID = e2ID, e1ID
 		}
-		if g.Result == "1-0" {
-				if blackID == e1ID { wins1++ } else { wins2++ }
-			} else if g.Result == "0-1" {
-				if whiteID == e1ID { wins1++ } else { wins2++ }
-			} else { draws++ }
 
-		disc := 0; if g.Disconnect { disc = 1 }
-		res, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect)
+		disc := 0
+		if g.Disconnect {
+			disc = 1
+		}
+		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			matchID, i+1, blackID, whiteID, g.Result, g.FinalScore, g.OpeningLine,
 			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc)
-		if err != nil { return matchID, err }
-		gameID, _ := res.LastInsertId()
-		if len(g.Moves) > 0 {
-			var buf strings.Builder
-			var args []any
-			buf.WriteString("INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score) VALUES ")
-			for mi, mv := range g.Moves {
-				if mi > 0 { buf.WriteString(", ") }
-				buf.WriteString("(?,?,?,?,?,?,?,?)")
-				args = append(args, gameID, mi+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score)
+		if err != nil || gres == nil {
+			slog.Error("storeMatch: insert game failed", "err", err, "match", matchID, "game", i+1)
+			continue
+		}
+		gameID64, _ := gres.LastInsertId()
+		gameID := int(gameID64)
+
+		// Store per-move data for game detail charts.
+		for mn, mv := range g.Moves {
+			nps := int64(0)
+			if mv.TimeMs > 0 {
+				nps = int64(float64(mv.Nodes) / (mv.TimeMs / 1000.0))
 			}
-			if _, err := m.DB.Exec(buf.String(), args...); err != nil {
-				slog.Error("store game_moves FAILED; check DB schema", "game", gameID, "moves", len(g.Moves), "err", err)
-				fmt.Fprintf(os.Stderr, "store game_moves FAILED: game=%d moves=%d err=%v\n", gameID, len(g.Moves), err)
+			m.DB.Exec(`INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score, nps)
+				VALUES (?,?,?,?,?,?,?,?,?)`,
+				gameID, mn+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score, nps)
+		}
+
+		if g.Result == "1-0" {
+			if blackID == e1ID {
+				wins1++
+			} else {
+				wins2++
 			}
 		}
-	}
+		if g.Result == "0-1" {
+			if whiteID == e1ID {
+				wins1++
+			} else {
+				wins2++
+			}
+		}
+		if g.Result == "1/2" {
+			draws++
+		}
 
+		// Elo update (skip disconnected games)
+		if !g.Disconnect {
+			m.updateElo(blackID, whiteID, matchID, g)
+		}
+	}
 	m.DB.Exec("UPDATE matches SET wins_1=?, wins_2=?, draws=? WHERE id=?", wins1, wins2, draws, matchID)
-
-	// Incremental Elo: update rating for each game result.
-	for i, g := range games {
-		var blackID, whiteID int
-		if i%2 == 0 { blackID, whiteID = e1ID, e2ID } else { blackID, whiteID = e2ID, e1ID }
-		var scoreA float64
-		switch {
-		case g.Result == "1-0": scoreA = 1.0
-		case g.Result == "0-1": scoreA = 0.0
-		default: scoreA = 0.5
-		}
-		// For the black player, scoreA is already correct.
-		// For the white player, invert.
-		m.updateElo(blackID, whiteID, matchID, scoreA)
-		m.updateElo(whiteID, blackID, matchID, 1.0-scoreA)
-	}
-
-	return matchID, nil
 }
 
-// updateElo appends one Elo history row for engine after a game against opponent.
-func (m *MatchMaker) updateElo(engineID, opponentID, matchID int, scoreA float64) {
+func (m *MatchMaker) resolveEngine(name, ver string) int {
+	m.DB.Exec(`INSERT OR IGNORE INTO engines (name,version,created) VALUES (?,?,datetime('now'))`, name, ver)
+	var id int
+	m.DB.QueryRow(`SELECT id FROM engines WHERE name=? AND version=?`, name, ver).Scan(&id)
+	return id
+}
+
+func (m *MatchMaker) updateElo(blackID, whiteID, matchID int, g gameResult) {
 	m.eloMu.Lock()
 	defer m.eloMu.Unlock()
-	var rA, rB float64
-	var gamesA int
-	m.DB.QueryRow(`SELECT COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=? ORDER BY created_at DESC LIMIT 1), 1500.0)`, engineID).Scan(&rA)
-	m.DB.QueryRow(`SELECT COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=? ORDER BY created_at DESC LIMIT 1), 1500.0)`, opponentID).Scan(&rB)
-	m.DB.QueryRow(`SELECT COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=?), 0)`, engineID).Scan(&gamesA)
+	var rB, rW float64
+	var gB, gW int
+	m.DB.QueryRow(`SELECT COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=? ORDER BY id DESC LIMIT 1), 1500.0)`, blackID).Scan(&rB)
+	m.DB.QueryRow(`SELECT COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=? ORDER BY id DESC LIMIT 1), 1500.0)`, whiteID).Scan(&rW)
+	m.DB.QueryRow(`SELECT COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=?), 0)`, blackID).Scan(&gB)
+	m.DB.QueryRow(`SELECT COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=?), 0)`, whiteID).Scan(&gW)
 
-	nA, _ := elo.Update(rA, rB, scoreA, gamesA)
+	var sB float64
+	switch g.Result {
+	case "1-0":
+		sB = 1
+	case "0-1":
+		sB = 0
+	default:
+		sB = 0.5
+	}
+	nB, _ := elo.Update(rB, rW, sB, gB)
+	nW, _ := elo.Update(rW, rB, 1-sB, gW)
 
-	wins, losses, draws := 0, 0, 0
-	if scoreA == 1.0 { wins = 1 } else if scoreA == 0.0 { losses = 1 } else { draws = 1 }
-
+	w1, l1, d1 := 0, 0, 0
+	switch sB {
+	case 1:
+		w1 = 1
+	case 0:
+		l1 = 1
+	default:
+		d1 = 1
+	}
 	m.DB.Exec(`INSERT INTO elo_history (engine_id, opponent_id, match_id, rating_before, rating_after, games, wins, losses, draws)
-		VALUES (?,?,?,?,?,1,?,?,?)`, engineID, opponentID, matchID, rA, nA, wins, losses, draws)
+		VALUES (?,?,?,?,?,1,?,?,?)`, blackID, whiteID, matchID, rB, nB, w1, l1, d1)
+	w2, l2, d2 := l1, w1, d1
+	m.DB.Exec(`INSERT INTO elo_history (engine_id, opponent_id, match_id, rating_before, rating_after, games, wins, losses, draws)
+		VALUES (?,?,?,?,?,1,?,?,?)`, whiteID, blackID, matchID, rW, nW, w2, l2, d2)
+}
+
+// ── Tick loop ───────────────────────────────────────────────────────────
+
+func (m *MatchMaker) tickLoop() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.quit:
+			return
+		case <-m.wakeup:
+		case <-ticker.C:
+		}
+		m.Wanted.Tick()
+
+		// Reap lone connections (one side connected, opponent no-show).
+		// Clean up the relay session for the connected side so the coach
+		// frees its engine for other assignments.
+		m.reapLoneConnections(15 * time.Second)
+		m.Wanted.ReapStale(15 * time.Second)
+	}
+}
+
+// reapLoneConnections finds pairs where only one side connected and
+// cleans the relay session + records a decline for the no-show engine.
+func (m *MatchMaker) reapLoneConnections(timeout time.Duration) {
+	m.Wanted.mu.Lock()
+	defer m.Wanted.mu.Unlock()
+	now := time.Now()
+	for _, p := range m.Wanted.pairs {
+		if p.Status != "pending" {
+			continue
+		}
+		if p.BlackConnected && !p.WhiteConnected && now.Sub(p.BlackConnectedAt) > timeout {
+			slog.Info("reaping lone black connection", "pair", p.ID)
+			m.Relay.Cleanup(p.SessionID + "-b")
+			p.BlackConnected = false
+			// Record decline for no-show white engine.
+			for coachID, c := range m.Wanted.coaches {
+				if _, ok := c.Engines[p.WhiteEngine]; ok {
+					m.Wanted.declines[declineKey(coachID, p.WhiteEngine)] = now
+					break
+				}
+			}
+		}
+		if p.WhiteConnected && !p.BlackConnected && now.Sub(p.WhiteConnectedAt) > timeout {
+			slog.Info("reaping lone white connection", "pair", p.ID)
+			m.Relay.Cleanup(p.SessionID + "-w")
+			p.WhiteConnected = false
+			// Record decline for no-show black engine.
+			for coachID, c := range m.Wanted.coaches {
+				if _, ok := c.Engines[p.BlackEngine]; ok {
+					m.Wanted.declines[declineKey(coachID, p.BlackEngine)] = now
+					break
+				}
+			}
+		}
+	}
+}
+
+// executeConnectedPair is called via the relay OnConnect callback when
+// both sides of a pair have dialed in. Both relay streams are already
+// available — no waiting, no idle time.
+func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
+	blackSid := p.SessionID + "-b"
+	whiteSid := p.SessionID + "-w"
+
+	// Both streams are already connected (OnConnect fired for each).
+	blackStream, err := m.Relay.WaitForStream(blackSid, 1)
+	if err != nil {
+		slog.Error("match: black stream gone", "pair", p.ID, "err", err)
+		m.failPair(p, "black stream gone")
+		return
+	}
+	whiteStream, err := m.Relay.WaitForStream(whiteSid, 1)
+	if err != nil {
+		slog.Error("match: white stream gone", "pair", p.ID, "err", err)
+		m.failPair(p, "white stream gone")
+		return
+	}
+
+	var gameTimeSec float64 = 30
+	fmt.Sscanf(p.TimeControl, "%fs", &gameTimeSec)
+
+	slog.Info("both streams ready, executing match", "pair", p.ID)
+
+	// Resolve engine IDs and create an in-progress row so the web
+	// dashboard shows the match under "In Progress".
+	bParts := splitEngineKey(p.BlackEngine)
+	wParts := splitEngineKey(p.WhiteEngine)
+	bID := m.resolveEngine(bParts[0], bParts[1])
+	wID := m.resolveEngine(wParts[0], wParts[1])
+
+	// Look up coach_ais IDs (needed for the legacy match_assignments FK).
+	var bCAID, wCAID int64
+	m.DB.QueryRow(`SELECT ca.id FROM coach_ais ca WHERE ca.engine_name=? AND ca.engine_version=? LIMIT 1`,
+		bParts[0], bParts[1]).Scan(&bCAID)
+	m.DB.QueryRow(`SELECT ca.id FROM coach_ais ca WHERE ca.engine_name=? AND ca.engine_version=? LIMIT 1`,
+		wParts[0], wParts[1]).Scan(&wCAID)
+
+	tc, _ := json.Marshal(map[string]interface{}{"type": "total", "seconds": gameTimeSec})
+	res, err := m.DB.Exec(`INSERT INTO match_assignments (engine1_id, engine2_id, coach1_ai_id, coach2_ai_id, time_control, num_games, status, in_progress_at)
+		VALUES (?,?,?,?,?,2,'in_progress',datetime('now'))`, bID, wID, bCAID, wCAID, tc)
+	if err != nil {
+		slog.Warn("match_assignments insert failed", "err", err)
+	}
+	var assignID int64
+	if res != nil { assignID, _ = res.LastInsertId() }
+
+	ctx := context.Background()
+	games := playGames(ctx, blackStream, whiteStream, 2, gameTimeSec, int(assignID))
+
+	slog.Info("matchmaker match played", "pair", p.ID, "games", len(games))
+	m.storeCh <- GameResult{
+		Games:  games,
+		E1Name: bParts[0], E1Ver: bParts[1],
+		E2Name: wParts[0], E2Ver: wParts[1],
+	}
+
+	// Mark assignment completed so it disappears from "In Progress".
+	if assignID > 0 {
+		m.DB.Exec(`UPDATE match_assignments SET status='completed', completed_at=datetime('now') WHERE id=?`, assignID)
+	}
+
+	// Cleanup relay sessions
+	m.Relay.Cleanup(blackSid)
+	m.Relay.Cleanup(whiteSid)
+}
+
+func (m *MatchMaker) failPair(p *wantedPair, reason string) {
+	slog.Error("match failed", "pair", p.ID, "reason", reason)
+	m.Wanted.ResetPair(p.ID)
+	m.Relay.Cleanup(p.SessionID + "-b")
+	m.Relay.Cleanup(p.SessionID + "-w")
+}
+
+func splitEngineKey(key string) []string {
+	// key is "name:version" — split on LAST colon (version may contain nothing, name shouldn't)
+	idx := strings.LastIndex(key, ":")
+	if idx < 0 {
+		return []string{key, "unknown"}
+	}
+	return []string{key[:idx], key[idx+1:]}
+}
+
+// ── Execute match (called from relay or external trigger) ───────────────
+
+func (m *MatchMaker) executeMatch(blackStream, whiteStream coach.Stream, gameTimeSec float64) {
+	ctx := context.Background()
+	games := playGames(ctx, blackStream, whiteStream, 2, gameTimeSec, 0)
+	slog.Info("matchmaker match played", "games", len(games))
+	m.storeCh <- GameResult{Games: games}
+}
+
+// ── HTTP handlers ───────────────────────────────────────────────────────
+
+// HandleStatus returns current matchmaker state for the dashboard.
+func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
+	m.Wanted.mu.RLock()
+	defer m.Wanted.mu.RUnlock()
+	fmt.Fprintf(w, `{"coaches": %d, "pairs": %d}`, len(m.Wanted.coaches), len(m.Wanted.pairs))
+}
+
+// HandleRegister accepts engine registrations from coaches and populates
+// the in-memory WantedList.
+func (m *MatchMaker) HandleRegister(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CoachID    string        `json:"coach_id"`
+		CoresTotal int           `json:"cores_total"`
+		Engines    []EngineEntry `json:"engines"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, 400)
+		return
+	}
+	if req.CoachID == "" {
+		http.Error(w, `{"error":"coach_id required"}`, 400)
+		return
+	}
+	m.Wanted.RegisterCoach(req.CoachID, req.CoresTotal, req.Engines)
+	slog.Info("coach registered in matchmaker", "coach", req.CoachID, "engines", len(req.Engines))
+	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// HandlePoll returns pending assignments for a coach's engines.
+// The coach calls this in a loop (every ~5s). Liveness is tracked
+// via the poll itself — no separate heartbeat needed.
+func (m *MatchMaker) HandlePoll(w http.ResponseWriter, r *http.Request) {
+	coachID := r.URL.Query().Get("coach")
+	if coachID == "" {
+		http.Error(w, `{"error":"coach required"}`, 400)
+		return
+	}
+	m.Wanted.Heartbeat(coachID, 0, 0)
+	assignments := m.Wanted.PollAssignments(coachID, 3)
+	json.NewEncoder(w).Encode(map[string]interface{}{"assignments": assignments})
+}
+
+// HandleComplete receives game results after a match finishes.
+func (m *MatchMaker) HandleComplete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID string       `json:"session_id"`
+		Games     []gameResult `json:"games"`
+		E1Name    string       `json:"e1_name"`
+		E1Ver     string       `json:"e1_ver"`
+		E2Name    string       `json:"e2_name"`
+		E2Ver     string       `json:"e2_ver"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, 400)
+		return
+	}
+	if len(req.Games) > 0 {
+		m.storeCh <- GameResult{
+			Games:  req.Games,
+			E1Name: req.E1Name, E1Ver: req.E1Ver,
+			E2Name: req.E2Name, E2Ver: req.E2Ver,
+		}
+	}
+	w.Write([]byte(`{"status":"ok"}`))
 }

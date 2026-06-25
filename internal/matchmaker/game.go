@@ -31,15 +31,50 @@ var (
 // comments and empty lines. Cached after first call.
 func loadOpenings() []string {
 	openingsOnce.Do(func() {
+		nSkipped := 0
 		for _, line := range strings.Split(embeddedOpeningsBook, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
-			openingsCache = append(openingsCache, line)
+			// Validate by simulating on a fresh board. Some openings in
+			// the book may be invalid due to coordinate system mismatches.
+			moves := parseMoveList(line)
+			if len(moves) == 0 {
+				continue
+			}
+			board := newBoard()
+			valid := true
+			for i, mv := range moves {
+				c := "b"
+				if i%2 == 1 {
+					c = "w"
+				}
+				sq := sqFromString(mv)
+				if sq < 0 {
+					valid = false
+					break
+				}
+				player := board.black
+				if c == "w" {
+					player = board.white
+				}
+				if board.legalMoves(player)&(1<<sq) == 0 {
+					valid = false
+					break
+				}
+				board = board.applyMove(player, sq)
+			}
+			if valid {
+				openingsCache = append(openingsCache, line)
+			} else {
+				nSkipped++
+			}
+		}
+		if nSkipped > 0 {
+			slog.Warn("skipped invalid opening lines", "count", nSkipped)
 		}
 		if len(openingsCache) == 0 {
-			// Fallback: empty opening (start from initial position)
 			openingsCache = append(openingsCache, "")
 		}
 	})

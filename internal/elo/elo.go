@@ -3,6 +3,16 @@ package elo
 
 import "math"
 
+// ConfidenceInterval returns the half-width of a 95% confidence interval
+// for an engine's Elo rating based on the number of games played.
+// Uses a simplified approximation: CI ≈ 400 / sqrt(games).
+func ConfidenceInterval(rating float64, games int) float64 {
+	if games < 1 {
+		games = 1
+	}
+	return 400.0 / math.Sqrt(float64(games))
+}
+
 // K is the Elo K-factor for established engines.
 const K = 16.0
 
