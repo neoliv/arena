@@ -1,4 +1,4 @@
-=== Arena Coach Update === (Fri Jun 26 12:20:54 AM CEST 2026)
+=== Arena Coach Update === (Fri Jun 26 12:52:21 AM CEST 2026)
 1. Coach binary...
 Already up to date.
    updated (binary changed)
@@ -9,11 +9,23 @@ Already up to date.
 
 ─── edax ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/edax
-   -> /home/oliv/coach/engines/e3b0c44298fc1c14/
+   -> /home/oliv/coach/engines/ec76d24e1d984b3d/
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid
-   -> /home/oliv/coach/engines/f8c74dc3c1bbaf1f/
+   ERROR: build failed for egaroucid
+   Last 10 lines:
+/home/oliv/dev/agent/othello-refs/egaroucid/src/src/engine/level.hpp:178:19: error: ‘g_mid_depth_override’ was not declared in this scope
+  178 |         *depth = (g_mid_depth_override >= 0) ? g_mid_depth_override : level_status.mid_lookahead;
+      |                   ^~~~~~~~~~~~~~~~~~~~
+gmake[4]: *** [CMakeFiles/Egaroucid_for_Console.out.dir/build.make:79: CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o] Error 1
+gmake[3]: *** [CMakeFiles/Makefile2:87: CMakeFiles/Egaroucid_for_Console.out.dir/all] Error 2
+gmake[2]: *** [CMakeFiles/Makefile2:94: CMakeFiles/Egaroucid_for_Console.out.dir/rule] Error 2
+gmake[1]: *** [Makefile:124: Egaroucid_for_Console.out] Error 2
+gmake[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
+ERROR: Egaroucid build failed
+make: *** [Makefile:13: coach-build] Error 1
+   Full log: /home/oliv/dev/agent/arena/log/.build-egaroucid.log
 
 ─── neural-reversi ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi
@@ -29,5 +41,5 @@ Coach not running.
 
 === Done ===
 9 players deployed from /home/oliv/coach/engines
-4 engines built successfully
+ERROR: 1 engine build(s) failed — check the log for details
 Log saved to: /home/oliv/dev/agent/arena/log/coach-update.log

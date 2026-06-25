@@ -4,7 +4,7 @@ mkdir -p coach-engine/players.d coach-engine/data
 # Copy adapter to edax src dir, then compile edax-style
 cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/adapter.c /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/src/adapter_main.c
 rm -f /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/bin/lEdax-native-adapter  # force clean rebuild
-cd /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/src && CC=gcc BUILD=optimize ARCH=native make adapter-build
+cd /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/src && CC=gcc BUILD=optimize ARCH=native make adapter-build || { echo "ERROR: Edax build failed"; exit 1; }
 make[1]: Entering directory '/home/oliv/dev/agent/othello-refs/edax/src/src'
 gcc -std=c17 -pedantic -W -Wall -Wextra -pipe -D_GNU_SOURCE=1 -Ofast -fwhole-program -flto=auto -fomit-frame-pointer -DNDEBUG -march=native  all_adapter.c -o ../bin/lEdax-native-adapter -lm -lrt
 In file included from stats.h:15,
@@ -22,17 +22,17 @@ game.c: In function ‘game_export_pgn’:
 game.c:1226:29: warning: comparison is always true due to limited range of data type [-Wtype-limits]
  1226 |         if (game->date.hour >= 0) fprintf(f, "[Time \"%d.%d.%d\"]\n", game->date.hour, game->date.minute, game->date.second);
       |                             ^~
-In file included from all_adapter.c:47:
-adapter_main.c: At top level:
-adapter_main.c:36:19: error: initializer element is not constant
-   36 |     int empties = 64 - __builtin_popcountll(edax_play->board.player | edax_play->board.opponent);
-      |                   ^~
-adapter_main.c:37:5: error: expected identifier or ‘(’ before ‘if’
-   37 |     if (empties == 0) return true;
-      |     ^~
-adapter_main.c:39:1: error: expected identifier or ‘(’ before ‘}’ token
-   39 | }
-      | ^
-make[1]: *** [Makefile:191: adapter-build] Error 1
+In function ‘store_set’,
+    inlined from ‘NWS_endgame’ at endgame.c:541:4:
+hash.h:136:23: warning: ‘bestmove’ may be used uninitialized [-Wmaybe-uninitialized]
+  136 |         store->move = (int8_t) move;
+      |                       ^
+endgame.c: In function ‘NWS_endgame’:
+endgame.c:465:31: note: ‘bestmove’ was declared here
+  465 |         int score, bestscore, bestmove;
+      |                               ^
 make[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/edax/src/src'
-make: *** [Makefile:31: coach-build] Error 2
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/bin/lEdax-native-adapter coach-engine/edax || { echo "ERROR: Edax binary not found"; exit 1; }
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/data/eval.dat coach-engine/data/
+cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
+coach-engine/ ready: 5 files

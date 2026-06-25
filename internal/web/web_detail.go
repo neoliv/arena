@@ -56,7 +56,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		bScore = 64 - finalScore
 	}
 
-	// ── Top bar: player info + centered score ──────────────────────
+	// ── Top bar ────────────────────────────────────────────────────
 	bTimedOut := gameTimeSec > 0 && bTime > gameTimeSec*1.05
 	wTimedOut := gameTimeSec > 0 && wTime > gameTimeSec*1.05
 	statusBadge := ""
@@ -69,15 +69,19 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	bNameEsc := htmlEscape(bName)
 	wNameEsc := htmlEscape(wName)
+	// Line 1: game number (left, bold) + score (center, larger)
 	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
+		<div style="flex:2"><span style="font-size:1.6em;font-weight:800"># %s</span></div>
+		<div style="flex:1;text-align:center"><span style="font-size:2em;font-weight:900">%d-%d</span>%s</div>
+		<div style="flex:2"></div></div>`,
+		id, bScore, wScore, statusBadge)
+	// Line 2: player info (black right, white left)
+	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.3em">
 		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:1.05em"><span style="color:%s">%s %.0f %+d</span></div>
-		<div style="flex:1;text-align:center"><h1 style="margin:0;font-size:1.6em;font-weight:800"><span style="font-weight:800">%d-%d</span>%s</h1></div>
+		<div style="flex:1"></div>
 		<div style="flex:2;text-align:left;padding-left:1.5em;font-size:1.05em"><span style="color:%s">%+d %.0f %s</span></div></div>`,
-		deltaColor(bDelta), bNameEsc, bElo, int(bDelta),
-		bScore, wScore, statusBadge,
-		deltaColor(wDelta), int(wDelta), wElo, wNameEsc)
-	fmt.Fprintf(w, `<div style="text-align:left;margin-bottom:.6em;font-size:.95em;color:var(--muted);padding-left:.5em">#%s</div>`, id)
-	// Version line
+		deltaColor(bDelta), bNameEsc, bElo, int(bDelta), deltaColor(wDelta), int(wDelta), wElo, wNameEsc)
+	// Line 3: version links
 	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.6em">
 		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:.95em"><a href="/engines/%s">%s</a></div>
 		<div style="flex:1"></div>
@@ -118,7 +122,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			score          int
 		}
 		var moves []moveRow
-		maxTime, maxNodes, maxNPS, maxBScore, maxWScore := 0.0, 0.0, 0.0, 0.0, 0.0
+		maxTime, maxNodes, maxNPS, maxDepth, maxBScore, maxWScore := 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 		for mRows.Next() {
 			var m moveRow
 			mRows.Scan(&m.num, &m.side, &m.move, &m.nodes, &m.depth, &m.timeMs, &m.score)
@@ -134,6 +138,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			if float64(m.nps) > maxNPS {
 				maxNPS = float64(m.nps)
+			}
+			if float64(m.depth) > maxDepth {
+				maxDepth = float64(m.depth)
 			}
 			if m.side == "b" {
 				abs := float64(m.score)
@@ -189,7 +196,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
 			for _, t := range []struct{ key, label string }{
-				{"time", "Time"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"diff", "Diff"}, {"score", "Score"},
+				{"time", "Time"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"depth", "Depth"}, {"diff", "Diff"}, {"score", "Score"},
 			} {
 				sel := `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
 				if tab != t.key {
@@ -218,7 +225,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
 				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:18px;font-weight:700">%s</span><span style="color:#d4c4a8;font-size:18px;font-weight:700">%s</span></div>`, bName, wName)
 				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
-				// Grey "forced" zone for opening plies
 				if openingPlies > 0 {
 					openW := openingPlies * 14
 					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
@@ -267,12 +273,10 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						fmt.Fprintf(w, `<text x="100%%" y="%d" fill="#d4c4a8" font-size="10" text-anchor="end">%s%s</text>`, y, fmtVal(valR), unit)
 					}
 				}
-				// Tick marks every 10 plies
 				for pl := 10; pl <= totalPlies; pl += 10 {
 					tx := 34 + pl*14
 					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad-2, tx, topPad+2)
 				}
-				// Vertical end line at actual last ply
 				lx := 34 + totalPlies*14 + 6
 				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, lx, topPad, lx, chartH+topPad)
 				fmt.Fprintf(w, `<text x="%d" y="%d" text-anchor="middle" fill="#6a6" font-size="10">end %dpl</text>`, lx, chartH+topPad+14, totalPlies)
@@ -295,6 +299,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 							maxVal = 1
 						}
 						val = float64(m.score)
+					case "depth":
+						val = float64(m.depth)
 					case "diff":
 						val = float64(discDiffs[i])
 					}
@@ -346,6 +352,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						tip = fmt.Sprintf("%s %s: %s nodes, depth %d", m.side, m.move, fmtVal(float64(m.nodes)), m.depth)
 					case "nps":
 						tip = fmt.Sprintf("%s %s: %s n/s, %.0fms", m.side, m.move, fmtVal(float64(m.nps)), m.timeMs)
+					case "depth":
+						tip = fmt.Sprintf("%s %s: depth %d", m.side, m.move, m.depth)
 					case "score":
 						tip = fmt.Sprintf("%s %s: %+d cP", m.side, m.move, m.score)
 					case "diff":
@@ -360,6 +368,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			renderChart("time", maxTime, 0, "ms", "Time per move (ms)")
 			renderChart("nodes", maxNodes, 0, "", "Nodes explored")
 			renderChart("nps", maxNPS, 0, "", "Nodes per second")
+			renderChart("depth", maxDepth, 0, "", "Search depth")
 			renderChart("diff", maxDiscDiff, 0, "", "Disc diff (B-W)")
 			renderChart("score", maxBScore, maxWScore, "", "Score (cP)")
 
@@ -495,25 +504,25 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			io.WriteString(w, `</table></div>`)
 
-			// ── Moves summary (below graphs, above stats table) ──
+			// ── Moves summary (below graphs, above move table) ──
 			totalTime := bTime + wTime
 			totalMoves := bStats.moves + wStats.moves
 			if opening != "" {
 				openPlies := len(opening) / 2
-				fmt.Fprintf(w, `<div style="margin-top:1em;color:var(--muted);font-size:.95em;text-align:center">Moves: %d forced · %d played · last ply %d · <span style="font-family:monospace">%s</span> · %.2fs · %s nodes</div>`,
+				fmt.Fprintf(w, `<div style="margin-top:1em;margin-bottom:.6em;color:var(--muted);font-size:1.1em;text-align:center">Moves: %d forced · %d played · last ply %d · <span style="font-family:monospace">%s</span> · %.2fs · %s nodes</div>`,
 					openPlies, totalMoves, totalPlies, htmlEscape(opening), totalTime, fmtVal(bStats.totalNodes+wStats.totalNodes))
 			} else {
-				fmt.Fprintf(w, `<div style="margin-top:1em;color:var(--muted);font-size:.95em;text-align:center">Moves: %d played · last ply %d · %.2fs · %s nodes</div>`,
+				fmt.Fprintf(w, `<div style="margin-top:1em;margin-bottom:.6em;color:var(--muted);font-size:1.1em;text-align:center">Moves: %d played · last ply %d · %.2fs · %s nodes</div>`,
 					totalMoves, totalPlies, totalTime, fmtVal(bStats.totalNodes+wStats.totalNodes))
 			}
-			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Depth</th><th>NPS</th><th>Score</th></tr>`)
+			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Dp</th><th>NPS</th><th>Score</th></tr>`)
 			for _, m := range moves {
 				side := "Black"
 				if m.side == "w" {
 					side = "White"
 				}
-				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%d</td><td>%d</td><td>%d</td><td>%+d</td></tr>`,
-					openingPlies+m.num, side, m.move, m.timeMs, m.nodes, m.depth, m.nps, m.score)
+				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%s</td><td>%d</td><td>%s</td><td>%+d</td></tr>`,
+					openingPlies+m.num, side, m.move, m.timeMs, fmtVal(float64(m.nodes)), m.depth, fmtVal(float64(m.nps)), m.score)
 			}
 			io.WriteString(w, "</table>"+`</div>`+pageFoot)
 		} else {

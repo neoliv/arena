@@ -2,7 +2,7 @@ Building Neural Reversi adapter...
 rm -rf coach-engine
 # Apply arena-stats patch (JSON stats + depth + GTP default + raw weight loader)
 # Build CLI crate (cd to source dir first)
-cd /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli
+cd /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }
 warning: unused variable: `mode`
    --> crates/cli/src/gtp.rs:631:13
     |
@@ -341,9 +341,9 @@ warning: associated items `new`, `cursor`, and `last_move` are never used
    |            ^^^^^^^^^
 
 warning: `cli` (bin "cli") generated 35 warnings (run `cargo fix --bin "cli" -p cli` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 0.22s
+    Finished `release` profile [optimized] target(s) in 0.20s
 mkdir -p coach-engine/players.d
-cp /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp || { echo "ERROR: Neural Reversi binary not found"; exit 1; }
 # Pre-decompress weight files so engine loads raw binary (no zstd overhead)
 Decompressing /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst -> coach-engine/eval-e6bbc4f6.bin...
 /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst: 609599984 bytes 

@@ -23,13 +23,14 @@ import (
 // and result storage. It owns the WantedList (in-memory engine registry
 // and wanted-pair generation) and a dedicated SQLite writer goroutine.
 type MatchMaker struct {
-	DB      *db.DB
-	Relay   *coach.Relay
-	Wanted  *WantedList
-	storeCh chan GameResult // game results → storage goroutine
-	eloMu   sync.Mutex
-	wakeup  chan struct{}
-	quit    chan struct{}
+	DB        *db.DB
+	Relay     *coach.Relay
+	Wanted    *WantedList
+	storeCh   chan GameResult // game results → storage goroutine
+	eloMu     sync.Mutex
+	dbWriteMu sync.Mutex // serializes all DB writes (SQLite single-writer)
+	wakeup    chan struct{}
+	quit      chan struct{}
 }
 
 // GameResult carries completed game data for storage.
@@ -72,6 +73,8 @@ func (m *MatchMaker) storageLoop() {
 }
 
 func (m *MatchMaker) storeMatch(gr GameResult) {
+	m.dbWriteMu.Lock()
+	defer m.dbWriteMu.Unlock()
 	e1ID := m.resolveEngine(gr.E1Name, gr.E1Ver)
 	e2ID := m.resolveEngine(gr.E2Name, gr.E2Ver)
 	if e1ID == 0 || e2ID == 0 {
@@ -283,6 +286,7 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 	// dashboard shows the match under "In Progress".
 	bParts := splitEngineKey(p.BlackEngine)
 	wParts := splitEngineKey(p.WhiteEngine)
+	m.dbWriteMu.Lock()
 	bID := m.resolveEngine(bParts[0], bParts[1])
 	wID := m.resolveEngine(wParts[0], wParts[1])
 
@@ -301,6 +305,7 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 	}
 	var assignID int64
 	if res != nil { assignID, _ = res.LastInsertId() }
+	m.dbWriteMu.Unlock()
 
 	ctx := context.Background()
 	games := playGames(ctx, blackStream, whiteStream, 2, gameTimeSec, int(assignID))
@@ -314,7 +319,9 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 
 	// Mark assignment completed so it disappears from "In Progress".
 	if assignID > 0 {
+		m.dbWriteMu.Lock()
 		m.DB.Exec(`UPDATE match_assignments SET status='completed', completed_at=datetime('now') WHERE id=?`, assignID)
+		m.dbWriteMu.Unlock()
 	}
 
 	// Cleanup relay sessions
