@@ -507,6 +507,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	var searchNodes int64
 	var searchDepth int
 	var searchScore int
+	var adapterTimeMs int64
 	go func() {
 		defer stderrPipeR.Close()
 		scanner := bufio.NewScanner(stderrPipeR)
@@ -616,13 +617,15 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				// Parse neursi JSON stats: # arena-stats v1: {"nodes":N,"depth":D,...}
 				if strings.HasPrefix(line, "# arena-stats v1: ") {
 					var ns struct {
-						Nodes  int64 `json:"nodes"`
-						Depth  int   `json:"depth"`
-						Score  int   `json:"score"`
+						Nodes   int64 `json:"nodes"`
+						Depth   int   `json:"depth"`
+						Score   int   `json:"score"`
+						TimeMs  int64 `json:"time_ms"`
 					}
 					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "# arena-stats v1: ")), &ns); err == nil {
 						searchMu.Lock()
 						searchNodes, searchDepth, searchScore = ns.Nodes, ns.Depth, ns.Score
+						adapterTimeMs = ns.TimeMs
 						searchMu.Unlock()
 					}
 				}
@@ -648,10 +651,21 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				}
 				// Inject timing + optional search-log data.
 				searchMu.Lock()
-				sn, sd, ss := searchNodes, searchDepth, searchScore
-				searchNodes, searchDepth, searchScore = 0, 0, 0
+				sn, sd, ss, at := searchNodes, searchDepth, searchScore, adapterTimeMs
+				searchNodes, searchDepth, searchScore, adapterTimeMs = 0, 0, 0, 0
 				searchMu.Unlock()
-				injectLine = fmt.Sprintf(`# time_ms %d {"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, lastElapsedMs, sn, sd, ss)
+				// Trust adapter timing unless it differs >100ms from coach measurement
+				timeMs := lastElapsedMs
+				if at > 0 {
+					diff := lastElapsedMs - at
+					if diff < 0 { diff = -diff }
+					if diff > 100 {
+						slog.Warn("adapter time differs from coach", "session", sessionID, "adapter_ms", at, "coach_ms", lastElapsedMs)
+					} else {
+						timeMs = at
+					}
+				}
+				injectLine = fmt.Sprintf(`# time_ms %d {"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, timeMs, sn, sd, ss)
 			}
 			// If engine sent its own stats, enrich with real time.
 			// Legacy format: "= nodes X depth Y score Z" -> translate to JSON
