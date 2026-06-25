@@ -3,6 +3,7 @@ package web
 import (
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/neoliv/arena/internal/db"
 )
@@ -60,8 +61,11 @@ var navHTML = `<nav>
 <span style="float:right"><a class="logout" href="/logout">Disconnect</a></span>
 </nav>`
 
+var bannerOnce sync.Once
 func SetRollbackBanner() {
-	navHTML = `<div style="background:#c44;color:#fff;text-align:center;padding:.4em;font-weight:600;margin-bottom:.5em">⚠ Database was restored from backup — recent games may be missing.</div>` + navHTML
+	bannerOnce.Do(func() {
+		navHTML = `<div style="background:#c44;color:#fff;text-align:center;padding:.4em;font-weight:600;margin-bottom:.5em">⚠ Database was restored from backup — recent games may be missing.</div>` + navHTML
+	})
 }
 
 const htmxScript = `<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGxOGrUEVMQQBW1EE4IqOmxPxVJzZSoS0rIYgJOlhNYG8YP4iWm4kq6FDoGsEdJj" crossorigin="anonymous"></script>`

@@ -114,17 +114,3 @@ func parseTime(s string) (float64, error) {
 	return float64(t.Unix()), nil
 }
 
-func (h *Handler) handleSpeed(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/charts?tab=speed&"+r.URL.RawQuery, http.StatusMovedPermanently)
-	return
-}
-
-func (h *Handler) renderSpeedGraph(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, searchJS+filterBox)
-	io.WriteString(w, `<table><tr><th>Ply</th><th>Engine</th><th>#</th><th>Depth</th><th>NPS</th><th>Timeouts</th></tr>`)
-	sRows, _ := h.DB.Query(`SELECT ss.ply, e.name, SUM(ss.sample_count), CAST(SUM(ss.total_depth) AS REAL)/MAX(1,SUM(ss.sample_count)), CAST(SUM(ss.total_nps) AS REAL)/MAX(1,SUM(ss.sample_count)), SUM(ss.timeouts) FROM speed_stats ss JOIN engines e ON e.id=ss.engine_id GROUP BY ss.ply, e.name ORDER BY ss.ply, e.name`)
-	if sRows != nil { defer sRows.Close(); for sRows.Next() { var ply, samples, timeouts int; var name string; var depth, nps float64; sRows.Scan(&ply, &name, &samples, &depth, &nps, &timeouts); fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%d</td><td>%.1f</td><td>%.0f</td><td>%d</td></tr>`, ply, name, samples, depth, nps, timeouts) } }
-	io.WriteString(w, "</table>"+`</div>`+pageFoot)
-}
-

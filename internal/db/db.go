@@ -86,6 +86,9 @@ func (db *DB) Migrate() error {
 			"ALTER TABLE games ADD COLUMN disconnect INTEGER DEFAULT 0",
 			"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0)",
 			"CREATE INDEX IF NOT EXISTS idx_gm_game ON game_moves(game_id)",
+		"CREATE INDEX IF NOT EXISTS idx_assign_session1 ON match_assignments(session1_id)",
+		"CREATE INDEX IF NOT EXISTS idx_assign_session2 ON match_assignments(session2_id)",
+		"CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at)",
 	} {
 		db.Exec(stmt) // ignore errors — column may already exist
 	}

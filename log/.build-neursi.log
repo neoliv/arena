@@ -1,5 +1,13 @@
 make: 'coach-build' is up to date.
    Compiling neursi v0.1.0 (/home/oliv/dev/agent/neursi/engine)
+warning: unused imports: `EC_CACHE_MASK`, `SCORE_MAX`, and `SCORE_MIN`
+ --> src/endgame/tests.rs:3:22
+  |
+3 | ...::{SCORE_MIN, SCORE_MAX, SCORE_WIN, EndgameCache, EC_CACHE_SIZE, EC_CACHE_MASK};
+  |       ^^^^^^^^^  ^^^^^^^^^                                          ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
 warning: unused variable: `offset`
    --> src/board.rs:478:13
     |
@@ -9,87 +17,96 @@ warning: unused variable: `offset`
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: unused variable: `n_empties`
-   --> src/endgame.rs:537:9
+   --> src/endgame/solve.rs:259:9
     |
-537 |     let n_empties = empties as usize;
+259 |     let n_empties = empties as usize;
     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_empties`
 
 warning: variable `skipped_count` is assigned to, but never used
-   --> src/endgame.rs:921:9
+   --> src/endgame/tests.rs:247:9
     |
-921 |     let mut skipped_count = 0;
+247 |     let mut skipped_count = 0;
     |         ^^^^^^^^^^^^^^^^^
     |
     = note: consider using `_skipped_count` instead
 
 warning: value assigned to `skipped_count` is never read
-   --> src/endgame.rs:926:13
+   --> src/endgame/tests.rs:252:13
     |
-926 |             skipped_count += 1;
+252 |             skipped_count += 1;
     |             ^^^^^^^^^^^^^^^^^^
     |
     = help: maybe it is overwritten before being read?
     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
 
 warning: unused variable: `parity`
-  --> src/endgame_edax.rs:66:75
+  --> src/endgame_edax.rs:59:75
    |
-66 | ...: u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
+59 | ...: u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
    |                             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
 
-warning: constant `SHALLOW_TT_SIZE` is never used
-  --> src/endgame.rs:85:7
-   |
-85 | const SHALLOW_TT_SIZE: usize = 1024;
-   |       ^^^^^^^^^^^^^^^
-   |
-   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
-
-warning: constant `SHALLOW_TT_MASK` is never used
-  --> src/endgame.rs:86:7
-   |
-86 | const SHALLOW_TT_MASK: usize = SHALLOW_TT_SIZE - 1;
-   |       ^^^^^^^^^^^^^^^
-
-warning: constant `EC_CACHE_MASK` is never used
-  --> src/endgame.rs:90:7
-   |
-90 | const EC_CACHE_MASK: usize = EC_CACHE_SIZE - 1;
-   |       ^^^^^^^^^^^^^
-
 warning: static `EDGE_STABILITY` is never used
-   --> src/endgame.rs:198:12
+   --> src/endgame.rs:177:8
     |
-198 | static mut EDGE_STABILITY: [[u8; 256]; 2] = [[0; 256]; 2];
-    |            ^^^^^^^^^^^^^^
+177 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 2]> = std::sync:...
+    |        ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
-warning: function `init_edge_stability` is never used
-   --> src/endgame.rs:201:4
+warning: function `build_edge_table` is never used
+   --> src/endgame.rs:180:4
     |
-201 | fn init_edge_stability() {
-    |    ^^^^^^^^^^^^^^^^^^^
+180 | fn build_edge_table() -> [[u8; 256]; 2] {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `get_edge_table` is never used
+   --> src/endgame.rs:196:4
+    |
+196 | fn get_edge_table() -> &'static [[u8; 256]; 2] {
+    |    ^^^^^^^^^^^^^^
 
 warning: function `count_last_flip` is never used
-   --> src/endgame.rs:300:4
-    |
-300 | fn count_last_flip(sq: u32, player: u64, opponent: u64) -> u32 {
-    |    ^^^^^^^^^^^^^^^
+  --> src/endgame/solve.rs:22:4
+   |
+22 | fn count_last_flip(sq: u32, player: u64, opponent: u64) -> u32 {
+   |    ^^^^^^^^^^^^^^^
 
 warning: function `nws` is never used
-   --> src/endgame_edax.rs:130:4
+   --> src/endgame_edax.rs:123:4
     |
-130 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mu...
+123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mut ...
     |    ^^^
 
-warning: field `last_advisor` is never read
-  --> src/gtp.rs:70:5
+warning: associated function `verify` is never used
+  --> src/nnue_mmap.rs:44:8
    |
-28 | pub struct GtpEngine {
-   |            --------- field in this struct
+31 | impl Offsets {
+   | ------------ associated function in this implementation
 ...
-70 |     last_advisor: Vec<(u32, String, i32, &'static str)>, // (sq, name,...
-   |     ^^^^^^^^^^^^
+44 |     fn verify() { assert!(Self::TOTAL <= u64::MAX as usize); }
+   |        ^^^^^^
 
-warning: `neursi` (lib) generated 13 warnings (run `cargo fix --lib -p neursi` to apply 3 suggestions)
-    Finished `release` profile [optimized] target(s) in 3.53s
+warning: function `verify_byte_equivalence` is never used
+ --> src/nnue_verify.rs:9:4
+  |
+9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMmap) ...
+  |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `benchmark_access` is never used
+  --> src/nnue_verify.rs:30:4
+   |
+30 | fn benchmark_access(legacy: &[i16], mmap: &[i16]) {
+   |    ^^^^^^^^^^^^^^^^
+
+warning: `neursi` (lib) generated 14 warnings (run `cargo fix --lib -p neursi` to apply 4 suggestions)
+warning: unused import: `neursi::board::*`
+  --> src/bin/es_calibrate.rs:14:5
+   |
+14 | use neursi::board::*;
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 3.68s
 coach-engine/ ready: 4 files

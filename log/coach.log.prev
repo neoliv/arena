@@ -1,0 +1,159 @@
+time=2026-06-25T14:53:05.381+02:00 level=INFO msg="coach starting" pid=1358342 log_dir=/home/oliv/dev/agent/arena/log
+time=2026-06-25T14:53:05.381+02:00 level=INFO msg="using token" source="ARENA_TOKEN env" token=324d...0844
+time=2026-06-25T14:53:05.381+02:00 level=INFO msg="scanning for players" engines_dir=/home/oliv/coach/engines
+time=2026-06-25T14:53:05.381+02:00 level=INFO msg="share dir" share_dir=/home/oliv/coach/share
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="loaded AIs" count=9
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="registering with arena" url=https://arena.arsac.org ais=9
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=edax-4.6-d10-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 10 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=edax-4.6-d14-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 14 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=edax-4.6-d6-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 6 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d10-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 10 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d14-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 14 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d6-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 6 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=egar-7.8.1-d10-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 10 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=egar-7.8.1-d14-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 14 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:05.385+02:00 level=INFO msg="  player" name=egar-7.8.1-d6-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 6 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:05.654+02:00 level=INFO msg="REGISTRATION SUCCEEDED" ais=9
+time=2026-06-25T14:53:05.654+02:00 level=INFO msg="starting task poll loop"
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="loaded AIs" count=9
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="registering with arena" url=https://arena.arsac.org ais=9
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=edax-4.6-d10-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 10 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=edax-4.6-d14-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 14 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=edax-4.6-d6-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 6 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d10-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 10 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d14-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 14 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d6-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 6 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=egar-7.8.1-d10-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 10 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=egar-7.8.1-d14-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 14 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:05.658+02:00 level=INFO msg="  player" name=egar-7.8.1-d6-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 6 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:05.754+02:00 level=INFO msg="REGISTRATION SUCCEEDED" ais=9
+time=2026-06-25T14:53:35.725+02:00 level=INFO msg="server restart detected, re-registering" server_gen=62b9cb4a
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="loaded AIs" count=9
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="registering with arena" url=https://arena.arsac.org ais=9
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=edax-4.6-d10-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 10 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=edax-4.6-d14-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 14 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=edax-4.6-d6-e12 version=4.6 binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 6 -es 12 -nobook" engine_id=c080938d7616cebf
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d10-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 10 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d14-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 14 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=nrsi-0.1.0-d6-e12 version=0.1.0 binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights %share_dir%/eval-large.bin --depth 6 --es 12 -t %game_time%" engine_id=f59fff8dbf607980
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=egar-7.8.1-d10-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 10 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=egar-7.8.1-d14-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 14 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:35.729+02:00 level=INFO msg="  player" name=egar-7.8.1-d6-e12 version=7.8.1 binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 6 -es 12 -nobook" engine_id=899ee0c8fa0e98e4
+time=2026-06-25T14:53:35.829+02:00 level=INFO msg="REGISTRATION SUCCEEDED" ais=9
+time=2026-06-25T14:53:45.031+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 14 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=ff06bab8201132a3
+time=2026-06-25T14:53:45.531+02:00 level=INFO msg="engine health check OK" session=ff06bab8201132a3 name=neursi
+time=2026-06-25T14:53:45.890+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:53:51.014+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 6 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=990c1a1481a8b836
+time=2026-06-25T14:53:51.448+02:00 level=INFO msg="engine health check OK" session=990c1a1481a8b836 name=neursi
+time=2026-06-25T14:53:51.850+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 6 -es 12 -nobook" dir=/home/oliv/coach/engines/0d2e682ae5594707 session=3e9941d5d5836bf5
+time=2026-06-25T14:53:51.920+02:00 level=INFO msg="engine health check OK" session=3e9941d5d5836bf5 name="Edax 4.6 (adapter)"
+time=2026-06-25T14:53:52.758+02:00 level=INFO msg="engine exited" session=3e9941d5d5836bf5
+time=2026-06-25T14:53:52.759+02:00 level=INFO msg="engine exited" session=990c1a1481a8b836 stderr="[neursi] loaded NN weights from /home/oliv/coach/share/eval-large.bin\n[neursi] NN evaluation active, level=Neursi (full) (2430), depth=6"
+time=2026-06-25T14:53:57.392+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 10 -es 12 -nobook" dir=/home/oliv/coach/engines/0d2e682ae5594707 session=1c6a93f2d70ab3b6
+time=2026-06-25T14:53:57.464+02:00 level=INFO msg="engine health check OK" session=1c6a93f2d70ab3b6 name="Edax 4.6 (adapter)"
+time=2026-06-25T14:53:57.872+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 14 -es 12 -nobook" dir=/home/oliv/coach/engines/0d2e682ae5594707 session=3d41bf22f4fb016d
+time=2026-06-25T14:53:57.944+02:00 level=INFO msg="engine health check OK" session=3d41bf22f4fb016d name="Edax 4.6 (adapter)"
+time=2026-06-25T14:53:58.348+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 6 -es 12 -nobook" dir=/home/oliv/coach/engines/0d2e682ae5594707 session=c914430c16de19dd
+time=2026-06-25T14:53:58.415+02:00 level=INFO msg="engine health check OK" session=c914430c16de19dd name="Edax 4.6 (adapter)"
+time=2026-06-25T14:53:58.763+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d10-e12 version=6.1.0
+time=2026-06-25T14:53:58.763+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:53:58.763+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:53:58.763+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:53:58.821+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 10 -es 12 -nobook" dir=/home/oliv/coach/engines/5602a8eb6dbf5848 session=622ab80ce8c85940
+time=2026-06-25T14:53:59.229+02:00 level=INFO msg="engine exited" session=1c6a93f2d70ab3b6
+time=2026-06-25T14:53:59.230+02:00 level=INFO msg="engine exited" session=3d41bf22f4fb016d
+time=2026-06-25T14:53:59.290+02:00 level=INFO msg="engine health check OK" session=622ab80ce8c85940 name="Egaroucid for Console"
+time=2026-06-25T14:54:04.754+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 10 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=e04473901e32d949
+time=2026-06-25T14:54:05.175+02:00 level=INFO msg="engine health check OK" session=e04473901e32d949 name=neursi
+time=2026-06-25T14:54:05.582+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 14 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=9230bbae368ec05f
+time=2026-06-25T14:54:06.012+02:00 level=INFO msg="engine health check OK" session=9230bbae368ec05f name=neursi
+time=2026-06-25T14:54:06.410+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 6 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=0c54d03aa8ad52b8
+time=2026-06-25T14:54:06.860+02:00 level=INFO msg="engine health check OK" session=0c54d03aa8ad52b8 name=neursi
+time=2026-06-25T14:54:07.206+02:00 level=INFO msg="declining task (at capacity)" ai=nrsi-0.1.0-d6-e12 instances=1 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=1024 mem_total=8192
+time=2026-06-25T14:54:07.264+02:00 level=INFO msg="declining task (at capacity)" ai=edax-4.6-d14-e12 instances=0 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=128 mem_total=8192
+time=2026-06-25T14:54:07.321+02:00 level=INFO msg="declining task (at capacity)" ai=edax-4.6-d6-e12 instances=1 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=128 mem_total=8192
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d10-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d10-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d10-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:07.378+02:00 level=INFO msg="declining task (at capacity)" ai=egar-7.8.1-d10-e12 instances=1 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=128 mem_total=8192
+time=2026-06-25T14:54:07.435+02:00 level=INFO msg="declining task (at capacity)" ai=egar-7.8.1-d6-e12 instances=0 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=128 mem_total=8192
+time=2026-06-25T14:54:12.553+02:00 level=INFO msg="declining task (at capacity)" ai=nrsi-0.1.0-d10-e12 instances=1 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=1024 mem_total=8192
+time=2026-06-25T14:54:12.610+02:00 level=INFO msg="declining task (at capacity)" ai=edax-4.6-d10-e12 instances=0 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=128 mem_total=8192
+time=2026-06-25T14:54:12.667+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:12.667+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:12.667+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:12.667+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:12.667+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:12.667+02:00 level=INFO msg="declining task (at capacity)" ai=egar-7.8.1-d14-e12 instances=0 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=4352 mem_needed=128 mem_total=8192
+time=2026-06-25T14:54:17.786+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:17.786+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:17.786+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:17.786+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:22.844+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:22.844+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:22.844+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:22.844+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:27.906+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:27.906+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:27.906+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:27.906+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:32.969+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:32.970+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:54:32.970+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:54:32.970+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:55:05.655+02:00 level=WARN msg="heartbeat failed" err="Post \"https://arena.arsac.org/api/coach/heartbeat\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"
+time=2026-06-25T14:55:14.911+02:00 level=INFO msg="engine exited" session=9230bbae368ec05f stderr="[neursi] loaded NN weights from /home/oliv/coach/share/eval-large.bin\n[neursi] NN evaluation active, level=Neursi (full) (2430), depth=14"
+time=2026-06-25T14:55:14.913+02:00 level=INFO msg="engine exited" session=e04473901e32d949 stderr="[neursi] loaded NN weights from /home/oliv/coach/share/eval-large.bin\n[neursi] NN evaluation active, level=Neursi (full) (2430), depth=10"
+time=2026-06-25T14:55:35.660+02:00 level=WARN msg="heartbeat failed" err="Post \"https://arena.arsac.org/api/coach/heartbeat\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"
+time=2026-06-25T14:55:45.754+02:00 level=WARN msg="engine watchdog expired" session=ff06bab8201132a3 seconds=120
+time=2026-06-25T14:55:45.769+02:00 level=WARN msg="engine exited with error" session=ff06bab8201132a3 err="signal: killed" stderr="[neursi] loaded NN weights from /home/oliv/coach/share/eval-large.bin\n[neursi] NN evaluation active, level=Neursi (full) (2430), depth=14"
+time=2026-06-25T14:55:48.098+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 14 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=a2d89f5bc7739241
+time=2026-06-25T14:55:48.540+02:00 level=INFO msg="engine health check OK" session=a2d89f5bc7739241 name=neursi
+time=2026-06-25T14:55:48.918+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 6 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=6834e9191aec546c
+time=2026-06-25T14:55:49.350+02:00 level=INFO msg="engine health check OK" session=6834e9191aec546c name=neursi
+time=2026-06-25T14:55:49.729+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 10 -es 12 -nobook" dir=/home/oliv/coach/engines/0d2e682ae5594707 session=dccf5425ee209984
+time=2026-06-25T14:55:49.798+02:00 level=INFO msg="engine health check OK" session=dccf5425ee209984 name="Edax 4.6 (adapter)"
+time=2026-06-25T14:55:50.116+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:55:50.116+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:55:50.116+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:55:50.116+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:55:50.116+02:00 level=INFO msg="declining task (at capacity)" ai=egar-7.8.1-d14-e12 instances=0 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=3456 mem_needed=128 mem_total=8192
+time=2026-06-25T14:55:51.664+02:00 level=WARN msg="engine watchdog expired" session=990c1a1481a8b836 seconds=120
+time=2026-06-25T14:55:51.737+02:00 level=INFO msg="engine exited" session=6834e9191aec546c stderr="[neursi] loaded NN weights from /home/oliv/coach/share/eval-large.bin\n[neursi] NN evaluation active, level=Neursi (full) (2430), depth=6"
+time=2026-06-25T14:55:51.740+02:00 level=INFO msg="engine exited" session=dccf5425ee209984
+time=2026-06-25T14:55:52.138+02:00 level=WARN msg="engine watchdog expired" session=3e9941d5d5836bf5 seconds=120
+time=2026-06-25T14:55:55.284+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 6 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=ab3484d74b0b14d3
+time=2026-06-25T14:55:55.726+02:00 level=INFO msg="engine health check OK" session=ab3484d74b0b14d3 name=neursi
+time=2026-06-25T14:55:56.059+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:55:56.059+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:55:56.059+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:55:56.059+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:55:56.111+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/5602a8eb6dbf5848/egaroucid-gtp args="-d 14 -es 12 -nobook" dir=/home/oliv/coach/engines/5602a8eb6dbf5848 session=cf83e22704d7a403
+time=2026-06-25T14:55:56.578+02:00 level=INFO msg="engine health check OK" session=cf83e22704d7a403 name="Egaroucid for Console"
+time=2026-06-25T14:55:57.349+02:00 level=INFO msg="engine exited" session=ab3484d74b0b14d3 stderr="[neursi] loaded NN weights from /home/oliv/coach/share/eval-large.bin\n[neursi] NN evaluation active, level=Neursi (full) (2430), depth=6"
+time=2026-06-25T14:55:57.680+02:00 level=WARN msg="engine watchdog expired" session=1c6a93f2d70ab3b6 seconds=120
+time=2026-06-25T14:55:58.160+02:00 level=WARN msg="engine watchdog expired" session=3d41bf22f4fb016d seconds=120
+time=2026-06-25T14:55:58.634+02:00 level=WARN msg="engine watchdog expired" session=c914430c16de19dd seconds=120
+time=2026-06-25T14:55:58.639+02:00 level=WARN msg="engine exited with error" session=c914430c16de19dd err="signal: killed" stderr=""
+time=2026-06-25T14:55:59.505+02:00 level=WARN msg="engine watchdog expired" session=622ab80ce8c85940 seconds=120
+time=2026-06-25T14:55:59.532+02:00 level=WARN msg="engine exited with error" session=622ab80ce8c85940 err="signal: killed" stderr=""
+time=2026-06-25T14:56:02.009+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/21f330ae1ff55962/neursi args="--require-nn --weights /home/oliv/coach/share/eval-large.bin --depth 14 --es 12 -t 30" dir=/home/oliv/coach/engines/21f330ae1ff55962 session=1107d90f4d61bd7c
+time=2026-06-25T14:56:02.438+02:00 level=INFO msg="engine health check OK" session=1107d90f4d61bd7c name=neursi
+time=2026-06-25T14:56:02.817+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 10 -es 12 -nobook" dir=/home/oliv/coach/engines/0d2e682ae5594707 session=6dc11c9bd1911959
+time=2026-06-25T14:56:02.885+02:00 level=INFO msg="engine health check OK" session=6dc11c9bd1911959 name="Edax 4.6 (adapter)"
+time=2026-06-25T14:56:03.275+02:00 level=INFO msg="launching engine" binary=/home/oliv/coach/engines/0d2e682ae5594707/edax args="-d 14 -es 12 -nobook" dir=/home/oliv/coach/engines/0d2e682ae5594707 session=5b23fd8723606d62
+time=2026-06-25T14:56:03.348+02:00 level=INFO msg="engine health check OK" session=5b23fd8723606d62 name="Edax 4.6 (adapter)"
+time=2026-06-25T14:56:03.676+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:56:03.676+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d14-e12 version=6.1.0
+time=2026-06-25T14:56:03.676+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:56:03.676+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:56:03.676+02:00 level=WARN msg="task for unknown AI" name=neur-6.1.0-d6-e12 version=6.1.0
+time=2026-06-25T14:56:03.676+02:00 level=INFO msg="declining task (at capacity)" ai=egar-7.8.1-d10-e12 instances=0 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=3456 mem_needed=128 mem_total=8192
+time=2026-06-25T14:56:03.729+02:00 level=INFO msg="declining task (at capacity)" ai=egar-7.8.1-d10-e12 instances=0 max_instances=4 cores_used=6 cores_needed=1 cores_total=6 mem_used=3456 mem_needed=128 mem_total=8192
+time=2026-06-25T14:56:05.396+02:00 level=WARN msg="engine watchdog expired" session=e04473901e32d949 seconds=120
+time=2026-06-25T14:56:06.229+02:00 level=WARN msg="engine watchdog expired" session=9230bbae368ec05f seconds=120

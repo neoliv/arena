@@ -1,11 +1,14 @@
-Building Edax...
-cd /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/src && mkdir -p ../bin && CC=gcc BUILD=optimize ARCH=native make build
+Building Edax adapter...
+rm -rf coach-engine
+mkdir -p coach-engine/players.d coach-engine/data
+# Copy adapter to edax src dir, then compile edax-style
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/adapter.c /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/src/adapter_main.c
+cd /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/src && CC=gcc BUILD=optimize ARCH=native make adapter-build
 make[1]: Entering directory '/home/oliv/dev/agent/othello-refs/edax/src/src'
-building edax...
-gcc -std=c17 -pedantic -W -Wall -Wextra -pipe -D_GNU_SOURCE=1 -Ofast -fwhole-program -flto=auto -fomit-frame-pointer -DNDEBUG -march=native  all.c -o ../bin/lEdax-native -lm -lrt
+gcc -std=c17 -pedantic -W -Wall -Wextra -pipe -D_GNU_SOURCE=1 -Ofast -fwhole-program -flto=auto -fomit-frame-pointer -DNDEBUG -march=native  all_adapter.c -o ../bin/lEdax-native-adapter -lm -lrt
 In file included from stats.h:15,
                  from options.c:13,
-                 from all.c:12:
+                 from all_adapter.c:12:
 options.c: In function ‘options_read’:
 util.h:278:20: warning: unused variable ‘ggs_log’ [-Wunused-variable]
   278 |         extern Log ggs_log; \
@@ -13,7 +16,7 @@ util.h:278:20: warning: unused variable ‘ggs_log’ [-Wunused-variable]
 options.c:231:17: note: in expansion of macro ‘info’
   231 |                 info("<set option %s %s>\n", option, value);
       |                 ^~~~
-In file included from all.c:39:
+In file included from all_adapter.c:39:
 game.c: In function ‘game_export_pgn’:
 game.c:1226:29: warning: comparison is always true due to limited range of data type [-Wtype-limits]
  1226 |         if (game->date.hour >= 0) fprintf(f, "[Time \"%d.%d.%d\"]\n", game->date.hour, game->date.minute, game->date.second);
@@ -28,9 +31,7 @@ endgame.c:465:31: note: ‘bestmove’ was declared here
   465 |         int score, bestscore, bestmove;
       |                               ^
 make[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/edax/src/src'
-rm -rf coach-engine
-mkdir -p coach-engine/players.d coach-engine/data
-cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/bin/lEdax-native coach-engine/edax
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/bin/lEdax-native-adapter coach-engine/edax
 cp /home/oliv/dev/agent/othello-refs/coach-adapters/edax/../../edax/src/data/eval.dat coach-engine/data/
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
 coach-engine/ ready: 5 files

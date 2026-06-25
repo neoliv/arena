@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,7 @@ type Server struct {
 	DB            *db.DB
 	Token         string // master token (from env, may be empty)
 	ValidateToken func(string) bool
+	eloMu         sync.Mutex
 }
 
 func (s *Server) checkAuth(r *http.Request) bool {
@@ -437,6 +439,9 @@ func (s *Server) HandleBisectResult(w http.ResponseWriter, r *http.Request) {
 // ── Elo recomputation ──────────────────────────────────────────────────────
 
 func (s *Server) RecomputeElo(engineID int) {
+	s.eloMu.Lock()
+	defer s.eloMu.Unlock()
+
 	rows, _ := s.DB.Query(`SELECT g.id,g.black_id,g.white_id,g.result,g.match_id,eb.name,ew.name
 		FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id
 		WHERE (g.black_id=? OR g.white_id=?) AND COALESCE(g.disconnect,0)=0 ORDER BY g.created_at, g.id`, engineID, engineID)
