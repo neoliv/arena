@@ -1,4 +1,4 @@
-=== Arena Coach Update === (Thu Jun 25 02:56:06 PM CEST 2026)
+=== Arena Coach Update === (Thu Jun 25 07:37:10 PM CEST 2026)
 1. Coach binary...
 Already up to date.
    updated (binary changed)
@@ -9,37 +9,25 @@ Already up to date.
 
 ─── edax ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/edax
-   -> /home/oliv/coach/engines/0d2e682ae5594707/
+   -> /home/oliv/coach/engines/00b2c54b16733af4/
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid
-   -> /home/oliv/coach/engines/5602a8eb6dbf5848/
+   -> /home/oliv/coach/engines/3b7f94b9f384cf7c/
 
 ─── neural-reversi ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi
-   ERROR: build failed for neural-reversi
-   Last 10 lines:
-280 | |                 eprintln!("Failed to initialize UI: {err}");
-281 | |             });
-    | |_______________^ unreachable statement
-    |
-    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
-
-For more information about this error, try `rustc --explain E0599`.
-warning: `cli` (bin "cli") generated 1 warning
-error: could not compile `cli` (bin "cli") due to 1 previous error; 1 warning emitted
-make: *** [Makefile:13: coach-build] Error 101
-   Full log: /home/oliv/dev/agent/arena/log/.build-neural-reversi.log
+   -> /home/oliv/coach/engines/7859fe0d4bb35cf7/
 
 ─── neursi ───
    /home/oliv/dev/agent/neursi/engine
-   -> /home/oliv/coach/engines/21f330ae1ff55962/
+   -> /home/oliv/coach/engines/a6a4f5aa749bc3aa/
 
 ─── Reload ───
 Coach binary was updated — restarting service...
 Coach not running.
 
 === Done ===
-ERROR: 1 engine build(s) failed — check the log for details
-Deployed 9 players from /home/oliv/coach/engines
+12 players deployed from /home/oliv/coach/engines
+4 engines built successfully
 Log saved to: /home/oliv/dev/agent/arena/log/coach-update.log

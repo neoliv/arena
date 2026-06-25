@@ -273,7 +273,11 @@ func main() {
 				err := re.cmd.Wait()
 				stderrOut := strings.TrimSpace(re.stderrBuf.String())
 				if err != nil {
+					if stderrOut != "" && strings.Contains(stderrOut, "auto-exit") {
+					slog.Info("engine auto-exited cleanly", "session", sid, "stderr", strings.TrimSpace(stderrOut))
+				} else {
 					slog.Warn("engine exited with error", "session", sid, "err", err, "stderr", stderrOut)
+				}
 				} else if stderrOut != "" {
 					slog.Info("engine exited", "session", sid, "stderr", stderrOut)
 				} else {

@@ -42,13 +42,13 @@ warning: value assigned to `skipped_count` is never read
 warning: unused variable: `parity`
   --> src/endgame_edax.rs:59:75
    |
-59 | ...: u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
-   |                             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
+59 | ...u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
+   |                           ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
 
 warning: static `EDGE_STABILITY` is never used
    --> src/endgame.rs:177:8
     |
-177 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 2]> = std::sync:...
+177 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 2]> = std::s...
     |        ^^^^^^^^^^^^^^
     |
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
@@ -74,7 +74,7 @@ warning: function `count_last_flip` is never used
 warning: function `nws` is never used
    --> src/endgame_edax.rs:123:4
     |
-123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mut ...
+123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &...
     |    ^^^
 
 warning: associated function `verify` is never used
@@ -89,7 +89,7 @@ warning: associated function `verify` is never used
 warning: function `verify_byte_equivalence` is never used
  --> src/nnue_verify.rs:9:4
   |
-9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMmap) ...
+9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMm...
   |    ^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `benchmark_access` is never used
@@ -108,5 +108,5 @@ warning: unused import: `neursi::board::*`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 3.68s
+    Finished `release` profile [optimized] target(s) in 3.39s
 coach-engine/ ready: 4 files
