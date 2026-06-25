@@ -190,7 +190,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
-				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:14px;font-weight:600">%s</span><span style="color:#d4c4a8;font-size:14px;font-weight:600">%s</span></div>`, bName, wName)
+				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:18px;font-weight:700">%s</span><span style="color:#d4c4a8;font-size:18px;font-weight:700">%s</span></div>`, bName, wName)
 				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
 				// Grey "forced" zone for opening plies (rendered first = behind bars)
 				if openingPlies > 0 {
