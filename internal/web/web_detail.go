@@ -67,7 +67,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		statusBadge = ` <span style="color:#d4c4a8;font-weight:900">[WHITE TIMEOUT]</span>`
 	}
 	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.2em">
-		<div style="flex:1"><h1 style="margin:0;font-size:1.6em;font-weight:800">#%s <span style="font-weight:800">%d-%d</span>%s</h1></div>
+		<div style="flex:1"><h1 style="margin:0;font-size:1.6em;font-weight:800">#%s&nbsp;&nbsp;&nbsp;<span style="font-weight:800">%d-%d</span>%s</h1></div>
 		<div style="flex:1;text-align:right;font-size:1.1em;padding-right:1.5em"><span style="color:%s">(%.0f %+d)</span></div>
 		<div style="flex:1;text-align:left;font-size:1.1em;padding-left:1.5em"><span style="color:%s">(%+d %.0f)</span></div>
 		<div style="flex:1"></div></div>`,
