@@ -494,6 +494,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	cmd.Dir = filepath.Dir(parts[0])
 	var stderrBuf bytes.Buffer
 	stderrPipeR, stderrPipeW := io.Pipe()
+		// Drain stderr pipe to prevent engine blocking on writes
+		go func() { defer stderrPipeR.Close(); io.Copy(io.Discard, stderrPipeR) }()
 	engineLogDir := filepath.Join(logDir, "engines")
 	os.MkdirAll(engineLogDir, 0755)
 	errLog, _ := os.Create(filepath.Join(engineLogDir, sessionID+".err"))
@@ -501,35 +503,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	if errLog != nil { stderrWriters = io.MultiWriter(stderrWriters, errLog) }
 	cmd.Stderr = stderrWriters
 
-	// Parse edax search-log from stderr, store stats for the
-	// timing goroutine to merge into a single stats line.
+	// All engines now use # arena-stats v1: JSON on stdout.
 	var searchMu sync.Mutex
 	var searchNodes int64
 	var searchDepth int
 	var searchScore int
 	var adapterTimeMs int64
-	go func() {
-		defer stderrPipeR.Close()
-		scanner := bufio.NewScanner(stderrPipeR)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.Contains(line, "BEST MOVE FOUND") {
-				continue
-			}
-			var n int64; var d, s, dummy int
-			if _, err := fmt.Sscanf(line, "%d> => BEST MOVE FOUND! level = %d@", &dummy, &d); err == nil {
-				if idx := strings.Index(line, "score = "); idx >= 0 {
-					fmt.Sscanf(line[idx:], "score = %d", &s)
-				}
-				if idx := strings.Index(line, "nodes = "); idx >= 0 {
-					fmt.Sscanf(line[idx:], "nodes = %d N", &n)
-				}
-				searchMu.Lock()
-				searchNodes, searchDepth, searchScore = n, d, s
-				searchMu.Unlock()
-			}
-		}
-	}()
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 
@@ -637,7 +616,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 
 			var injectLine string
 			timingMu.Lock()
-			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && !strings.HasPrefix(line, "= nodes ") && len(strings.TrimPrefix(line, "= ")) > 0 {
+			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && len(strings.TrimPrefix(line, "= ")) > 0 {
 				lastElapsedMs = time.Since(genmoveStart).Milliseconds()
 				totalThinkMs += lastElapsedMs
 				genmoveStart = time.Time{}
@@ -669,17 +648,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				}
 				injectLine = fmt.Sprintf(`# time_ms %d {"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, timeMs, sn, sd, ss)
 			}
-			// If engine sent its own stats, enrich with real time.
-			// Legacy format: "= nodes X depth Y score Z" -> translate to JSON
-			if strings.HasPrefix(line, "= nodes ") {
-				injectLine = "" // engine provided data, skip injection
-				var ns struct{ N int64; D, S int }
-				fmt.Sscanf(line, "= nodes %d depth %d score %d", &ns.N, &ns.D, &ns.S)
-				statsJson := fmt.Sprintf(`{"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, ns.N, ns.D, ns.S)
-				rewritten := fmt.Sprintf("# time_ms %d %s", lastElapsedMs, statsJson)
-				raw = []byte(rewritten)
-				statsSent = true
-			}
+			// All engines use # arena-stats v1: JSON — no legacy format needed.
 			timingMu.Unlock()
 			if err := conn.Write(context.Background(), websocket.MessageText, raw); err != nil {
 				break

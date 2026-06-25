@@ -312,7 +312,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			// Prefer JSON format (# arena-stats v1: {...}), fall back to legacy.
 			var nodes int64
 			var depth int
-			var timeout bool
 			var score int
 			var coachMs float64
 			for {
@@ -333,15 +332,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 								nodes = ns.Nodes
 								depth = ns.Depth
 								score = ns.Score
-								timeout = ns.Timeout
-							}
-						} else {
-							// Legacy format: # time_ms X nodes Y depth Z score W timeout T
-							n, _ := fmt.Sscanf(s, "# time_ms %f nodes %d depth %d score %d timeout %t",
-								&coachMs, &nodes, &depth, &score, &timeout)
-							if n == 0 {
-								fmt.Sscanf(s, "# time_ms %f", &coachMs)
-							}
+								}
 						}
 						continue
 					}
