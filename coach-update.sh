@@ -175,12 +175,12 @@ else
     reload
 fi
 echo ""; echo "=== Done ==="
+PLAYER_COUNT=$(find "$COACH_DIR/engines" -name '*.yaml' -path '*/players.d/*' 2>/dev/null | wc -l)
+echo "Deployed $PLAYER_COUNT players from $COACH_DIR/engines"
 if [ $BUILD_ERRORS -gt 0 ]; then
     echo "ERROR: $BUILD_ERRORS engine build(s) failed — check the log for details"
 else
     echo "All $BUILD_COUNT engines built successfully"
 fi
-PLAYER_COUNT=$(find "$COACH_DIR/engines" -name '*.yaml' -path '*/players.d/*' 2>/dev/null | wc -l)
-echo "Deployed $PLAYER_COUNT players from $COACH_DIR/engines"
 echo "Log saved to: $SCRIPT_DIR/log/coach-update.log"
 $DRY_RUN && echo "(dry run — no changes made)"
