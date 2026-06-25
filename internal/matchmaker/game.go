@@ -124,6 +124,10 @@ func playGames(ctx context.Context, black, white coach.Stream, numGames int, gam
 
 		gr := playOneGame(ctx, e1, e2, opening, gameTimeSec, bName, wName, assignmentID, i)
 		results = append(results, gr)
+		if gr.Disconnect {
+			slog.Warn("game disconnected, stopping match pair", "assign", assignmentID, "game", i+1)
+			break
+		}
 	}
 	return results
 }
@@ -221,7 +225,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		t0 := time.Now()
 		resp, err := wsSend(current, "genmove "+sideToMove, gameTimeSec)
 		elapsed := time.Since(t0).Seconds()
-		slog.Info("genmove", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "move", strings.TrimSpace(resp)[:min(60, len(strings.TrimSpace(resp)))], "ms", int(elapsed*1000))
 		if sideToMove == "b" {
 			gr.BlackTimeS += elapsed
 		} else {
@@ -229,6 +232,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		if err != nil {
+			slog.Error("genmove failed", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err, "elapsed_ms", int(elapsed*1000))
 			// "read timeout" = engine hung, counts as loss
 			// "stream closed" / "write timeout" = infrastructure, no Elo
 			isInfra := strings.Contains(err.Error(), "stream closed") || strings.Contains(err.Error(), "write timeout")
@@ -297,9 +301,14 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		if sideToMove == "w" {
 			opponent = black
 		}
-		playResp, _ := wsSend(opponent, "play "+sideToMove+" "+mv, 10)
-		if strings.HasPrefix(playResp, "?") {
-			slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
+		playResp, err := wsSend(opponent, "play "+sideToMove+" "+mv, 10)
+		if err != nil || strings.HasPrefix(playResp, "?") {
+			if err != nil {
+				slog.Error("play send failed (opponent stream)", "assign", assignmentID, "game", gameIdx+1, "move", mv, "err", err)
+				gr.Disconnect = true
+			} else {
+				slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
+			}
 			if sideToMove == "b" {
 				gr.Result = "1-0"
 			} else {

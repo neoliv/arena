@@ -403,8 +403,6 @@ func (m *MatchMaker) executeMatch(assignmentID int) {
 	slog.Info("matchmaker match complete", "assignment", assignmentID, "match", matchID)
 	m.DB.UpdateAssignmentStatus(assignmentID, "completed", "")
 
-	m.Relay.Cleanup(a.Session1ID)
-	m.Relay.Cleanup(a.Session2ID)
 	select { case m.wakeup <- struct{}{}: default: }
 }
 

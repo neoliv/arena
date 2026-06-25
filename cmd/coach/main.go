@@ -583,7 +583,6 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 	// stdout → WS: track genmove response timing and always
 	// emit a stats line with real wall-clock time.
 	var lastElapsedMs int64
-	statsSent := false
 	go func() {
 		defer conn.Close(websocket.StatusNormalClosure, "done")
 		scanner := bufio.NewScanner(stdout)
@@ -620,7 +619,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				lastElapsedMs = time.Since(genmoveStart).Milliseconds()
 				totalThinkMs += lastElapsedMs
 				genmoveStart = time.Time{}
-				statsSent = false
+
 				if totalThinkMs > budgetMs {
 					engineTimedOut = true
 					timingMu.Unlock()
@@ -654,12 +653,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 				break
 			}
 			if injectLine != "" {
-				timingMu.Lock()
-				sent := statsSent
-				timingMu.Unlock()
-				if !sent {
-					conn.Write(context.Background(), websocket.MessageText, []byte(injectLine))
-				}
+				conn.Write(context.Background(), websocket.MessageText, []byte(injectLine))
 			}
 		}
 	}()
