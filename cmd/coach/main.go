@@ -646,6 +646,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, relayPath, session
 					engineTimedOut = true
 					timingMu.Unlock()
 					slog.Warn("engine time budget exceeded", "session", sessionID, "total_ms", totalThinkMs, "budget_ms", budgetMs)
+					// Signal timeout to matchmaker before closing connection
+					conn.Write(context.Background(), websocket.MessageText, []byte("? timeout"))
 					cmd.Process.Kill()
 					return
 				}
