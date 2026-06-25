@@ -1,4 +1,4 @@
-=== Arena Coach Update === (Fri Jun 26 12:57:37 AM CEST 2026)
+=== Arena Coach Update === (Fri Jun 26 01:17:41 AM CEST 2026)
 1. Coach binary...
 Already up to date.
    updated (binary changed)
@@ -9,23 +9,11 @@ Already up to date.
 
 ─── edax ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/edax
-   -> /home/oliv/coach/engines/ec76d24e1d984b3d/
+   -> /home/oliv/coach/engines/da0475f5ccdc3555/
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid
-   ERROR: build failed for egaroucid
-   Last 10 lines:
-   18 | #include "engine/level.hpp"
-      |          ^~~~~~~~~~~~~~~~~~
-compilation terminated.
-gmake[4]: *** [CMakeFiles/Egaroucid_for_Console.out.dir/build.make:79: CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o] Error 1
-gmake[3]: *** [CMakeFiles/Makefile2:87: CMakeFiles/Egaroucid_for_Console.out.dir/all] Error 2
-gmake[2]: *** [CMakeFiles/Makefile2:94: CMakeFiles/Egaroucid_for_Console.out.dir/rule] Error 2
-gmake[1]: *** [Makefile:124: Egaroucid_for_Console.out] Error 2
-gmake[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
-ERROR: Egaroucid build failed
-make: *** [Makefile:13: coach-build] Error 1
-   Full log: /home/oliv/dev/agent/arena/log/.build-egaroucid.log
+   -> /home/oliv/coach/engines/c0eb2242360c69a9/
 
 ─── neural-reversi ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi
@@ -40,6 +28,6 @@ Coach binary was updated — restarting service...
 Coach not running.
 
 === Done ===
-9 players deployed from /home/oliv/coach/engines
-ERROR: 1 engine build(s) failed — check the log for details
+12 players deployed from /home/oliv/coach/engines
+4 engines built successfully
 Log saved to: /home/oliv/dev/agent/arena/log/coach-update.log

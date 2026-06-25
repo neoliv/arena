@@ -76,16 +76,14 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		<div style="flex:2"></div></div>`,
 		id, bScore, wScore, statusBadge)
 	// Line 2: player info (black right, white left)
-	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.3em">
-		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:1.05em"><span style="color:%s">%s %.0f %+d</span></div>
-		<div style="flex:1"></div>
-		<div style="flex:2;text-align:left;padding-left:1.5em;font-size:1.05em"><span style="color:%s">%+d %.0f %s</span></div></div>`,
-		deltaColor(bDelta), bNameEsc, bElo, int(bDelta), deltaColor(wDelta), int(wDelta), wElo, wNameEsc)
+	fmt.Fprintf(w, `<div style="display:flex;justify-content:center;gap:3em;margin-bottom:.3em">
+		<div style="text-align:right;font-size:1.05em"><span style="color:#22d3ee">%s</span> <span style="color:#e8e6e3">%.0f</span> <span style="color:%s">%+d</span></div>
+		<div style="text-align:left;font-size:1.05em"><span style="color:%s">%+d</span> <span style="color:#e8e6e3">%.0f</span> <span style="color:#d4c4a8">%s</span></div></div>`,
+		bNameEsc, bElo, deltaColor(bDelta), int(bDelta), deltaColor(wDelta), int(wDelta), wElo, wNameEsc)
 	// Line 3: version links
-	fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;margin-bottom:.6em">
-		<div style="flex:2;text-align:right;padding-right:1.5em;font-size:.95em"><a href="/engines/%s">%s</a></div>
-		<div style="flex:1"></div>
-		<div style="flex:2;text-align:left;padding-left:1.5em;font-size:.95em"><a href="/engines/%s">%s</a></div></div>`,
+	fmt.Fprintf(w, `<div style="display:flex;justify-content:center;gap:3em;margin-bottom:.6em">
+		<div style="text-align:right;font-size:.95em"><a href="/engines/%s">%s</a></div>
+		<div style="text-align:left;font-size:.95em"><a href="/engines/%s">%s</a></div></div>`,
 		bNameEsc, htmlEscape(bVer), wNameEsc, htmlEscape(wVer))
 
 	bUnspent := 0.0

@@ -16,17 +16,11 @@ cd /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/sr
 -- Build files have been written to: /home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach
 gmake[1]: Entering directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
 [ 50%] Building CXX object CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o
-In file included from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/console/close.hpp:14,
-                 from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/console/console_all.hpp:13,
-                 from /home/oliv/dev/agent/othello-refs/egaroucid/src/src/Egaroucid_for_Console.cpp:13:
-/home/oliv/dev/agent/othello-refs/egaroucid/src/src/console/option.hpp:18:10: fatal error: engine/level.hpp: No such file or directory
-   18 | #include "engine/level.hpp"
-      |          ^~~~~~~~~~~~~~~~~~
-compilation terminated.
-gmake[4]: *** [CMakeFiles/Egaroucid_for_Console.out.dir/build.make:79: CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o] Error 1
-gmake[3]: *** [CMakeFiles/Makefile2:87: CMakeFiles/Egaroucid_for_Console.out.dir/all] Error 2
-gmake[2]: *** [CMakeFiles/Makefile2:94: CMakeFiles/Egaroucid_for_Console.out.dir/rule] Error 2
-gmake[1]: *** [Makefile:124: Egaroucid_for_Console.out] Error 2
+[100%] Linking CXX executable /home/oliv/dev/agent/othello-refs/egaroucid/src/bin/Egaroucid_for_Console.out
+[100%] Built target Egaroucid_for_Console.out
 gmake[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
-ERROR: Egaroucid build failed
-make: *** [Makefile:13: coach-build] Error 1
+mkdir -p coach-engine/players.d
+cp /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/src/bin/Egaroucid_for_Console.out coach-engine/egaroucid-gtp || { echo "ERROR: Egaroucid binary not found"; exit 1; }
+cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
+cp -r /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/src/bin/resources coach-engine/ 2>/dev/null || true
+coach-engine/ ready: 42 files
