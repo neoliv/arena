@@ -147,9 +147,13 @@ func main() {
 	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)
 	mux.HandleFunc("POST /api/matchmaker/complete", mm.HandleComplete)
 
+	// Per-player resource stats (coach reports real CPU/RAM every ~20s).
+	resourceStore := coach.NewPlayerResourceStore()
+	mux.HandleFunc("POST /api/coach/resources", resourceStore.HandleResources)
+
 	sessions := web.NewSessionStore(database)
 	limiter := web.NewRateLimiter()
-	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus}
+	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus, ResourceStore: resourceStore}
 	webHandler.RegisterRoutes(mux)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

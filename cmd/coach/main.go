@@ -15,11 +15,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -65,6 +67,11 @@ type runningEngine struct {
 	cmd       *exec.Cmd
 	cancel    context.CancelFunc
 	sessionID string
+	// killReason distinguishes time-budget kills (engine loss) from
+	// infrastructure kills (no partner — no penalty).
+	// "": still running; "timeout": engine exceeded time budget;
+	// "nopartner": watchdog fired with no game activity.
+	killReason string
 }
 
 // assignment is a single side assignment from the matchmaker.
@@ -86,13 +93,18 @@ func main() {
 	playersDir := flag.String("players", "players.d", "Directory containing player .yaml files")
 	showVer   := flag.Bool("version", false, "Print version and exit")
 	aisFilter := flag.String("ais", "", "Comma-separated list of AI names to load from coach.d/ (default: all)")
+	debug     := flag.Bool("debug", false, "Enable debug-level logging (shows capacity skips, etc.)")
 	handleShortFlags("coach")
 	flag.Parse()
 
+	logLevel := slog.LevelDebug
+	if !*debug {
+		logLevel = slog.LevelInfo
+	}
 	logDir := filepath.Join(os.Getenv("HOME"), "dev", "agent", "arena", "log")
 	os.MkdirAll(logDir, 0755)
 	if lf, err := os.Create(filepath.Join(logDir, "coach.log")); err == nil {
-		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: slog.LevelInfo})))
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: logLevel})))
 	}
 	slog.Info("coach starting", "pid", os.Getpid(), "log_dir", logDir)
 
@@ -247,6 +259,9 @@ func main() {
 	notifyChange := make(chan struct{}, 1)
 	go heartbeatLoop(ctx, client, cfg, &mu, &cfgMu, running, loadAndRegister, notifyChange)
 
+	// ── Core usage sampler ───────────────────────────────────────────
+	go coreSampler(ctx, cfg, &mu, running)
+
 	// ── Assignment poll loop ──────────────────────────────────────────
 	// Replaces the old task-based push model. The coach polls the
 	// matchmaker for assignments, launches engines, and bridges them
@@ -254,13 +269,44 @@ func main() {
 	// connect.
 	slog.Info("starting assignment poll loop")
 	lastReReg := time.Now().Add(-5 * time.Minute)
+	consecutiveFailures := 0
 	for ctx.Err() == nil {
 		if time.Since(lastReReg) > 5*time.Minute {
 			loadAndRegister()
 			lastReReg = time.Now()
 		}
 
-		assignments := pollAssignments(client, cfg)
+		assignments, pollOK := pollAssignments(client, cfg, 8) // up to 4 pairs × 2 sides
+		if !pollOK {
+			// Arena unreachable — exponential backoff.
+			consecutiveFailures++
+			delay := time.Duration(consecutiveFailures) * 5 * time.Second
+			if delay > 60*time.Second { delay = 60 * time.Second }
+			slog.Warn("poll failed (arena unreachable?), backing off", "delay_s", delay.Seconds(), "failures", consecutiveFailures)
+			select {
+			case <-ctx.Done(): break
+			case <-time.After(delay):
+			}
+			continue
+		}
+		if consecutiveFailures > 0 {
+			// Arena is back — re-register immediately (it may have restarted).
+			slog.Info("arena reconnected after failures, re-registering", "failures", consecutiveFailures)
+			loadAndRegister()
+			lastReReg = time.Now()
+		}
+		consecutiveFailures = 0
+
+		if len(assignments) == 0 {
+			mu.Lock()
+			idle := len(running)
+			mu.Unlock()
+			if idle == 0 {
+				slog.Warn("poll returned no assignments and no engines running — matchmaker may be stale")
+			}
+		} else {
+			slog.Info("poll received assignments", "count", len(assignments))
+		}
 		for _, a := range assignments {
 			cfgMu.RLock()
 			ai := findAIByKey(cfg, a.Engine)
@@ -327,7 +373,18 @@ func main() {
 			go func(sid string, engineKey string) {
 				err := re.cmd.Wait()
 				if err != nil {
-					slog.Warn("engine exited with error", "session", sid, "err", err)
+					switch re.killReason {
+					case "timeout":
+						slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sid, "err", err)
+					case "nopartner":
+						slog.Warn("engine INFRASTRUCTURE KILL (no partner) — no penalty", "session", sid, "err", err)
+						// Infrastructure failures don't count against the engine.
+						mu.Lock()
+						delete(healthErrors, engineKey)
+						mu.Unlock()
+					default:
+						slog.Warn("engine exited with error", "session", sid, "err", err)
+					}
 				} else {
 					slog.Info("engine exited cleanly", "session", sid)
 					// Clear any previous health errors on clean exit.
@@ -560,9 +617,18 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 		json.NewDecoder(resp.Body).Decode(&hb)
 		resp.Body.Close()
 		if hb.ServerGen != "" && hb.ServerGen != lastServerGen {
-			slog.Info("server restart detected, re-registering", "server_gen", hb.ServerGen[:min(8, len(hb.ServerGen))])
-			lastServerGen = hb.ServerGen
-			reload()
+			if lastServerGen == "" {
+				// First heartbeat — just record the generation, don't reload.
+				lastServerGen = hb.ServerGen
+			} else {
+				slog.Info("server restart detected — killing orphaned engines and re-registering",
+					"server_gen", hb.ServerGen[:min(8, len(hb.ServerGen))])
+				lastServerGen = hb.ServerGen
+				// Server restart means all relay sessions are gone.
+				// Kill running engines immediately to free cores.
+				killAllRunning(mu, running)
+				reload()
+			}
 		}
 	}
 
@@ -590,21 +656,21 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 
 // ── Assignment polling ───────────────────────────────────────────────────
 
-func pollAssignments(client *http.Client, cfg config) []assignment {
-	req, _ := http.NewRequest("GET", cfg.ArenaURL+"/api/matchmaker/poll?coach="+cfg.CoachID, nil)
+func pollAssignments(client *http.Client, cfg config, n int) ([]assignment, bool) {
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/matchmaker/poll?coach=%s&n=%d", cfg.ArenaURL, cfg.CoachID, n), nil)
 	if cfg.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	defer resp.Body.Close()
 	var result struct {
 		Assignments []assignment `json:"assignments"`
 	}
 	json.NewDecoder(resp.Body).Decode(&result)
-	return result.Assignments
+	return result.Assignments, true
 }
 
 // ── Engine lifecycle ─────────────────────────────────────────────────────
@@ -689,6 +755,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir 
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
 
+	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID}
+
 	// GTP-aware timing: track genmove wall-clock time and enforce
 	// the time budget. The matchmaker no longer sends game_time GTP
 	// commands — time enforcement is coach-side.
@@ -742,9 +810,11 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir 
 
 				if totalThinkMs > budgetMs {
 					engineTimedOut = true
+					re.killReason = "timeout"
 					timingMu.Unlock()
-					slog.Warn("engine time budget exceeded", "session", sessionID, "total_ms", totalThinkMs, "budget_ms", budgetMs)
+					slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sessionID, "total_ms", totalThinkMs, "budget_ms", budgetMs)
 					conn.Write(context.Background(), websocket.MessageText, []byte("? timeout"))
+					time.Sleep(50 * time.Millisecond) // let ? timeout propagate before kill closes WS
 					cmd.Process.Kill()
 					return
 				}
@@ -796,8 +866,6 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir 
 		}
 	}()
 
-	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID}
-
 	// Watchdog: if the engine doesn't respond at all within
 	// 2x the per-game budget (for 2 games), kill it.
 	if gameTimeSec > 0 {
@@ -817,7 +885,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir 
 			timedOut := engineTimedOut
 			timingMu.Unlock()
 			if !timedOut {
-				slog.Warn("engine watchdog expired", "session", sessionID, "seconds", wdSec)
+				re.killReason = "nopartner"
+				slog.Warn("engine INFRASTRUCTURE KILL (no partner found)", "session", sessionID, "seconds", wdSec)
 				cmd.Process.Kill()
 			}
 		}()
@@ -943,6 +1012,272 @@ func totalMem(cfg config) int {
 		return cfg.MaxRAMMB
 	}
 	return 256
+}
+
+// ── Core usage sampler + resource reporter ──────────────────────────
+// Samples actual CPU time (via /proc/[pid]/stat) and Pss memory (via
+// /proc/[pid]/smaps_rollup) for every running engine process including
+// children. A core is counted as "used" only if the engine is computing.
+//
+// Three cadences:
+//   - 1s: sample CPU/Pss, accumulate per-player stats
+//   - 20s: POST per-player stats to arena, reset interval accumulators
+//   - 10min: log detailed summary (existing behavior)
+
+func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[string]*runningEngine) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	sendTicker := time.NewTicker(20 * time.Second)
+	defer sendTicker.Stop()
+	reportTicker := time.NewTicker(10 * time.Minute)
+	defer reportTicker.Stop()
+	totalCores := float64(totalCores(cfg))
+	var sumUtil, sumIdle float64
+	var samples int64
+
+	// Per-PID last-seen CPU tick count (monotonic, from /proc/[pid]/stat).
+	prevCPU := make(map[int]uint64)
+
+	// Interval (20s) and cumulative (since start) per-player accumulators.
+	type playerAgg struct {
+		cpu, rss   metricAgg
+		instances  int // max instances seen in this window
+	}
+	intervalAcc := make(map[string]*playerAgg)
+	cumulativeAcc := make(map[string]*playerAgg)
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			mu.Lock()
+			type entry struct {
+				pid       int
+				playerKey string
+			}
+			var entries []entry
+			for _, re := range running {
+				if re.cmd != nil && re.cmd.Process != nil {
+					entries = append(entries, entry{re.cmd.Process.Pid, re.ai.Name + ":" + re.ai.Version})
+				}
+			}
+			mu.Unlock()
+
+			var usedCPU float64
+			instCounts := make(map[string]int)
+			for _, e := range entries {
+				ticks := readProcessCPUTicks(e.pid)
+				pssKB := readProcessPss(e.pid)
+				delta := float64(0)
+				if prev, ok := prevCPU[e.pid]; ok && ticks >= prev {
+					delta = float64(ticks-prev) / 100.0
+				}
+				prevCPU[e.pid] = ticks
+				usedCPU += delta
+				cpuPct := delta
+				idle := cpuPct < 0.01
+				if idle { sumIdle++ }
+				rssMB := float64(pssKB) / 1024.0
+
+				// Accumulate into interval + cumulative
+				for _, accMap := range []map[string]*playerAgg{intervalAcc, cumulativeAcc} {
+					pa := accMap[e.playerKey]
+					if pa == nil {
+						pa = &playerAgg{}
+						pa.cpu.min, pa.rss.min = 1e9, 1e9
+						accMap[e.playerKey] = pa
+					}
+					addMetric(&pa.cpu, cpuPct)
+					addMetric(&pa.rss, rssMB)
+				}
+				instCounts[e.playerKey]++
+			}
+			// Update per-player instance counts in interval accumulator
+			for k, n := range instCounts {
+				if intervalAcc[k] != nil && n > intervalAcc[k].instances {
+					intervalAcc[k].instances = n
+				}
+				if cumulativeAcc[k] != nil && n > cumulativeAcc[k].instances {
+					cumulativeAcc[k].instances = n
+				}
+			}
+			// Clean up stale PIDs
+			for pid := range prevCPU {
+				found := false
+				for _, e := range entries {
+					if e.pid == pid { found = true; break }
+				}
+				if !found { delete(prevCPU, pid) }
+			}
+
+			if usedCPU > totalCores { usedCPU = totalCores }
+			sumUtil += usedCPU / totalCores
+			samples++
+
+		case <-sendTicker.C:
+			// Build payload from interval accumulators
+		var players []map[string]interface{}
+		for key, pa := range intervalAcc {
+			name, ver := splitPlayerKey(key)
+			// Look up declared resource allocation from engine config
+			memMB := 64 // default
+			mu.Lock()
+			for _, re := range running {
+				rKey := re.ai.Name + ":" + re.ai.Version
+				if rKey == key {
+					if re.ai.MemoryMB > 0 { memMB = re.ai.MemoryMB }
+					break
+				}
+			}
+			mu.Unlock()
+			players = append(players, map[string]interface{}{
+				"name": name, "version": ver,
+				"instances": pa.instances,
+				"memory_mb": memMB,
+				"interval": map[string]interface{}{
+					"cpu_pct": metricSummary(&pa.cpu),
+					"rss_mb":  metricSummary(&pa.rss),
+				},
+				"cumulative": map[string]interface{}{
+					"cpu_pct": metricSummary(&cumulativeAcc[key].cpu),
+					"rss_mb":  metricSummary(&cumulativeAcc[key].rss),
+				},
+			})
+		}
+			// Reset interval accumulators
+			intervalAcc = make(map[string]*playerAgg)
+
+			go func(pl []map[string]interface{}) {
+				body := map[string]interface{}{
+					"coach_id": cfg.CoachID,
+					"players":  pl,
+				}
+				var buf bytes.Buffer
+				json.NewEncoder(&buf).Encode(body)
+				req, _ := http.NewRequest("POST", cfg.ArenaURL+"/api/coach/resources", &buf)
+				req.Header.Set("Content-Type", "application/json")
+				if cfg.Token != "" {
+					req.Header.Set("Authorization", "Bearer "+cfg.Token)
+				}
+				resp, err := httpClient.Do(req)
+				if err != nil {
+					slog.Warn("resource stats POST failed", "err", err, "players", len(pl))
+					return
+				}
+				resp.Body.Close()
+				// Log a one-line summary of what was reported
+				var parts []string
+				for _, p := range pl {
+					ival := p["interval"].(map[string]interface{})
+					cpu := ival["cpu_pct"].(map[string]float64)
+					rss := ival["rss_mb"].(map[string]float64)
+					parts = append(parts, fmt.Sprintf("%s:%s cpu=%.0f%% rss=%.0fMB", p["name"], p["version"], cpu["avg"]*100, rss["avg"]))
+				}
+				slog.Debug("resource stats reported", "players", len(pl), "summary", strings.Join(parts, ", "))
+			}(players)
+
+		case <-reportTicker.C:
+			if samples == 0 { continue }
+			avgUtil := sumUtil / float64(samples)
+			avgIdle := sumIdle / float64(samples)
+			slog.Info("core usage (real CPU)", "avg_utilization", fmt.Sprintf("%.1f%%", avgUtil*100),
+				"avg_idle_engines", fmt.Sprintf("%.1f", avgIdle),
+				"cores_total", int(totalCores), "samples", samples, "interval", "10m")
+			for key, pa := range cumulativeAcc {
+				n := float64(pa.cpu.count)
+				if n == 0 { continue }
+				cpuAvg := pa.cpu.sum / n
+				rssAvg := pa.rss.sum / n
+				cpuStd := math.Sqrt(pa.cpu.sumSq/n - cpuAvg*cpuAvg)
+				rssStd := math.Sqrt(pa.rss.sumSq/n - rssAvg*rssAvg)
+				slog.Info("player resource stats", "player", key,
+					"cpu_pct", fmt.Sprintf("min=%.0f max=%.0f avg=%.0f std=%.0f", pa.cpu.min*100, pa.cpu.max*100, cpuAvg*100, cpuStd*100),
+					"rss_mb", fmt.Sprintf("min=%.0f max=%.0f avg=%.0f std=%.0f", pa.rss.min, pa.rss.max, rssAvg, rssStd),
+					"samples", pa.cpu.count)
+			}
+			sumUtil, sumIdle, samples = 0, 0, 0
+		}
+	}
+}
+
+func addMetric(m *metricAgg, v float64) {
+	m.sum += v; m.sumSq += v * v; m.count++
+	if v < m.min { m.min = v }
+	if v > m.max { m.max = v }
+}
+
+type metricAgg struct {
+	sum, sumSq, min, max float64
+	count                int
+}
+
+func metricSummary(m *metricAgg) map[string]float64 {
+	if m.count == 0 { return map[string]float64{"min": 0, "max": 0, "avg": 0, "std": 0} }
+	avg := m.sum / float64(m.count)
+	variance := m.sumSq/float64(m.count) - avg*avg
+	if variance < 0 { variance = 0 }
+	return map[string]float64{"min": m.min, "max": m.max, "avg": avg, "std": math.Sqrt(variance)}
+}
+
+func splitPlayerKey(key string) (name, version string) {
+	idx := strings.LastIndex(key, ":")
+	if idx < 0 { return key, "unknown" }
+	return key[:idx], key[idx+1:]
+}
+
+// readProcessCPUTicks reads total CPU ticks (utime+stime+cutime+cstime)
+// from /proc/[pid]/stat for the process including its children.
+func readProcessCPUTicks(pid int) uint64 {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil { return 0 }
+	s := string(data)
+	closeParen := strings.LastIndexByte(s, ')')
+	if closeParen < 0 { return 0 }
+	parts := strings.Fields(s[closeParen+2:])
+	if len(parts) < 15 { return 0 }
+	utime, _ := strconv.ParseUint(parts[11], 10, 64)
+	stime, _ := strconv.ParseUint(parts[12], 10, 64)
+	cutime, _ := strconv.ParseUint(parts[13], 10, 64)
+	cstime, _ := strconv.ParseUint(parts[14], 10, 64)
+	return utime + stime + cutime + cstime
+}
+
+// readProcessPss reads Proportional Set Size in KiB from /proc/[pid]/smaps_rollup.
+// Pss divides shared pages (e.g. mmapped NNUE weights) evenly among all
+// processes sharing them — 4 neursi instances sharing 610MB weights each
+// report ~152MB Pss instead of 610MB RSS.
+func readProcessPss(pid int) uint64 {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/smaps_rollup", pid))
+	if err != nil { return 0 }
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "Pss:") {
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				v, _ := strconv.ParseUint(f[1], 10, 64)
+				return v
+			}
+		}
+	}
+	return 0
+}
+
+// killAllRunning kills all engine subprocesses and clears the running map.
+// Used when the arena server restarts — all relay sessions are gone and
+// running engines are orphaned (consuming cores doing nothing).
+func killAllRunning(mu *sync.Mutex, running map[string]*runningEngine) {
+	mu.Lock()
+	defer mu.Unlock()
+	n := len(running)
+	for sid, re := range running {
+		re.killReason = "nopartner"
+		re.cmd.Process.Kill()
+		delete(running, sid)
+	}
+	slog.Info("killed orphaned engines after server restart", "count", n)
 }
 
 func handleShortFlags(name string) {

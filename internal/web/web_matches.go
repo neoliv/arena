@@ -10,7 +10,7 @@ import (
 
 func (h *Handler) handleMatches(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	open, closing := htmxWrap(r, ".")
+	open, closing := htmxWrap(r)
 	io.WriteString(w, open+`<h1>Matches</h1>`+filterBox)
 
 	var inProgressCount int

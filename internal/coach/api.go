@@ -249,3 +249,97 @@ func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOK(w, map[string]any{"ok": true, "server_gen": h.ServerGen})
 }
+
+// ── Per-player resource stats (in-memory, sent by coaches every ~20s) ─
+
+// MinMaxAvgStd holds statistical summary of a metric.
+type MinMaxAvgStd struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
+	Avg float64 `json:"avg"`
+	Std float64 `json:"std"`
+}
+
+// ResourceWindow holds CPU and RAM stats for one aggregation window.
+type ResourceWindow struct {
+	CPUPct MinMaxAvgStd `json:"cpu_pct"`
+	RSSMb  MinMaxAvgStd `json:"rss_mb"`
+}
+
+// PlayerResourceSnapshot is a point-in-time resource usage report for one player.
+type PlayerResourceSnapshot struct {
+	Name       string         `json:"name"`
+	Version    string         `json:"version"`
+	CoachID    string         `json:"coach_id"`
+	Instances  int            `json:"instances"`
+	MemoryMB   int            `json:"memory_mb"` // declared RAM allocation from player config
+	Interval   ResourceWindow `json:"interval"`
+	Cumulative ResourceWindow `json:"cumulative"`
+	UpdatedAt  time.Time      `json:"-"`
+}
+
+// PlayerResourceStore holds the latest resource snapshot per player key.
+type PlayerResourceStore struct {
+	mu    sync.RWMutex
+	stats map[string]*PlayerResourceSnapshot // key: "name:version"
+}
+
+// NewPlayerResourceStore creates a new store.
+func NewPlayerResourceStore() *PlayerResourceStore {
+	return &PlayerResourceStore{stats: make(map[string]*PlayerResourceSnapshot)}
+}
+
+// Update replaces the snapshot for each player in the payload.
+func (s *PlayerResourceStore) Update(players []PlayerResourceSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for _, p := range players {
+		key := p.Name + ":" + p.Version
+		if existing, ok := s.stats[key]; ok {
+			// Preserve stats from other coaches for the same engine
+			if existing.CoachID == p.CoachID {
+				*existing = p
+				existing.UpdatedAt = now
+			} else {
+				// Different coach, different entry
+				p.UpdatedAt = now
+				s.stats[key+"@"+p.CoachID] = &p
+			}
+		} else {
+			p.UpdatedAt = now
+			s.stats[key] = &p
+		}
+	}
+}
+
+// GetAll returns fresh snapshots (updated within staleness).
+func (s *PlayerResourceStore) GetAll(staleTimeout time.Duration) []*PlayerResourceSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	now := time.Now()
+	var out []*PlayerResourceSnapshot
+	for _, p := range s.stats {
+		if now.Sub(p.UpdatedAt) <= staleTimeout {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// HandleResources receives per-player resource stats from a coach.
+func (s *PlayerResourceStore) HandleResources(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CoachID string                   `json:"coach_id"`
+		Players []PlayerResourceSnapshot `json:"players"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid JSON"}`, 400)
+		return
+	}
+	for i := range req.Players {
+		req.Players[i].CoachID = req.CoachID
+	}
+	s.Update(req.Players)
+	jsonOK(w, map[string]any{"ok": true})
+}

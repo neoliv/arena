@@ -10,7 +10,7 @@ import (
 
 func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	open, closing := htmxWrap(r, ".")
+	open, closing := htmxWrap(r)
 	io.WriteString(w, open+`<h1>Games</h1>`)
 
 	fmt.Fprintf(w, `<h2>In Progress</h2><table><tr><th onclick="st(this.closest('table'),0,true)">ID</th><th onclick="st(this.closest('table'),1,false)">Black</th><th onclick="st(this.closest('table'),2,false)">White</th><th onclick="st(this.closest('table'),3,false)">Time</th><th onclick="st(this.closest('table'),4,true)">Games</th><th onclick="st(this.closest('table'),5,false)">Started</th></tr>`)

@@ -120,9 +120,10 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	svgh := 360
 	svgw := 700
 	left := 70
+	right := 130 // room for endpoint labels
 	top := 10
 	graphh := float64(svgh - 50)
-	graphw := float64(svgw - 20)
+	graphw := float64(svgw)
 
 	// X-axis: sequential match count (no gaps from deleted matches).
 	// All engines share the same time axis.
@@ -164,7 +165,7 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 })();
 </`+`script>`)
 
-	fmt.Fprintf(w, `<svg viewBox="0 0 %d %d" style="width:100%%;max-width:860px"><g transform="translate(%d,%d)">`, svgw+left+20, svgh+20, left, top)
+	fmt.Fprintf(w, `<svg viewBox="0 0 %d %d" style="width:100%%;max-width:960px"><g transform="translate(%d,%d)">`, svgw+left+right, svgh+20, left, top)
 	// Grid lines & axis
 	gridSteps := 5
 	for i := 0; i <= gridSteps; i++ {
@@ -186,12 +187,13 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 			pts += fmt.Sprintf("%.1f,%.1f ", pt.x, pt.y)
 		}
 		col := engineColor(engineNames[i])
-		fmt.Fprintf(w, `<g class="filter-item"><title>%s</title><polyline class="elo-curve" fill="none" stroke="%s" stroke-width="2" points="%s" style="cursor:pointer"/></g>`,
-			engineNames[i], col, strings.TrimSpace(pts))
-		// Endpoint label: engine name at the last data point
+		// Group curve + label in filter-item so both are hidden by the search filter.
+		fmt.Fprintf(w, `<g class="filter-item"><title>%s</title><polyline class="elo-curve" fill="none" stroke="%s" stroke-width="2" points="%s" style="cursor:pointer"/>`, engineNames[i], col, strings.TrimSpace(pts))
+		// Label at the right edge of the chart area (graphw), vertically at last data point.
+		// Using the right edge prevents labels from overlapping in the middle of curves.
 		last := data[len(data)-1]
-		fmt.Fprintf(w, `<text class="elo-label" x="%.1f" y="%.1f" dx="4" dy="-4" fill="%s" font-size="10" style="pointer-events:none">%s</text>`,
-			last.x, last.y, col, engineNames[i])
+		fmt.Fprintf(w, `<text class="elo-label" x="%.1f" y="%.1f" dx="4" dy="3" fill="%s" font-size="10" text-anchor="start">%s</text></g>`,
+			graphw, last.y, col, engineNames[i])
 	}
 	io.WriteString(w, `</g></svg>`)
 

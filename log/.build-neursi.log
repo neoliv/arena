@@ -3,8 +3,8 @@ make: 'coach-build' is up to date.
 warning: unused imports: `EC_CACHE_MASK`, `SCORE_MAX`, and `SCORE_MIN`
  --> src/endgame/tests.rs:3:22
   |
-3 | use crate::endgame::{SCORE_MIN, SCORE_MAX, SCORE_WIN, EndgameCache, EC_CACHE_SIZE, EC_CACHE_MASK};
-  |                      ^^^^^^^^^  ^^^^^^^^^                                          ^^^^^^^^^^^^^
+3 | ...::{SCORE_MIN, SCORE_MAX, SCORE_WIN, EndgameCache, EC_CACHE_SIZE, EC_CACHE_MASK};
+  |       ^^^^^^^^^  ^^^^^^^^^                                          ^^^^^^^^^^^^^
   |
   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
@@ -21,6 +21,12 @@ warning: unused variable: `n_empties`
     |
 259 |     let n_empties = empties as usize;
     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_empties`
+
+warning: unused variable: `beta_orig`
+   --> src/endgame/solve.rs:279:9
+    |
+279 |     let beta_orig = alpha + 1; // save NWS window before shadowing
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_beta_orig`
 
 warning: variable `skipped_count` is assigned to, but never used
    --> src/endgame/tests.rs:247:9
@@ -42,27 +48,27 @@ warning: value assigned to `skipped_count` is never read
 warning: unused variable: `parity`
   --> src/endgame_edax.rs:59:75
    |
-59 | ...32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
-   |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
+59 | ...u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
+   |                           ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
 
 warning: static `EDGE_STABILITY` is never used
-   --> src/endgame.rs:177:8
+   --> src/endgame.rs:180:8
     |
-177 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 2]> = std::sync::OnceLock::new();
+180 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 256]> = std:...
     |        ^^^^^^^^^^^^^^
     |
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: function `build_edge_table` is never used
-   --> src/endgame.rs:180:4
+   --> src/endgame.rs:182:4
     |
-180 | fn build_edge_table() -> [[u8; 256]; 2] {
+182 | fn build_edge_table() -> [[u8; 256]; 256] {
     |    ^^^^^^^^^^^^^^^^
 
 warning: function `get_edge_table` is never used
-   --> src/endgame.rs:196:4
+   --> src/endgame.rs:206:4
     |
-196 | fn get_edge_table() -> &'static [[u8; 256]; 2] {
+206 | fn get_edge_table() -> &'static [[u8; 256]; 256] {
     |    ^^^^^^^^^^^^^^
 
 warning: function `count_last_flip` is never used
@@ -74,22 +80,13 @@ warning: function `count_last_flip` is never used
 warning: function `nws` is never used
    --> src/endgame_edax.rs:123:4
     |
-123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mut u64) -> i32 {
+123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &...
     |    ^^^
-
-warning: associated function `verify` is never used
-  --> src/nnue_mmap.rs:44:8
-   |
-31 | impl Offsets {
-   | ------------ associated function in this implementation
-...
-44 |     fn verify() { assert!(Self::TOTAL <= u64::MAX as usize); }
-   |        ^^^^^^
 
 warning: function `verify_byte_equivalence` is never used
  --> src/nnue_verify.rs:9:4
   |
-9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMmap) -> usize {
+9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMm...
   |    ^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `benchmark_access` is never used
@@ -98,7 +95,7 @@ warning: function `benchmark_access` is never used
 30 | fn benchmark_access(legacy: &[i16], mmap: &[i16]) {
    |    ^^^^^^^^^^^^^^^^
 
-warning: `neursi` (lib) generated 14 warnings (run `cargo fix --lib -p neursi` to apply 4 suggestions)
+warning: `neursi` (lib) generated 14 warnings (run `cargo fix --lib -p neursi` to apply 5 suggestions)
 warning: unused import: `neursi::board::*`
   --> src/bin/es_calibrate.rs:14:5
    |
@@ -108,5 +105,5 @@ warning: unused import: `neursi::board::*`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 3.48s
+    Finished `release` profile [optimized] target(s) in 3.59s
 coach-engine/ ready: 4 files

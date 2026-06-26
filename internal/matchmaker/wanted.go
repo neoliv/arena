@@ -2,7 +2,6 @@
 package matchmaker
 
 import (
-	"fmt"
 	"log/slog"
 	"math"
 	"math/rand"
@@ -205,8 +204,11 @@ func (w *WantedList) Tick() {
 			ciB := elo.ConfidenceInterval(b.Rating, b.Games)
 			priority := math.Sqrt(ciA*ciA+ciB*ciB) * w.recencyFactor(akey, bkey)
 
+			// Stable ID: hash of the engine pair so the same pairing keeps
+			// the same ID across ticks. This prevents in-flight assignments
+			// from being orphaned when Tick regenerates the pair list.
 			newPairs = append(newPairs, &wantedPair{
-				ID:          fmt.Sprintf("g%d", len(newPairs)+1),
+				ID:          akey + "|" + bkey,
 				BlackEngine: akey,
 				WhiteEngine: bkey,
 				TimeControl: a.TC,
@@ -226,10 +228,12 @@ func (w *WantedList) Tick() {
 		_ = i
 	}
 
-	// Preserve playing/connected pairs from the old list.
+	// Preserve playing/connected/assigned pairs from the old list.
+	// Pairs with SessionID set have assignments out — must survive
+	// Tick so ClaimSide can match the connections.
 	oldPlaying := make(map[string]*wantedPair)
 	for _, p := range w.pairs {
-		if p.Status == "playing" || p.BlackConnected || p.WhiteConnected {
+		if p.Status == "playing" || p.BlackConnected || p.WhiteConnected || p.SessionID != "" {
 			oldPlaying[p.ID] = p
 		}
 	}
@@ -292,6 +296,14 @@ func declineKey(coachID, engineKey string) string { return coachID + ":" + engin
 // Does NOT mark anything as assigned — the relay connection is the claim.
 // Uses an offers map (5s TTL) to avoid returning the same pair+engine
 // to the same coach on every poll.
+//
+// Two-pass: first collect complete pairs (both sides free) to maximize
+// concurrent games, then fill remaining slots with single-sided assignments.
+// This prevents wasting core slots on lone connections when not all engine
+// pairs are simultaneously available.
+//
+// Tracks per-engine instance counts against MaxInstances so the arena never
+// offers more copies of an engine than the coach can launch.
 func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -302,60 +314,100 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 	}
 
 	now := time.Now()
-	var out []Assignment
+	type candidate struct {
+		p          *wantedPair
+		bKey, wKey string
+		bothSides  bool
+	}
+	var complete []candidate // both sides available
+	var single   []candidate // only one side available
+
 	for _, p := range w.pairs {
 		if p.Status != "pending" {
 			continue
-		}
-		if len(out) >= n {
-			break
 		}
 
 		bKey := p.BlackEngine
 		wKey := p.WhiteEngine
 
-		// Check black side.
-		if _, ok := c.Engines[bKey]; ok && !p.BlackConnected {
-			dk := declineKey(coachID, bKey)
-			if _, declined := w.declines[dk]; declined {
-				continue
-			}
-			if t, offered := w.offers[dk]; offered && now.Sub(t) < 5*time.Second {
-				continue
-			}
-			w.offers[dk] = now
-			if p.SessionID == "" {
-				p.SessionID = p.ID
-			}
-			out = append(out, Assignment{
-				SessionID:   p.SessionID + "-b",
-				Engine:      bKey,
-				Side:        "black",
-				TimeControl: p.TimeControl,
-				Opening:     p.OpeningLine,
-			})
-		}
+		hasB := c.Engines[bKey] != nil
+		hasW := c.Engines[wKey] != nil
+		bdk := declineKey(coachID, bKey)
+		wdk := declineKey(coachID, wKey)
+		_, bDecl := w.declines[bdk]
+		_, wDecl := w.declines[wdk]
+		tb, bOff := w.offers[bdk]
+		tw, wOff := w.offers[wdk]
+		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 5*time.Second)
+		wOk := hasW && !p.WhiteConnected && !wDecl && (!wOff || now.Sub(tw) >= 5*time.Second)
 
-		// Check white side (don't double-assign same pair to same coach).
-		if _, ok := c.Engines[wKey]; ok && !p.WhiteConnected {
-			dk := declineKey(coachID, wKey)
-			if _, declined := w.declines[dk]; declined {
-				continue
-			}
-			if t, offered := w.offers[dk]; offered && now.Sub(t) < 5*time.Second {
-				continue
-			}
-			w.offers[dk] = now
-			if p.SessionID == "" {
-				p.SessionID = p.ID
-			}
-			out = append(out, Assignment{
-				SessionID:   p.SessionID + "-w",
-				Engine:      wKey,
-				Side:        "white",
-				TimeControl: p.TimeControl,
-				Opening:     p.OpeningLine,
-			})
+		if bOk && wOk {
+			complete = append(complete, candidate{p: p, bKey: bKey, wKey: wKey, bothSides: true})
+		} else if bOk {
+			single = append(single, candidate{p: p, bKey: bKey, wKey: wKey, bothSides: false})
+		} else if wOk {
+			single = append(single, candidate{p: p, bKey: bKey, wKey: wKey, bothSides: false})
+		}
+	}
+
+	// maxInst returns MaxInstances for an engine, defaulting to 1.
+	maxInst := func(key string) int {
+		if e, ok := c.Engines[key]; ok && e.MaxInstances > 0 {
+			return e.MaxInstances
+		}
+		return 1
+	}
+
+	used := make(map[string]int) // per-engine output count
+	var out []Assignment
+
+	// Pass 1: complete pairs first (each uses 2 slots).
+	for _, cand := range complete {
+		if len(out)+1 >= n {
+			break
+		}
+		bKey, wKey := cand.bKey, cand.wKey
+		if used[bKey] >= maxInst(bKey) || used[wKey] >= maxInst(wKey) {
+			continue // engine already at max instances in this poll batch
+		}
+		p := cand.p
+		used[bKey]++
+		used[wKey]++
+		bdk := declineKey(coachID, bKey)
+		wdk := declineKey(coachID, wKey)
+		w.offers[bdk] = now
+		w.offers[wdk] = now
+		if p.SessionID == "" { p.SessionID = p.ID }
+		out = append(out,
+			Assignment{SessionID: p.SessionID + "-b", Engine: bKey, Side: "black", TimeControl: p.TimeControl, Opening: p.OpeningLine},
+			Assignment{SessionID: p.SessionID + "-w", Engine: wKey, Side: "white", TimeControl: p.TimeControl, Opening: p.OpeningLine},
+		)
+	}
+	// Pass 2: single-sided assignments to fill remaining slots.
+	for _, cand := range single {
+		if len(out) >= n {
+			break
+		}
+		p, bKey, wKey := cand.p, cand.bKey, cand.wKey
+		hasB := c.Engines[bKey] != nil
+		bdk := declineKey(coachID, bKey)
+		wdk := declineKey(coachID, wKey)
+		_, bDecl := w.declines[bdk]
+		_, wDecl := w.declines[wdk]
+		tb, bOff := w.offers[bdk]
+		tw, wOff := w.offers[wdk]
+		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 5*time.Second)
+		wOk := c.Engines[wKey] != nil && !p.WhiteConnected && !wDecl && (!wOff || now.Sub(tw) >= 5*time.Second)
+		if bOk && !wOk && used[bKey] < maxInst(bKey) {
+			used[bKey]++
+			w.offers[bdk] = now
+			if p.SessionID == "" { p.SessionID = p.ID }
+			out = append(out, Assignment{SessionID: p.SessionID + "-b", Engine: bKey, Side: "black", TimeControl: p.TimeControl, Opening: p.OpeningLine})
+		} else if wOk && !bOk && used[wKey] < maxInst(wKey) {
+			used[wKey]++
+			w.offers[wdk] = now
+			if p.SessionID == "" { p.SessionID = p.ID }
+			out = append(out, Assignment{SessionID: p.SessionID + "-w", Engine: wKey, Side: "white", TimeControl: p.TimeControl, Opening: p.OpeningLine})
 		}
 	}
 	return out

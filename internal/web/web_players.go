@@ -3,6 +3,8 @@ package web
 import (
 	"fmt"
 	"io"
+	"sort"
+	"time"
 	"net/http"
 )
 
@@ -29,7 +31,30 @@ func (h *Handler) handleEngine(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>All Players</h1><p>An <strong>engine</strong> is a software build identified by content hash. A <strong>player</strong> is an engine with runtime arguments. Stats are tracked per time control. Click a column header to sort.</p>`+filterBox)
+	open, closing := htmxWrap(r)
+	io.WriteString(w, open)
+	io.WriteString(w, `<h1>All Players</h1><p>An <strong>engine</strong> is a software build identified by content hash. A <strong>player</strong> is an engine with runtime arguments. Stats are tracked per time control. Click a column header to sort.</p>`+filterBox)
+
+	// ── Resource Usage (real CPU/RAM from coaches, updated every ~20s) ────
+	if h.ResourceStore != nil {
+		stats := h.ResourceStore.GetAll(120 * time.Second)
+		if len(stats) > 0 {
+			// Sort by CPU avg descending
+			sort.Slice(stats, func(i, j int) bool {
+				return stats[i].Interval.CPUPct.Avg > stats[j].Interval.CPUPct.Avg
+			})
+			io.WriteString(w, `<h2>Resource Usage <span style="font-weight:normal;color:var(--muted);font-size:.85em">(real CPU / RAM, 20s window, refreshes every 30s)</span></h2>`)
+			io.WriteString(w, `<table><tr><th>Player</th><th>CPU (20s / cumul)</th><th>RAM (20s / cumul)</th><th>Inst</th></tr>`)
+			for _, s := range stats {
+				engLink := `<a href="/engines/` + htmlEscape(s.Name) + `">` + htmlEscape(s.Name) + `</a>`
+				cpuBar := resourceBar(s.Interval.CPUPct.Avg*100, s.Cumulative.CPUPct.Avg*100, true, 100)
+				ramBar := resourceBar(s.Interval.RSSMb.Avg, s.Cumulative.RSSMb.Avg, false, s.MemoryMB)
+				fmt.Fprintf(w, `<tr class="filter-row"><td>%s <small style="color:var(--muted)">%s</small></td><td>%s</td><td>%s</td><td>%d</td></tr>`,
+					engLink, htmlEscape(s.Version), cpuBar, ramBar, s.Instances)
+			}
+			io.WriteString(w, `</table>`)
+		}
+	}
 
 	// ── Registered engines (in-memory, live from coaches) ────
 	if h.EngineStatusFunc != nil {
@@ -93,5 +118,39 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/engines/%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%.0f</td><td>%d</td><td>%d/%d/%d</td><td>%s</td></tr>`, v.Name, v.Name, v.Version, v.Created, v.Budget, v.Elo, v.Games, v.Wins, v.Losses, v.Draws, changeCell)
 	}
-	io.WriteString(w, "</table>"+`</div>`+pageFoot)
+	io.WriteString(w, "</table>"+`</div>`+closing)
+}
+
+// resourceBar renders two stacked horizontal bars: interval (20s) on top,
+// cumulative (since coach start) below in a lighter shade.
+// For RAM, maxRef is the declared memory_mb from the player config.
+func resourceBar(interval, cumulative float64, isCPU bool, maxRef int) string {
+	max := 100.0
+	if !isCPU {
+		if maxRef > 0 { max = float64(maxRef) } else { max = 200.0 }
+	}
+	barColor := func(v float64) string {
+		pct := v / max * 100.0
+		if pct > 80 { return "#f44336" } else if pct > 60 { return "#ff9800" }
+		return "#4caf50"
+	}
+	barWidth := func(v float64) string {
+		w := v / max * 150
+		if w > 150 { w = 150 }
+		if w < 1 { w = 1 }
+		return fmt.Sprintf("%.0f", w)
+	}
+	suffix := "%"
+	if !isCPU { suffix = " MB" }
+	ci, cc := barColor(interval), barColor(cumulative)
+	wi, wc := barWidth(interval), barWidth(cumulative)
+	return fmt.Sprintf(`<div style="width:160px;line-height:1.2">`+
+		`<div style="background:var(--border);border-radius:2px;height:8px;margin-bottom:1px">`+
+		`<div style="background:%s;height:100%%;width:%spx;border-radius:2px" title="20s: %.1f%s / %.0f"></div></div>`+
+		`<div style="background:var(--border);border-radius:2px;height:6px;opacity:0.6">`+
+		`<div style="background:%s;height:100%%;width:%spx;border-radius:2px" title="cumulative: %.1f%s / %.0f"></div></div>`+
+		`<small style="font-size:.75em;color:var(--muted)">%.0f / %.0f%s</small></div>`,
+		ci, wi, interval, suffix, max,
+		cc, wc, cumulative, suffix, max,
+		interval, cumulative, suffix)
 }

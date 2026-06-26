@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/neoliv/arena/internal/coach"
 	"github.com/neoliv/arena/internal/db"
 )
 
@@ -39,9 +40,13 @@ input,select{background:var(--bg);color:var(--fg);border:1px solid var(--nav-hl)
 </style>`
 
 const searchJS = `<scr` + `ipt>
+var filterMode='OR';
+function toggleMode(btn){filterMode=filterMode==='OR'?'AND':'OR';btn.textContent=filterMode;btn.style.background=filterMode==='AND'?'var(--nav-hl)':'rgba(56,136,85,0.06)';btn.style.color=filterMode==='AND'?'#fff':'var(--fg)';filter()}
 function filter(){let q=document.getElementById('filterBox').value.toLowerCase().trim();if(!q){document.querySelectorAll('tr.filter-row').forEach(r=>r.style.display='');document.querySelectorAll('.filter-item').forEach(r=>r.style.display='');updateCounts();return}
-let words=q.split(/\s+/);document.querySelectorAll('tr.filter-row').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=words.some(function(w){return t.includes(w)})?'':'none'})
-document.querySelectorAll('.filter-item').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=words.some(function(w){return t.includes(w)})?'':'none'});updateCounts()}
+let words=q.split(/\s+/),inc=[],exc=[];words.forEach(function(w){if(w.startsWith('-')){exc.push(w.slice(1))}else{inc.push(w)}});let useAnd=filterMode==='AND';
+function match(t){for(var i=0;i<exc.length;i++){if(t.includes(exc[i]))return false}if(inc.length===0)return true;if(useAnd){for(var i=0;i<inc.length;i++){if(!t.includes(inc[i]))return false}return true}else{for(var i=0;i<inc.length;i++){if(t.includes(inc[i]))return true}return false}}
+document.querySelectorAll('tr.filter-row').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=match(t)?'':'none'})
+document.querySelectorAll('.filter-item').forEach(r=>{let t=r.textContent.toLowerCase();r.style.display=match(t)?'':'none'});updateCounts()}
 function updateCounts(){document.querySelectorAll('h2').forEach(function(h){let t=h.nextElementSibling;if(!t||t.tagName!=='TABLE')return;let n=0;t.querySelectorAll('tr.filter-row').forEach(function(r){if(r.style.display!=='none')n++});let s=h.querySelector('.section-count');let txt=' ('+n+')';if(s){s.textContent=txt}else{let el=document.createElement('span');el.className='section-count';el.style.fontWeight='normal';el.style.color='var(--muted)';el.textContent=txt;h.appendChild(el)}})}
 setTimeout(updateCounts,10);var sc=-1,sa=!0;
 function st(t,c,n){var b=t.querySelector("tbody")||t,r=Array.from(b.querySelectorAll("tr.filter-row"));
@@ -53,7 +58,7 @@ r.forEach(function(r){b.appendChild(r)});
 t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind");if(!s){s=document.createElement("span");s.className="sort-ind";t.appendChild(s)}s.textContent=i===c?(sa?"\u25b2":"\u25bc"):""})}
 <` + `/script>`
 
-const filterBox = `<input type="search" id="filterBox" placeholder="Filter…" oninput="filter()" autofocus>`
+const filterBox = `<div style="display:flex;align-items:center;gap:.4em;margin-bottom:1em"><input type="search" id="filterBox" placeholder="Filter…" oninput="filter()" autofocus style="flex:1;max-width:320px"><button id="filterModeBtn" onclick="toggleMode(this)" title="AND: all words must match | OR: any word matches" style="padding:.2em .7em;border-radius:4px;border:1px solid var(--nav-hl);font-size:.85em;cursor:pointer;background:rgba(56,136,85,0.06);color:var(--fg);font-weight:600">OR</button><span title="- prefix excludes words, e.g. neur nrsi -d10" style="color:var(--muted);cursor:help;font-size:.85em;border-bottom:1px dotted var(--muted)">?</span></div>`
 
 var navHTML = `<nav>
 <a href="/">Ranks</a> <a href="/charts">Charts</a>
@@ -76,7 +81,8 @@ const pageFoot = `</body></html>`
 // htmxWrap wraps auto-refresh content. When the request came from HTMX
 // (HX-Request header), it returns only the inner div — no page chrome.
 // This prevents nested <html> documents on auto-refreshing pages.
-func htmxWrap(r *http.Request, path string) (open, closing string) {
+func htmxWrap(r *http.Request) (open, closing string) {
+	path := r.URL.Path // use the actual request path, not a caller-supplied guess
 	open = `<div hx-get="` + path + `" hx-trigger="every 30s" hx-swap="outerHTML">` + searchJS + filterBox
 	closing = `</div>`
 	if r.Header.Get("HX-Request") != "true" {
@@ -104,6 +110,7 @@ type Handler struct {
 	Sessions         *SessionStore
 	Limiter          *RateLimiter
 	EngineStatusFunc func() []EngineStatus
+	ResourceStore    *coach.PlayerResourceStore
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {

@@ -233,11 +233,14 @@ func (m *MatchMaker) reapLoneConnections(timeout time.Duration) {
 			slog.Info("reaping lone black connection", "pair", p.ID)
 			m.Relay.Cleanup(p.SessionID + "-b")
 			p.BlackConnected = false
-			// Record decline for no-show white engine.
+			// Decline BOTH sides: the no-show white AND the connected black.
+			// Otherwise the same engine gets re-offered the same pair on every poll → cycle.
 			for coachID, c := range m.Wanted.coaches {
 				if _, ok := c.Engines[p.WhiteEngine]; ok {
 					m.Wanted.declines[declineKey(coachID, p.WhiteEngine)] = now
-					break
+				}
+				if _, ok := c.Engines[p.BlackEngine]; ok {
+					m.Wanted.declines[declineKey(coachID, p.BlackEngine)] = now
 				}
 			}
 		}
@@ -245,11 +248,13 @@ func (m *MatchMaker) reapLoneConnections(timeout time.Duration) {
 			slog.Info("reaping lone white connection", "pair", p.ID)
 			m.Relay.Cleanup(p.SessionID + "-w")
 			p.WhiteConnected = false
-			// Record decline for no-show black engine.
+			// Decline BOTH sides: the no-show black AND the connected white.
 			for coachID, c := range m.Wanted.coaches {
 				if _, ok := c.Engines[p.BlackEngine]; ok {
 					m.Wanted.declines[declineKey(coachID, p.BlackEngine)] = now
-					break
+				}
+				if _, ok := c.Engines[p.WhiteEngine]; ok {
+					m.Wanted.declines[declineKey(coachID, p.WhiteEngine)] = now
 				}
 			}
 		}
@@ -416,7 +421,21 @@ func (m *MatchMaker) HandlePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.Wanted.Heartbeat(coachID, 0, 0)
-	assignments := m.Wanted.PollAssignments(coachID, 3)
+	n := 3
+	if ns := r.URL.Query().Get("n"); ns != "" {
+		fmt.Sscanf(ns, "%d", &n)
+		if n > 16 { n = 16 }
+	}
+	assignments := m.Wanted.PollAssignments(coachID, n)
+	if len(assignments) == 0 {
+		m.Wanted.mu.RLock()
+		coachCount := len(m.Wanted.coaches)
+		pairCount := len(m.Wanted.pairs)
+		_, coachExists := m.Wanted.coaches[coachID]
+		m.Wanted.mu.RUnlock()
+		slog.Warn("HandlePoll returned empty", "coach", coachID, "coach_exists", coachExists,
+			"coaches_total", coachCount, "pairs_total", pairCount, "requested_n", n)
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"assignments": assignments})
 }
 
