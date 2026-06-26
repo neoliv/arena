@@ -9,9 +9,9 @@ warning: unused imports: `EC_CACHE_MASK`, `SCORE_MAX`, and `SCORE_MIN`
   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: unused variable: `offset`
-   --> src/board.rs:478:13
+   --> src/board.rs:494:13
     |
-478 |         let offset = DIR_OFFSETS[dir];
+494 |         let offset = DIR_OFFSETS[dir];
     |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_offset`
     |
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
@@ -54,7 +54,7 @@ warning: unused variable: `parity`
 warning: static `EDGE_STABILITY` is never used
    --> src/endgame.rs:180:8
     |
-180 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 256]> = std:...
+180 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 256]> = std...
     |        ^^^^^^^^^^^^^^
     |
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
@@ -80,13 +80,13 @@ warning: function `count_last_flip` is never used
 warning: function `nws` is never used
    --> src/endgame_edax.rs:123:4
     |
-123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &...
+123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: ...
     |    ^^^
 
 warning: function `verify_byte_equivalence` is never used
  --> src/nnue_verify.rs:9:4
   |
-9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMm...
+9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsM...
   |    ^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `benchmark_access` is never used
@@ -105,5 +105,5 @@ warning: unused import: `neursi::board::*`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 3.59s
+    Finished `release` profile [optimized] target(s) in 3.98s
 coach-engine/ ready: 4 files

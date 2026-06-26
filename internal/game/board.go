@@ -28,6 +28,10 @@ func NewBoard() Board {
 }
 
 // LegalMoves returns a bitboard of legal move destinations for player.
+// Reference implementation: for each empty square, walk all 8 directions
+// through opponent discs until hitting own disc (legal) or edge/empty (not).
+// Trivially verifiable against the literal Othello rules — no bit tricks,
+// no iteration counts to get wrong.
 func (b *Board) LegalMoves(player uint64) uint64 {
 	var opp uint64
 	if player == b.black {
@@ -37,47 +41,43 @@ func (b *Board) LegalMoves(player uint64) uint64 {
 	}
 	empty := ^(b.black | b.white)
 	var moves uint64
-
-	// For each direction, do a Kogge-Stone parallel-prefix flood
-	// through opponent discs. Properly mask source bits to prevent
-	// wrapping around board edges.
-
-	// E (<<1): source must not be in file H
-	moves |= shiftFlood(player, opp, empty, 1, notH)
-	// W (>>1): source must not be in file A
-	moves |= shiftFlood(player, opp, empty, -1, notA)
-	// S (<<8): source must not be in row 7
-	moves |= shiftFlood(player, opp, empty, 8, notRow7)
-	// N (>>8): source must not be in row 0
-	moves |= shiftFlood(player, opp, empty, -8, notRow0)
-	// SE (<<9): source must not be in row 7 or file H
-	moves |= shiftFlood(player, opp, empty, 9, notRow7&notH)
-	// NW (>>9): source must not be in row 0 or file A
-	moves |= shiftFlood(player, opp, empty, -9, notRow0&notA)
-	// NE (>>7): source must not be in row 0 or file H
-	moves |= shiftFlood(player, opp, empty, -7, notRow0&notH)
-	// SW (<<7): source must not be in row 7 or file A
-	moves |= shiftFlood(player, opp, empty, 7, notRow7&notA)
-
-	return moves & empty
+	for sq := 0; sq < 64; sq++ {
+		if empty&(1<<sq) == 0 {
+			continue
+		}
+		if isLegalMove(player, opp, sq) {
+			moves |= 1 << sq
+		}
+	}
+	return moves
 }
 
-// shiftFlood does one direction of Kogge-Stone flood fill.
-func shiftFlood(player, opp, empty uint64, shift int, mask uint64) uint64 {
-	var w uint64
-	if shift > 0 {
-		w = opp & ((player & mask) << shift)
-		w |= opp & ((w & mask) << shift)
-		w |= opp & ((w & mask) << shift)
-		w |= opp & ((w & mask) << shift)
-		return empty & ((w & mask) << shift)
+// dir8 is the 8 compass direction offsets (row, col).
+var dir8 = [8][2]int{{0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}}
+
+// isLegalMove checks if placing a disc at sq is legal for player.
+// Walks each direction through opponent discs; legal if the line is
+// capped by the player's own disc with at least one opponent between.
+func isLegalMove(player, opp uint64, sq int) bool {
+	r, c := sq/8, sq%8
+	for _, d := range dir8 {
+		nr, nc := r+d[0], c+d[1]
+		foundOpp := false
+		for nr >= 0 && nr < 8 && nc >= 0 && nc < 8 {
+			idx := nr*8 + nc
+			if opp&(1<<idx) != 0 {
+				foundOpp = true
+				nr += d[0]
+				nc += d[1]
+				continue
+			}
+			if foundOpp && player&(1<<idx) != 0 {
+				return true
+			}
+			break
+		}
 	}
-	shift = -shift
-	w = opp & ((player & mask) >> shift)
-	w |= opp & ((w & mask) >> shift)
-	w |= opp & ((w & mask) >> shift)
-	w |= opp & ((w & mask) >> shift)
-	return empty & ((w & mask) >> shift)
+	return false
 }
 
 // ApplyMove applies a legal move and returns the new board.
