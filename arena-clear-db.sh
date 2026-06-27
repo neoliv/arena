@@ -37,6 +37,13 @@ TOKENS=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM api_toke
 SESSIONS=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM web_sessions\"")
 echo "Kept: $TOKENS api_tokens, $SESSIONS web_sessions"
 
+# Reclaim disk space
+echo "--- Vacuum ---"
+BEFORE=$(ssh "${VPS_USER}@${VPS}" "stat -c%s '$DB'")
+ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' 'VACUUM'"
+AFTER=$(ssh "${VPS_USER}@${VPS}" "stat -c%s '$DB'")
+echo "  DB: $(numfmt --to=iec $BEFORE) → $(numfmt --to=iec $AFTER)"
+
 # Start the server
 echo "--- Starting arena ---"
 ssh "${VPS_USER}@${VPS}" "systemctl start arena"
