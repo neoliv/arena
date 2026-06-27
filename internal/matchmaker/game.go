@@ -339,29 +339,31 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		board = board.applyMove(curPlayer, sq)
-		// Send play to BOTH engines (consistent with opening play).
-		// Each engine must maintain its own board state — sending only
-		// to the opponent would leave the moving engine's board stale,
-		// since genmove does not apply the move (GTP convention).
+		// Standard GTP: genmove applies the move to the engine's own board.
+		// play is sent ONLY to the opponent to announce the move.
+		// Sending play to the engine that just moved is a protocol violation
+		// — engines like Edax reject it with "? wrong color".
+		opponent := white
+		if sideToMove == "w" {
+			opponent = black
+		}
 		playCmd := "play " + sideToMove + " " + mv
-		for _, s := range []coach.Stream{black, white} {
-			playResp, err := wsSend(s, playCmd, 10)
-			if err != nil || strings.HasPrefix(playResp, "?") {
-				if err != nil {
-					gr.ErrorType = "crash" // will be resolved by coach verdict in post-processing
-					gr.Disconnect = true
-					slog.Error("play send failed", "assign", assignmentID, "game", gameIdx+1, "move", mv, "err", err)
-				} else {
-					gr.ErrorType = "invalid_response"
-					slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
-				}
-				if sideToMove == "b" {
-					gr.Result = "1-0"
-				} else {
-					gr.Result = "0-1"
-				}
-				break
+		playResp, err := wsSend(opponent, playCmd, 10)
+		if err != nil || strings.HasPrefix(playResp, "?") {
+			if err != nil {
+				gr.ErrorType = "crash" // will be resolved by coach verdict in post-processing
+				gr.Disconnect = true
+				slog.Error("play send failed", "assign", assignmentID, "game", gameIdx+1, "move", mv, "err", err)
+			} else {
+				gr.ErrorType = "invalid_response"
+				slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
 			}
+			if sideToMove == "b" {
+				gr.Result = "1-0"
+			} else {
+				gr.Result = "0-1"
+			}
+			break
 		}
 
 		// Consume all # stats lines, keeping the last.

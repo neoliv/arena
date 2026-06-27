@@ -279,12 +279,16 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		plyCount++
 		gr.TotalMoves++
 
-		// Send play to BOTH engines — consistent with opening play.
-		// Genmove does NOT apply the move (GTP convention), so both
-		// engines need the play command to maintain their board state.
+		// Standard GTP: genmove applies the move to the engine's own board.
+		// play is sent ONLY to the opponent to announce the move.
+		// Sending play to the engine that just moved is a protocol violation
+		// — engines like Edax reject it with "? wrong color".
 		playCmd := "play " + sideToMove + " " + mv
-		black.Send(playCmd)
-		white.Send(playCmd)
+		if sideToMove == "B" {
+			white.Send(playCmd)
+		} else {
+			black.Send(playCmd)
+		}
 
 		sideToMove = flipSide(sideToMove)
 	}
