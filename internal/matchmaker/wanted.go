@@ -338,8 +338,8 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		_, wDecl := w.declines[wdk]
 		tb, bOff := w.offers[bdk]
 		tw, wOff := w.offers[wdk]
-		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 5*time.Second)
-		wOk := hasW && !p.WhiteConnected && !wDecl && (!wOff || now.Sub(tw) >= 5*time.Second)
+		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 2*time.Second)
+		wOk := hasW && !p.WhiteConnected && !wDecl && (!wOff || now.Sub(tw) >= 2*time.Second)
 
 		if bOk && wOk {
 			complete = append(complete, candidate{p: p, bKey: bKey, wKey: wKey, bothSides: true})
@@ -396,8 +396,8 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		_, wDecl := w.declines[wdk]
 		tb, bOff := w.offers[bdk]
 		tw, wOff := w.offers[wdk]
-		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 5*time.Second)
-		wOk := c.Engines[wKey] != nil && !p.WhiteConnected && !wDecl && (!wOff || now.Sub(tw) >= 5*time.Second)
+		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 2*time.Second)
+		wOk := c.Engines[wKey] != nil && !p.WhiteConnected && !wDecl && (!wOff || now.Sub(tw) >= 2*time.Second)
 		if bOk && !wOk && used[bKey] < maxInst(bKey) {
 			used[bKey]++
 			w.offers[bdk] = now
@@ -409,6 +409,29 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 			if p.SessionID == "" { p.SessionID = p.ID }
 			out = append(out, Assignment{SessionID: p.SessionID + "-w", Engine: wKey, Side: "white", TimeControl: p.TimeControl, Opening: p.OpeningLine})
 		}
+	}
+		// Diagnostic: when returning empty, log breakdown.
+	if len(out) == 0 && len(w.pairs) > 0 {
+		var noEngine, connected, declined, offered, atMax int
+		now2 := time.Now()
+		for _, p := range w.pairs {
+			if p.Status != "pending" { continue }
+			bKey, wKey := p.BlackEngine, p.WhiteEngine
+			if c.Engines[bKey] == nil && c.Engines[wKey] == nil { noEngine++; continue }
+			if p.BlackConnected || p.WhiteConnected { connected++; continue }
+			bdk, wdk := declineKey(coachID, bKey), declineKey(coachID, wKey)
+			_, bDecl := w.declines[bdk]
+			_, wDecl := w.declines[wdk]
+			if bDecl || wDecl { declined++; continue }
+			tb, bOff := w.offers[bdk]
+			tw, wOff := w.offers[wdk]
+			bStale := !bOff || now2.Sub(tb) >= 2*time.Second
+			wStale := !wOff || now2.Sub(tw) >= 2*time.Second
+			if !bStale || !wStale { offered++; continue }
+			if used[bKey] >= maxInst(bKey) || used[wKey] >= maxInst(wKey) { atMax++; continue }
+		}
+		slog.Warn("PollAssignments empty breakdown", "coach", coachID, "pairs", len(w.pairs),
+			"no_engine", noEngine, "connected", connected, "declined", declined, "offered", offered, "at_max", atMax)
 	}
 	return out
 }

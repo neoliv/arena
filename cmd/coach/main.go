@@ -346,7 +346,7 @@ func main() {
 				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%share_dir%", cfg.ShareDir, -1)
 			}
 
-			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, a.SessionID, logDir, gameSecs)
+			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, cfg.Token, a.SessionID, logDir, gameSecs)
 			if err != nil {
 				slog.Error("launch engine", "ai", ai.Name, "session", a.SessionID, "err", err)
 				mu.Lock()
@@ -384,6 +384,7 @@ func main() {
 						mu.Unlock()
 					default:
 						slog.Warn("engine exited with error", "session", sid, "err", err)
+						// Crash already reported by bridge goroutine (before relay close).
 					}
 				} else {
 					slog.Info("engine exited cleanly", "session", sid)
@@ -413,6 +414,7 @@ func main() {
 
 	mu.Lock()
 	for _, re := range running {
+		re.killReason = "nopartner"
 		re.cancel()
 		re.cmd.Process.Kill()
 	}
@@ -431,6 +433,32 @@ func postJSON(client *http.Client, cfg config, path string, body any) (*http.Res
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
 	}
 	return client.Do(req)
+}
+
+// reportEngineError sends an engine error classification to the arena.
+// Fire-and-forget with a short timeout — if it fails, the matchmaker
+// will treat the failure as infrastructure (engine blameless), which is
+// the safe default.
+func reportEngineError(arenaURL, token, sessionID, errorType string) {
+	body := map[string]string{
+		"session_id": sessionID,
+		"error_type": errorType,
+	}
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(body)
+	req, _ := http.NewRequest("POST", arenaURL+"/api/coach/engine-error", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Warn("failed to report engine error to arena", "session", sessionID, "error_type", errorType, "err", err)
+		return
+	}
+	resp.Body.Close()
+	slog.Info("reported engine error to arena", "session", sessionID, "error_type", errorType)
 }
 
 // registerWithArena persists engine info to the arena database.
@@ -675,7 +703,7 @@ func pollAssignments(client *http.Client, cfg config, n int) ([]assignment, bool
 
 // ── Engine lifecycle ─────────────────────────────────────────────────────
 
-func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir string, gameTimeSec float64) (*runningEngine, error) {
+func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, logDir string, gameTimeSec float64) (*runningEngine, error) {
 	parts := strings.Fields(ai.RunCmd)
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("empty run command")
@@ -766,11 +794,17 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir 
 	budgetMs := int64(gameTimeSec * 1000 * 105 / 100 * 2) // 2 games, 5% margin each
 	engineTimedOut := false
 
+	// gameOver is closed by the WS→stdin goroutine when the MM closes
+	// the relay (normal game end). The stdout goroutine checks this to
+	// distinguish "engine crashed" from "game finished".
+	gameOver := make(chan struct{})
+
 	// stdout → WS: track genmove response timing and inject
 	// measured wall-clock time into stats lines.
 	var lastElapsedMs int64
 	go func() {
 		defer conn.Close(websocket.StatusNormalClosure, "done")
+		writeFailed := false // true if conn.Write fails → network issue, not engine crash
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			raw := scanner.Bytes()
@@ -813,6 +847,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir 
 					re.killReason = "timeout"
 					timingMu.Unlock()
 					slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sessionID, "total_ms", totalThinkMs, "budget_ms", budgetMs)
+					reportEngineError(arenaURL, token, sessionID, "timeout")
 					conn.Write(context.Background(), websocket.MessageText, []byte("? timeout"))
 					time.Sleep(50 * time.Millisecond) // let ? timeout propagate before kill closes WS
 					cmd.Process.Kill()
@@ -840,17 +875,43 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, sessionID, logDir 
 			timingMu.Unlock()
 
 			if err := conn.Write(context.Background(), websocket.MessageText, raw); err != nil {
+				writeFailed = true
 				break
 			}
 			if injectLine != "" {
 				conn.Write(context.Background(), websocket.MessageText, []byte(injectLine))
 			}
 		}
+			// Crash detection: only when stdout closed (scanner.Scan→false).
+			// Network failures (conn.Write error→writeFailed=true) are NOT
+			// engine crashes — the engine is still running, connection broke.
+			if writeFailed {
+				return
+			}
+		// Scanner exited (EOF on stdout). Determine why.
+		// - gameOver closed: MM finished the game, relay closed → normal.
+		// - killReason set: coach killed engine (timeout/watchdog) → already reported.
+		// - otherwise: engine exited on its own → crash. Report BEFORE conn.Close().
+		select {
+		case <-gameOver:
+			// Normal end — MM finished the game.
+		default:
+			timingMu.Lock()
+			kr := re.killReason
+			timingMu.Unlock()
+			if kr == "" {
+				slog.Warn("engine exited unexpectedly (crash)", "session", sessionID)
+				reportEngineError(arenaURL, token, sessionID, "crash")
+			}
+		}
 	}()
 
-	// WS → stdin: detect genmove commands to start the clock
+	// WS → stdin: detect genmove commands to start the clock.
+	// When the MM closes the relay, conn.Read() fails → close gameOver
+	// to signal "normal end" to the stdout goroutine.
 	go func() {
 		defer stdin.Close()
+		defer close(gameOver)
 		for {
 			_, msg, err := conn.Read(context.Background())
 			if err != nil {

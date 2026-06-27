@@ -84,6 +84,7 @@ func (db *DB) Migrate() error {
 		"ALTER TABLE engines ADD COLUMN engine_id TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN engine_manifest TEXT DEFAULT ''",
 			"ALTER TABLE games ADD COLUMN disconnect INTEGER DEFAULT 0",
+		"ALTER TABLE games ADD COLUMN error_type TEXT DEFAULT ''",
 			"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0)",
 			"CREATE INDEX IF NOT EXISTS idx_gm_game ON game_moves(game_id)",
 		"CREATE INDEX IF NOT EXISTS idx_assign_session1 ON match_assignments(session1_id)",
@@ -141,6 +142,8 @@ CREATE TABLE IF NOT EXISTS games (
     white_nodes   INTEGER,
     black_depth   INTEGER,
     white_depth   INTEGER,
+    disconnect    INTEGER DEFAULT 0,
+    error_type    TEXT DEFAULT '',
     created_at    TEXT DEFAULT (datetime('now'))
 );
 

@@ -23,14 +23,15 @@ import (
 // and result storage. It owns the WantedList (in-memory engine registry
 // and wanted-pair generation) and a dedicated SQLite writer goroutine.
 type MatchMaker struct {
-	DB        *db.DB
-	Relay     *coach.Relay
-	Wanted    *WantedList
-	storeCh   chan GameResult // game results → storage goroutine
-	eloMu     sync.Mutex
-	dbWriteMu sync.Mutex // serializes all DB writes (SQLite single-writer)
-	wakeup    chan struct{}
-	quit      chan struct{}
+	DB         *db.DB
+	Relay      *coach.Relay
+	Wanted     *WantedList
+	ErrorStore *coach.CoachErrorStore // coach-reported engine errors
+	storeCh    chan GameResult        // game results → storage goroutine
+	eloMu      sync.Mutex
+	dbWriteMu  sync.Mutex // serializes all DB writes (SQLite single-writer)
+	wakeup     chan struct{}
+	quit       chan struct{}
 }
 
 // GameResult carries completed game data for storage.
@@ -104,10 +105,10 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 		if g.Disconnect {
 			disc = 1
 		}
-		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect, error_type)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			matchID, i+1, blackID, whiteID, g.Result, g.FinalScore, g.OpeningLine,
-			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc)
+			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc, g.ErrorType)
 		if err != nil || gres == nil {
 			slog.Error("storeMatch: insert game failed", "err", err, "match", matchID, "game", i+1)
 			continue
@@ -315,6 +316,32 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 	ctx := context.Background()
 	games := playGames(ctx, blackStream, whiteStream, 2, gameTimeSec, int(assignID))
 
+	// Post-process: for wsSend failures (genmove or play), consult the
+	// coach error store. The coach is authoritative — if it didn't report
+	// an error, the failure is infrastructure (engine blameless).
+	for i := range games {
+		if games[i].ErrorType != "crash" {
+			continue
+		}
+		// Check both sessions — play failures can happen on either stream.
+		var coachErr string
+		if m.ErrorStore != nil {
+			coachErr = m.ErrorStore.Get(blackSid)
+			if coachErr == "" {
+				coachErr = m.ErrorStore.Get(whiteSid)
+			}
+		}
+		if coachErr != "" {
+			games[i].ErrorType = coachErr
+			slog.Info("coach error verdict applied", "error_type", coachErr)
+		} else {
+			// No coach verdict — infrastructure, engine blameless.
+			slog.Warn("wsSend failure without coach verdict — treating as infrastructure")
+			games[i].ErrorType = ""
+			games[i].Disconnect = true
+		}
+	}
+
 	slog.Info("matchmaker match played", "pair", p.ID, "games", len(games))
 	m.storeCh <- GameResult{
 		Games:  games,
@@ -329,9 +356,13 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 		m.dbWriteMu.Unlock()
 	}
 
-	// Cleanup relay sessions
+	// Cleanup relay sessions and error store entries
 	m.Relay.Cleanup(blackSid)
 	m.Relay.Cleanup(whiteSid)
+	if m.ErrorStore != nil {
+		m.ErrorStore.Cleanup(blackSid)
+		m.ErrorStore.Cleanup(whiteSid)
+	}
 }
 
 func (m *MatchMaker) failPair(p *wantedPair, reason string) {

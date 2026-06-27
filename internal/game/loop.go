@@ -264,6 +264,11 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 
 		board = board.ApplyMove(curPlayer, sq)
 		gr.Moves = append(gr.Moves, mv)
+		// Framework board after move (for debugging board divergence).
+		slog.Debug("framework board", "side", sideToMove, "move", mv,
+			"empties", 64-popcount(board.black|board.white),
+			"black", fmt.Sprintf("%016x", board.black),
+			"white", fmt.Sprintf("%016x", board.white))
 
 		// Fill in the move name in the last stats entry
 		if len(gr.MoveStats) > 0 {
@@ -272,12 +277,14 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 
 		moveCount++
 		plyCount++
+		gr.TotalMoves++
 
-		opponent := white
-		if sideToMove == "W" {
-			opponent = black
-		}
-		opponent.Send("play " + sideToMove + " " + mv)
+		// Send play to BOTH engines — consistent with opening play.
+		// Genmove does NOT apply the move (GTP convention), so both
+		// engines need the play command to maintain their board state.
+		playCmd := "play " + sideToMove + " " + mv
+		black.Send(playCmd)
+		white.Send(playCmd)
 
 		sideToMove = flipSide(sideToMove)
 	}

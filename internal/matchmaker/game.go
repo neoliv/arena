@@ -101,7 +101,8 @@ type gameResult struct {
 	WhiteTimeS   float64
 	BlackNodes   int64
 	WhiteNodes   int64
-	Disconnect   bool // stream/timeout error, not a real game
+	Disconnect   bool   // stream/timeout error, not a real game
+	ErrorType    string // "", "timeout", "illegal_move", "crash", "resign", "invalid_response"
 	BlackDepth   int
 	WhiteDepth   int
 	Moves        []gameMove
@@ -230,10 +231,12 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	for {
 		if gr.BlackTimeS >= timeLimit {
 			gr.Result = "0-1"
+			gr.ErrorType = "timeout"
 			break
 		}
 		if gr.WhiteTimeS >= timeLimit {
 			gr.Result = "1-0"
+			gr.ErrorType = "timeout"
 			break
 		}
 
@@ -267,7 +270,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		if err != nil {
-			slog.Error("genmove failed", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err, "elapsed_ms", int(elapsed*1000))
+			gr.ErrorType = "crash"
+					slog.Error("genmove failed", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err, "elapsed_ms", int(elapsed*1000))
 			// "read timeout" = engine hung, counts as loss
 			// "stream closed" / "write timeout" = infrastructure, no Elo
 			isInfra := strings.Contains(err.Error(), "stream closed") || strings.Contains(err.Error(), "write timeout")
@@ -294,6 +298,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		mv := strings.ToUpper(parts[0])
 
 		if mv == "RESIGN" {
+			gr.ErrorType = "resign"
 			if sideToMove == "b" {
 				gr.Result = "0-1"
 			} else {
@@ -312,6 +317,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		if len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8' {
+			gr.ErrorType = "invalid_response"
 			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
 			if sideToMove == "b" {
 				gr.Result = "0-1"
@@ -322,6 +328,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		sq := sqFromString(mv)
 		if sq < 0 || (legal>>sq)&1 == 0 {
+			gr.ErrorType = "illegal_move"
 			slog.Warn("illegal move from engine", "side", sideToMove, "move", mv)
 			if sideToMove == "b" {
 				gr.Result = "0-1"
@@ -332,27 +339,32 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		board = board.applyMove(curPlayer, sq)
-		opponent := white
-		if sideToMove == "w" {
-			opponent = black
-		}
-		playResp, err := wsSend(opponent, "play "+sideToMove+" "+mv, 10)
-		if err != nil || strings.HasPrefix(playResp, "?") {
-			if err != nil {
-				slog.Error("play send failed (opponent stream)", "assign", assignmentID, "game", gameIdx+1, "move", mv, "err", err)
-				gr.Disconnect = true
-			} else {
-				slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
+		// Send play to BOTH engines (consistent with opening play).
+		// Each engine must maintain its own board state — sending only
+		// to the opponent would leave the moving engine's board stale,
+		// since genmove does not apply the move (GTP convention).
+		playCmd := "play " + sideToMove + " " + mv
+		for _, s := range []coach.Stream{black, white} {
+			playResp, err := wsSend(s, playCmd, 10)
+			if err != nil || strings.HasPrefix(playResp, "?") {
+				if err != nil {
+					gr.ErrorType = "crash" // will be resolved by coach verdict in post-processing
+					gr.Disconnect = true
+					slog.Error("play send failed", "assign", assignmentID, "game", gameIdx+1, "move", mv, "err", err)
+				} else {
+					gr.ErrorType = "invalid_response"
+					slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
+				}
+				if sideToMove == "b" {
+					gr.Result = "1-0"
+				} else {
+					gr.Result = "0-1"
+				}
+				break
 			}
-			if sideToMove == "b" {
-				gr.Result = "1-0"
-			} else {
-				gr.Result = "0-1"
-			}
-			break
 		}
 
-			// Consume all # stats lines, keeping the last.
+		// Consume all # stats lines, keeping the last.
 			// Prefer JSON format (# arena-stats v1: {...}), fall back to legacy.
 			var nodes int64
 			var depth int

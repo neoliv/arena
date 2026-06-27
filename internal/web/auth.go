@@ -105,7 +105,7 @@ func (ss *SessionStore) Validate(sid string) *Session {
 	defer ss.mu.Unlock()
 	// Check cache first
 	if s, ok := ss.cache[sid]; ok {
-		if time.Since(s.CreatedAt) < 24*time.Hour { return s }
+		if time.Since(s.CreatedAt) < 720*time.Hour { return s }
 		delete(ss.cache, sid)
 		return nil
 	}
@@ -114,7 +114,7 @@ func (ss *SessionStore) Validate(sid string) *Session {
 	err := ss.db.QueryRow("SELECT token, email, created_at FROM web_sessions WHERE id=?", sid).Scan(&token, &email, &createdStr)
 	if err != nil { return nil }
 	created, _ := time.Parse(time.RFC3339, createdStr)
-	if time.Since(created) > 24*time.Hour {
+	if time.Since(created) > 720*time.Hour {
 		ss.db.Exec("DELETE FROM web_sessions WHERE id=?", sid)
 		return nil
 	}
@@ -163,7 +163,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
-			MaxAge:   86400, // 24 hours
+			MaxAge:   2592000, // 30 days
 		})
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -200,6 +200,12 @@ func (h *Handler) RequireLogin(next http.HandlerFunc) http.HandlerFunc {
 		// Check for valid session cookie
 		if c, err := r.Cookie("arena_session"); err == nil {
 			if s := h.Sessions.Validate(c.Value); s != nil {
+				// Refresh cookie expiry on each use (sliding 30-day window).
+				http.SetCookie(w, &http.Cookie{
+					Name: "arena_session", Value: c.Value, Path: "/",
+					HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+					MaxAge: 2592000,
+				})
 				next(w, r)
 				return
 			}

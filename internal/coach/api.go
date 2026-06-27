@@ -21,6 +21,7 @@ type Handler struct {
 	Relay         *Relay
 	ValidateToken func(string) bool
 	ServerGen     string // random ID regenerated on server restart
+	ErrorStore    *CoachErrorStore
 	rateMu        sync.Mutex
 	rateWindows   map[string][]time.Time
 }
@@ -341,5 +342,28 @@ func (s *PlayerResourceStore) HandleResources(w http.ResponseWriter, r *http.Req
 		req.Players[i].CoachID = req.CoachID
 	}
 	s.Update(req.Players)
+	jsonOK(w, map[string]any{"ok": true})
+}
+
+// HandleEngineError receives an engine error classification from the coach.
+// The coach is authoritative — it owns the engine process and can distinguish
+// crashes from timeouts from infrastructure kills.
+func (h *Handler) HandleEngineError(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAuthOrOpen(r) {
+		http.Error(w, `{"error":"unauthorized"}`, 401)
+		return
+	}
+	var req struct {
+		SessionID string `json:"session_id"`
+		ErrorType string `json:"error_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SessionID == "" || req.ErrorType == "" {
+		http.Error(w, `{"error":"invalid JSON — need session_id and error_type"}`, 400)
+		return
+	}
+	if h.ErrorStore != nil {
+		h.ErrorStore.Report(req.SessionID, req.ErrorType)
+		slog.Info("coach reported engine error", "session", req.SessionID, "error_type", req.ErrorType)
+	}
 	jsonOK(w, map[string]any{"ok": true})
 }

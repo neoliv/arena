@@ -43,6 +43,7 @@ func main() {
 	var (
 		candidate   = flag.String("candidate", "", "Candidate engine command")
 		reference   = flag.String("reference", "", "Reference engine command")
+		mode        = flag.String("mode", "elo", "Test mode: elo (play games, SPRT) or speed (fixed-depth NPS benchmark)")
 		tc          = flag.Float64("tc", 1.0, "Time control in seconds per game")
 		elo0        = flag.Float64("elo0", -10, "Null hypothesis Elo difference")
 		elo1        = flag.Float64("elo1", 0, "Alternative Elo difference")
@@ -97,6 +98,12 @@ func main() {
 	}
 	if refSimple.Commit != "" {
 		refSimple.EngineID = refBinSHA[:16]
+	}
+
+	// ── Speed mode ──────────────────────────────────────────────────
+	if *mode == "speed" {
+		runSpeedTest(*candidate, *reference)
+		return
 	}
 
 	slog.Info("SPRT starting",
@@ -278,8 +285,8 @@ func main() {
 // ── Game pair types ────────────────────────────────────────────────────
 
 type gameResultPair struct {
-	BlackGame game.GameResult
-	WhiteGame game.GameResult
+	BlackGame           game.GameResult
+	WhiteGame           game.GameResult
 	CandidateFirstColor string // "black" or "white"
 	Opening             string
 	OpeningName         string
@@ -685,6 +692,8 @@ type gameAccum struct {
 	timeoutsPerGame *sprt.StatAccumulator
 	totalNodes int64
 	totalTimeS float64
+	totalDepth int64
+	depthCount int
 	timeForfeits, illegalMoves, disconnects, games int
 }
 
@@ -804,6 +813,8 @@ func (as *accumulatedStats) recordGame(gr game.GameResult, candID, refID *sprt.M
 			ga.timeoutsPerGame.Add(float64(timeouts))
 			ga.totalNodes += totalNodes
 			ga.totalTimeS += totalTimeMs / 1000.0
+			ga.totalDepth += int64(depthSum)
+			ga.depthCount += moveCount
 		}
 		ga.games++
 
@@ -869,6 +880,14 @@ func buildEngineStats(plyMap map[string]*perPlyAccum, ga *gameAccum) sprt.Engine
 		ga.bookExitPly.Finalize()
 		ga.bookExitEval.Finalize()
 		ga.timeoutsPerGame.Finalize()
+
+		var npsRate, depthAvg float64
+		if ga.totalTimeS > 0 {
+			npsRate = float64(ga.totalNodes) / ga.totalTimeS
+		}
+		if ga.depthCount > 0 {
+			depthAvg = float64(ga.totalDepth) / float64(ga.depthCount)
+		}
 		es.FullGame = sprt.FullGameStats{
 			NodesPerGame:      ga.nodesPerGame,
 			DepthAvgPerGame:   ga.depthAvg,
@@ -880,6 +899,8 @@ func buildEngineStats(plyMap map[string]*perPlyAccum, ga *gameAccum) sprt.Engine
 			TimeoutsPerGame:   ga.timeoutsPerGame,
 			TotalNodes:        ga.totalNodes,
 			TotalTimeS:        ga.totalTimeS,
+			NpsRate:           npsRate,
+			DepthAvg:          depthAvg,
 			TimeForfeits:      ga.timeForfeits,
 			IllegalMoves:      ga.illegalMoves,
 			Disconnects:       ga.disconnects,
@@ -965,6 +986,247 @@ func writeJSON(path string, summary sprt.Summary) {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		slog.Error("write json", "path", path, "err", err)
 	}
+}
+
+// ── Speed mode (--mode=speed) ──────────────────────────────────────────
+
+// speedPosition holds a test position for the speed benchmark.
+type speedPosition struct {
+	black uint64
+	white uint64
+	name  string
+	// setup holds GTP play commands to reach this position from clear_board.
+	// Empty means the position is set via the `position` GTP extension command.
+	setup []string
+}
+
+// speedStatsJSON matches the # arena-stats v1: JSON payload for NPS calculation.
+type speedStatsJSON struct {
+	Nodes  int64   `json:"nodes"`
+	Depth  int     `json:"depth"`
+	TimeMs float64 `json:"time_ms"`
+	Nps    int64   `json:"nps"`
+}
+
+// parseBits converts a binary string (MSB-first) to a uint64 bitboard.
+// The string must be exactly 64 characters of '0' and '1'.
+func parseBits(s string) uint64 {
+	var v uint64
+	for _, c := range s {
+		v <<= 1
+		if c == '1' {
+			v |= 1
+		}
+	}
+	return v
+}
+
+var speedPositions = []speedPosition{
+	// Standard opening after F5D6C3D3C4 (5 moves)
+	{black: parseBits("0000000000000000000010000011100000010000000000000000000000000000"),
+		white: parseBits("0000000000000000000001000000000000001000000000000000000000000000"),
+		name:  "opening",
+		setup: []string{"play B F5", "play W D6", "play B C3", "play W D3", "play B C4"}},
+	// Midgame position ~30 empties
+	{black: parseBits("0001000000010001011110101111110010011001001010100001110000001000"),
+		white: parseBits("0000000000001100000000000000001000000110000100000110000000000000"),
+		name:  "midgame1"},
+	// Initial position
+	{black: 1<<28 | 1<<35, white: 1<<27 | 1<<36, name: "initial"},
+}
+
+// runSpeedTest runs the speed benchmark for both engines and prints results.
+func runSpeedTest(candidateCmd, referenceCmd string) {
+	candInfo := queryEngineInfo(candidateCmd)
+	refInfo := queryEngineInfo(referenceCmd)
+	candName := engineInfoSimpleStr(candInfo, candidateCmd)
+	refName := engineInfoSimpleStr(refInfo, referenceCmd)
+
+	fmt.Printf("\n=== Speed Test ===\n")
+	fmt.Printf("Candidate: %s\n", candName)
+	fmt.Printf("Reference: %s\n", refName)
+	fmt.Printf("Depth: 10  Runs: 2 per position (after 1 warmup)\n\n")
+
+	candResults := runEngineSpeedTests(candidateCmd)
+	refResults := runEngineSpeedTests(referenceCmd)
+
+	// Print summary table
+	fmt.Printf("%-15s | %-15s | %-15s | %s\n", "Position", "Candidate NPS", "Reference NPS", "Ratio")
+	fmt.Println(strings.Repeat("-", 68))
+
+	var candSum, refSum float64
+	var count int
+	for _, pos := range speedPositions {
+		cand := candResults[pos.name]
+		ref := refResults[pos.name]
+		if cand <= 0 || ref <= 0 {
+			fmt.Printf("%-15s | %-15s | %-15s | %s\n", pos.name, "N/A", "N/A", "N/A")
+			continue
+		}
+		ratio := cand / ref
+		fmt.Printf("%-15s | %15.0f | %15.0f | %.3fx\n", pos.name, cand, ref, ratio)
+		candSum += cand
+		refSum += ref
+		count++
+	}
+
+	if count > 0 {
+		avgCand := candSum / float64(count)
+		avgRef := refSum / float64(count)
+		fmt.Printf("%-15s | %15.0f | %15.0f | %.3fx\n", "OVERALL", avgCand, avgRef, avgCand/avgRef)
+	}
+
+	fmt.Println()
+}
+
+// engineInfoSimpleStr returns a short display string for an engine.
+func engineInfoSimpleStr(info engineInfoJSON, cmd string) string {
+	name := info.Name
+	if name == "" {
+		name = filepath.Base(strings.Fields(cmd)[0])
+	}
+	ver := info.Version
+	if ver == "" {
+		ver = "unknown"
+	}
+	if info.Commit != "" {
+		return fmt.Sprintf("%s %s (%s)", name, ver, info.Commit[:8])
+	}
+	return fmt.Sprintf("%s %s", name, ver)
+}
+
+// runEngineSpeedTests benchmarks NPS for every position on one engine.
+func runEngineSpeedTests(cmd string) map[string]float64 {
+	results := make(map[string]float64, len(speedPositions))
+	for _, pos := range speedPositions {
+		nps, err := benchmarkPosition(cmd, pos)
+		if err != nil {
+			slog.Warn("speed position skipped", "pos", pos.name, "err", err)
+			results[pos.name] = 0
+		} else {
+			results[pos.name] = nps
+		}
+	}
+	return results
+}
+
+// benchmarkPosition measures average NPS for a single position on one engine.
+func benchmarkPosition(cmd string, pos speedPosition) (float64, error) {
+	s := game.StartEngine(cmd)
+	if s == nil {
+		return 0, fmt.Errorf("failed to start engine: %s", cmd)
+	}
+	defer s.Stop()
+
+	// Init board
+	resp := s.Send("boardsize 8")
+	if strings.HasPrefix(resp, "?") {
+		return 0, fmt.Errorf("boardsize rejected: %s", strings.TrimSpace(resp))
+	}
+	resp = s.Send("clear_board")
+	if strings.HasPrefix(resp, "?") {
+		return 0, fmt.Errorf("clear_board rejected: %s", strings.TrimSpace(resp))
+	}
+
+	// Set up position
+	if pos.name != "initial" {
+		if len(pos.setup) > 0 {
+			// Known play sequence — works with any GTP engine
+			for _, setup := range pos.setup {
+				resp = s.Send(setup)
+				if strings.HasPrefix(resp, "?") {
+					return 0, fmt.Errorf("setup move rejected %q: %s", setup, strings.TrimSpace(resp))
+				}
+			}
+		} else {
+			// Use position GTP extension (neursi 0.1.0+)
+			resp = s.Send(fmt.Sprintf("position %016x %016x", pos.black, pos.white))
+			if strings.HasPrefix(resp, "?") {
+				return 0, fmt.Errorf("position command not supported by engine")
+			}
+		}
+	}
+
+	// Set fixed depth
+	resp = s.Send("set_depth 10")
+	if strings.HasPrefix(resp, "?") {
+		return 0, fmt.Errorf("set_depth rejected: %s", strings.TrimSpace(resp))
+	}
+
+	// doGenmove sends one genmove and returns the computed NPS.
+	doGenmove := func() (float64, error) {
+		resp := s.Send("genmove b")
+		if strings.HasPrefix(resp, "?") {
+			return 0, fmt.Errorf("genmove error: %s", strings.TrimSpace(resp))
+		}
+		trimmed := strings.TrimSpace(resp)
+		trimmed = strings.TrimPrefix(trimmed, "= ")
+		if trimmed == "PASS" {
+			// No legal moves for black — try white
+			resp = s.Send("genmove w")
+			if strings.HasPrefix(resp, "?") {
+				return 0, fmt.Errorf("genmove w error: %s", strings.TrimSpace(resp))
+			}
+			trimmed = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(resp), "= "))
+			if trimmed == "PASS" {
+				return 0, fmt.Errorf("no legal moves for either side")
+			}
+		}
+		// Validate the move is a legal square
+		if !isValidSquare(trimmed) {
+			fmt.Fprintf(os.Stderr, "ILLEGAL MOVE from engine at position %q: %s\n", pos.name, trimmed)
+			os.Exit(2)
+		}
+		stats := s.LastStats()
+		if stats == "" {
+			return 0, fmt.Errorf("no arena-stats in genmove response")
+		}
+		var ss speedStatsJSON
+		if err := json.Unmarshal([]byte(stats), &ss); err != nil {
+			return 0, fmt.Errorf("stats parse error: %w", err)
+		}
+		if ss.TimeMs == 0 {
+			return 0, fmt.Errorf("zero time in stats")
+		}
+		nps := float64(ss.Nodes) * 1000.0 / ss.TimeMs
+		return nps, nil
+	}
+
+	// Warmup (ignore errors)
+	doGenmove()
+
+	// Timed runs
+	var npsValues []float64
+	for i := 0; i < 2; i++ {
+		nps, err := doGenmove()
+		if err == nil {
+			npsValues = append(npsValues, nps)
+		}
+	}
+
+	if len(npsValues) == 0 {
+		return 0, fmt.Errorf("no successful timed runs")
+	}
+
+	// Return average NPS
+	sum := 0.0
+	for _, n := range npsValues {
+		sum += n
+	}
+	return sum / float64(len(npsValues)), nil
+}
+
+// isValidSquare checks if a string is a valid Othello square (A1-H8, case-insensitive).
+func isValidSquare(s string) bool {
+	if len(s) < 2 {
+		return false
+	}
+	col := s[0]
+	row := s[1]
+	if col >= 'a' && col <= 'h' {
+		col -= 32
+	}
+	return col >= 'A' && col <= 'H' && row >= '1' && row <= '8'
 }
 
 // ── Embedded opening book ──────────────────────────────────────────────

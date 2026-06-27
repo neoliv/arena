@@ -350,6 +350,8 @@ type FullGameStats struct {
 	TimeoutsPerGame   *StatAccumulator `json:"timeouts_per_game,omitempty"`
 	TotalNodes        int64            `json:"total_nodes"`
 	TotalTimeS        float64          `json:"total_time_s"`
+	NpsRate           float64          `json:"nps_rate,omitempty"`
+	DepthAvg          float64          `json:"depth_avg,omitempty"`
 	TimeForfeits      int              `json:"time_forfeits"`
 	IllegalMoves      int              `json:"illegal_moves"`
 	Disconnects       int              `json:"disconnects"`

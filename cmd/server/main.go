@@ -132,16 +132,20 @@ func main() {
 	var serverGen [8]byte
 	rand.Read(serverGen[:])
 	coachHandler := coach.NewHandler(database, *token, relay, validateToken, hex.EncodeToString(serverGen[:]))
+	coachErrors := coach.NewCoachErrorStore()
+	coachHandler.ErrorStore = coachErrors
 
 	// Coach endpoints (DB persistence)
 	mux.HandleFunc("POST /api/coach/register", coachHandler.HandleRegister)
 	mux.HandleFunc("POST /api/coach/heartbeat", coachHandler.HandleHeartbeat)
+	mux.HandleFunc("POST /api/coach/engine-error", coachHandler.HandleEngineError)
 
 	// Relay endpoint (WebSocket upgrade for game sessions)
 	mux.HandleFunc("GET /api/relay/{session_id}", relay.HandleRelay)
 
 	// Matchmaker (in-memory engine registry + pull-based assignment)
 	mm := matchmaker.New(database, relay)
+	mm.ErrorStore = coachErrors
 	mux.HandleFunc("GET /api/matchmaker/status", mm.HandleStatus)
 	mux.HandleFunc("POST /api/matchmaker/register", mm.HandleRegister)
 	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)

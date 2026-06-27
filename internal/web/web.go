@@ -55,17 +55,17 @@ r.sort(function(a,b){var va=a.cells[c].textContent.trim(),vb=b.cells[c].textCont
 if(n){va=parseFloat(va)||0;vb=parseFloat(vb)||0}
 return sa?va>vb?1:va<vb?-1:0:va<vb?1:va>vb?-1:0});
 r.forEach(function(r){b.appendChild(r)});
-t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind");if(!s){s=document.createElement("span");s.className="sort-ind";t.appendChild(s)}s.textContent=i===c?(sa?"\u25b2":"\u25bc"):""})}
+t.querySelectorAll("th").forEach(function(t,i){var s=t.querySelector(".sort-ind");if(!s){s=document.createElement("span");s.className="sort-ind";t.appendChild(s)}s.textContent=i===c?(sa?"▲":"▼"):""})}
 <` + `/script>`
 
 const filterBox = `<div style="display:flex;align-items:center;gap:.4em;margin-bottom:1em"><input type="search" id="filterBox" placeholder="Filter…" oninput="filter()" autofocus style="flex:1;max-width:320px"><button id="filterModeBtn" onclick="toggleMode(this)" title="AND: all words must match | OR: any word matches" style="padding:.2em .7em;border-radius:4px;border:1px solid var(--nav-hl);font-size:.85em;cursor:pointer;background:rgba(56,136,85,0.06);color:var(--fg);font-weight:600">OR</button><span title="- prefix excludes words, e.g. neur nrsi -d10" style="color:var(--muted);cursor:help;font-size:.85em;border-bottom:1px dotted var(--muted)">?</span></div>`
 
 var navHTML = `<nav>
-<a href="/">Ranks</a> <a href="/charts">Charts</a>
-<a href="/matches">Matches</a> <a href="/games">Games</a> <a href="/players">Players</a> <a href="/coaches">Coaches</a>
-<a href="/health">Health</a> <a href="/admin">Admin</a>
-<span style="float:right"><a class="logout" href="/logout">Disconnect</a></span>
-</nav>`
+	<a href="/stats">Stats</a>
+	<a href="/games">Games</a> <a href="/players">Players</a> <a href="/coaches">Coaches</a>
+	<a href="/health">Health</a> <a href="/admin">Admin</a>
+	<span style="float:right"><a class="logout" href="/logout">Disconnect</a></span>
+	</nav>`
 
 var bannerOnce sync.Once
 func SetRollbackBanner() {
@@ -82,7 +82,8 @@ const pageFoot = `</body></html>`
 // (HX-Request header), it returns only the inner div — no page chrome.
 // This prevents nested <html> documents on auto-refreshing pages.
 func htmxWrap(r *http.Request) (open, closing string) {
-	path := r.URL.Path // use the actual request path, not a caller-supplied guess
+	path := r.URL.Path
+	if r.URL.RawQuery != "" { path += "?" + r.URL.RawQuery }
 	open = `<div hx-get="` + path + `" hx-trigger="every 30s" hx-swap="outerHTML">` + searchJS + filterBox
 	closing = `</div>`
 	if r.Header.Get("HX-Request") != "true" {
@@ -117,20 +118,19 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("POST /login", h.handleLogin)
 	mux.HandleFunc("GET /logout", h.HandleLogout)
-	mux.HandleFunc("GET /{$}", h.RequireLogin(h.handleRanks))
+	mux.HandleFunc("GET /{$}", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/stats", http.StatusMovedPermanently) }))
 	// charts route handled below
-	mux.HandleFunc("GET /graphs", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/charts?tab="+r.URL.Query().Get("tab"), http.StatusMovedPermanently) }))
-	mux.HandleFunc("GET /charts", h.RequireLogin(h.handleGraphs))
-	mux.HandleFunc("GET /matches", h.RequireLogin(h.handleMatches))
-	mux.HandleFunc("GET /matches/{id}", h.RequireLogin(h.handleMatch))
+	mux.HandleFunc("GET /graphs", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/stats?tab="+r.URL.Query().Get("tab"), http.StatusMovedPermanently) }))
+	mux.HandleFunc("GET /stats", h.RequireLogin(h.handleGraphs))
 	mux.HandleFunc("GET /games", h.RequireLogin(h.handleGames))
 		mux.HandleFunc("GET /games/{id}", h.RequireLogin(h.handleGameDetail))
 	mux.HandleFunc("GET /engines/{name}", h.RequireLogin(h.handleEngine))
 	mux.HandleFunc("GET /versions", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/players", http.StatusMovedPermanently) }))
+	mux.HandleFunc("GET /ranks", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/stats?tab=elo", http.StatusMovedPermanently) }))
 	mux.HandleFunc("GET /players", h.RequireLogin(h.handleVersions))
 	mux.HandleFunc("GET /coaches", h.RequireLogin(h.handleCoaches))
 	mux.HandleFunc("GET /health", h.RequireLogin(h.handleHealth))
-	
+
 	mux.HandleFunc("GET /admin", h.RequireLogin(h.handleAdmin))
 	mux.HandleFunc("POST /admin", h.RequireLogin(h.handleAdminSave))
 	mux.HandleFunc("GET /admin/suspend/{id}", h.RequireLogin(h.handleAdminSuspend))
@@ -142,4 +142,3 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		io.WriteString(w, pageHead+`<div style="text-align:center;margin-top:4em"><h1 style="font-size:3em;margin:0">404</h1><p style="font-size:1.2em;color:var(--muted)">This square is off the board.</p><p><a href="/" style="color:var(--link)">Return to the board</a></p></div>`+pageFoot)
 	}))
 }
-

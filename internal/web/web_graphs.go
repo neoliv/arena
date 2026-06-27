@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -12,25 +13,75 @@ import (
 func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tab := r.URL.Query().Get("tab")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Graphs</h1>`+filterBox+`
+	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Stats</h1>`+filterBox+`
 		<nav class="chart-tabs" style="margin-bottom:1.5em">
 		<a href="?tab=elo" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab==""||tab=="elo"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab==""||tab=="elo"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Elo</a>
 		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="games"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="games"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Games</a>
-		<a href="?tab=timeout" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="timeout"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="timeout"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Timeouts</a>
+		<a href="?tab=errors" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="errors"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="errors"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Errors</a>
 		<a href="?tab=unspent" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="unspent"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="unspent"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Unspent</a>
-		</div>`)
+		</nav>`)
 
 	switch tab {
 	case "games":
 		h.renderStatsBars(w, r, "games")
-	case "timeout":
-		h.renderStatsBars(w, r, "timeout")
 	case "unspent":
 		h.renderStatsBars(w, r, "unspent")
+	case "errors":
+		h.renderErrorChart(w, r)
 	default:
 		h.renderEloChart(w, r)
+		h.renderRanksTable(w, r)
 	}
 	io.WriteString(w, pageFoot)
+}
+
+// renderRanksTable renders the player rankings table — merged below the Elo chart.
+func (h *Handler) renderRanksTable(w http.ResponseWriter, r *http.Request) {
+	io.WriteString(w, `<h2>Player Rankings</h2><table><tr><th onclick="st(this.closest('table'),0,true)">#</th><th onclick="st(this.closest('table'),1,false)">Player</th><th onclick="st(this.closest('table'),2,true)">Elo</th><th onclick="st(this.closest('table'),3,true)">+/-</th><th onclick="st(this.closest('table'),4,true)">Games</th><th onclick="st(this.closest('table'),5,false)">W/L/D</th><th onclick="st(this.closest('table'),6,false)">Trend</th></tr>`)
+	rows, err := h.DB.Query(`SELECT e.id, e.name, e.version, COALESCE(e.engine_id,''), COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 1500.0), (SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id) as g, (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='1-0') OR (white_id=e.id AND result='0-1')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id AND result='0-1') OR (white_id=e.id AND result='1-0')), (SELECT COUNT(*) FROM games WHERE (black_id=e.id OR white_id=e.id) AND result='1/2') FROM engines e ORDER BY 5 DESC`)
+	if err != nil || rows == nil {
+		io.WriteString(w, "</table>")
+		return
+	}
+	defer rows.Close()
+	type eng struct {
+		Name, Version, EngineID string
+		ID                      int
+		Elo                     float64
+		Games, W, L, D          int
+	}
+	var engines []eng
+	for rows.Next() {
+		var e eng
+		rows.Scan(&e.ID, &e.Name, &e.Version, &e.EngineID, &e.Elo, &e.Games, &e.W, &e.L, &e.D)
+		engines = append(engines, e)
+	}
+	for i, e := range engines {
+		ci := 400.0 / math.Sqrt(math.Max(float64(e.Games), 1))
+		trend := "—"
+		if e.Games >= 10 {
+			var oldElo float64
+			h.DB.QueryRow(`SELECT rating_before FROM elo_history WHERE engine_id=? ORDER BY created_at ASC LIMIT 1`, e.ID).Scan(&oldElo)
+			if oldElo > 0 {
+				if e.Elo > oldElo+10 {
+					trend = "▲"
+				} else if e.Elo < oldElo-10 {
+					trend = "▼"
+				} else {
+					trend = "→"
+				}
+			}
+		}
+		var wr string
+		if e.Games > 0 {
+			wr = fmt.Sprintf("%d/%d/%d", e.W, e.L, e.D)
+		} else {
+			wr = "—"
+		}
+		fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td><a href="/engines/%s">%s %s</a> <small style="color:var(--muted)">%s</small></td><td>%.0f</td><td>±%.0f</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
+			i+1, e.Name, e.Name, e.Version, e.EngineID[:min(8, len(e.EngineID))], e.Elo, ci, e.Games, wr, trend)
+	}
+	io.WriteString(w, "</table>")
 }
 
 // engineColor returns a deterministic color for an engine name.
@@ -204,6 +255,107 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<span class="filter-item elo-legend-item" style="color:%s;margin-right:1.2em;white-space:nowrap;cursor:pointer;transition:all .15s">● %s</span>`, col, e)
 	}
 	io.WriteString(w, `</div>`)
+}
+
+func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Infra errors: disconnect=1 but no coach verdict → infrastructure.
+	var infraCount int
+	h.DB.QueryRow(`SELECT COUNT(*) FROM games WHERE disconnect=1 AND error_type=''`).Scan(&infraCount)
+
+	rows, err := h.DB.Query(`SELECT e.name, g.error_type, COUNT(*) as cnt,
+			(SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id) as total_games
+			FROM games g JOIN engines e ON (e.id = g.black_id OR e.id = g.white_id)
+			WHERE g.error_type != ''
+			GROUP BY e.name, g.error_type ORDER BY e.name, cnt DESC`)
+	if err != nil || rows == nil {
+		io.WriteString(w, "<p>No error data.</p>")
+		return
+	}
+	defer rows.Close()
+	type errBar struct {
+		engine, etype string
+		count, games  int
+	}
+	var bars []errBar
+	for rows.Next() {
+		var b errBar
+		rows.Scan(&b.engine, &b.etype, &b.count, &b.games)
+		bars = append(bars, b)
+	}
+	if len(bars) == 0 {
+		io.WriteString(w, "<p>No errors recorded — all games clean.</p>")
+		return
+	}
+
+	errorColors := map[string]string{
+		"illegal_move":     "#e05555",
+		"timeout":          "#e8a840",
+		"crash":            "#b055c0",
+		"resign":           "#78909c",
+		"invalid_response": "#a08870",
+	}
+
+	// Group by engine, preserving order
+	type engGroup struct {
+		name  string
+		games int
+		bars  []errBar
+	}
+	var groups []engGroup
+	seen := map[string]int{}
+	for _, b := range bars {
+		if idx, ok := seen[b.engine]; ok {
+			groups[idx].bars = append(groups[idx].bars, b)
+		} else {
+			seen[b.engine] = len(groups)
+			groups = append(groups, engGroup{name: b.engine, games: b.games, bars: []errBar{b}})
+		}
+	}
+
+	io.WriteString(w, `<h2>Errors</h2>`)
+	if infraCount > 0 {
+		fmt.Fprintf(w, `<p style="color:var(--muted);margin-bottom:1em">%d infrastructure failures (no engine blame) — coach connection lost or network issue.</p>`, infraCount)
+	}
+	io.WriteString(w, `<div style="max-width:680px">`)
+	barMax := 520.0 // px at 100%
+	for _, g := range groups {
+		fmt.Fprintf(w, `<div style="margin-bottom:1.2em" class="filter-item"><strong><a href="/engines/%s">%s</a></strong> <span style="color:var(--muted);font-size:.85em">%d games</span>`,
+			htmlEscape(g.name), htmlEscape(g.name), g.games)
+		for _, b := range g.bars {
+			pct := float64(b.count) / float64(b.games) * 100
+			bw := pct / 100 * barMax
+			if bw < 2 {
+				bw = 2
+			}
+			col := errorColors[b.etype]
+			if col == "" {
+				col = "#888"
+			}
+			fmt.Fprintf(w, `<div style="display:flex;align-items:center;gap:6px;margin:2px 0 2px 8px">`+
+				`<div style="width:%.0fpx;height:14px;background:%s;border-radius:3px;min-width:2px;flex-shrink:0"></div>`+
+				`<span style="font-size:.9em">%d/%d %s%% %s</span></div>`,
+				bw, col, b.count, b.games, fmtPct(pct), b.etype)
+		}
+		io.WriteString(w, `</div>`)
+	}
+	io.WriteString(w, `</div>`)
+}
+
+// fmtPct formats a percentage with at most 2 significant digits and no trailing zeros.
+// 98.9 → "99", 2.19 → "2.2", 2.0 → "2", 0.6 → "0.6".
+func fmtPct(pct float64) string {
+	if pct >= 10 {
+		return fmt.Sprintf("%.0f", math.Round(pct))
+	}
+	if pct < 0.1 {
+		return "<0.1"
+	}
+	s := fmt.Sprintf("%.1f", pct)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s
 }
 
 func formatTimeControl(tc string) string {

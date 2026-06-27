@@ -44,7 +44,7 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 				return stats[i].Interval.CPUPct.Avg > stats[j].Interval.CPUPct.Avg
 			})
 			io.WriteString(w, `<h2>Resource Usage <span style="font-weight:normal;color:var(--muted);font-size:.85em">(real CPU / RAM, 20s window, refreshes every 30s)</span></h2>`)
-			io.WriteString(w, `<table><tr><th>Player</th><th>CPU (20s / cumul)</th><th>RAM (20s / cumul)</th><th>Inst</th></tr>`)
+			io.WriteString(w, `<table><tr><th>Player</th><th>CPU (20s | Session)</th><th>RAM (20s | Session)</th><th>Inst</th></tr>`)
 			for _, s := range stats {
 				engLink := `<a href="/engines/` + htmlEscape(s.Name) + `">` + htmlEscape(s.Name) + `</a>`
 				cpuBar := resourceBar(s.Interval.CPUPct.Avg*100, s.Cumulative.CPUPct.Avg*100, true, 100)
@@ -146,10 +146,10 @@ func resourceBar(interval, cumulative float64, isCPU bool, maxRef int) string {
 	wi, wc := barWidth(interval), barWidth(cumulative)
 	return fmt.Sprintf(`<div style="width:160px;line-height:1.2">`+
 		`<div style="background:var(--border);border-radius:2px;height:8px;margin-bottom:1px">`+
-		`<div style="background:%s;height:100%%;width:%spx;border-radius:2px" title="20s: %.1f%s / %.0f"></div></div>`+
+		`<div style="background:%s;height:100%%;width:%spx;border-radius:2px" title="20s: %.1f%s | %.0f"></div></div>`+
 		`<div style="background:var(--border);border-radius:2px;height:6px;opacity:0.6">`+
-		`<div style="background:%s;height:100%%;width:%spx;border-radius:2px" title="cumulative: %.1f%s / %.0f"></div></div>`+
-		`<small style="font-size:.75em;color:var(--muted)">%.0f / %.0f%s</small></div>`,
+		`<div style="background:%s;height:100%%;width:%spx;border-radius:2px" title="session: %.1f%s | %.0f"></div></div>`+
+		`<small style="font-size:.75em;color:var(--muted)">%.0f | %.0f%s</small></div>`,
 		ci, wi, interval, suffix, max,
 		cc, wc, cumulative, suffix, max,
 		interval, cumulative, suffix)
