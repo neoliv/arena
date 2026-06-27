@@ -430,8 +430,27 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 			if !bStale || !wStale { offered++; continue }
 			if used[bKey] >= maxInst(bKey) || used[wKey] >= maxInst(wKey) { atMax++; continue }
 		}
+			// Log first pending pair details for debugging
+			for _, p := range w.pairs {
+				if p.Status != "pending" { continue }
+				bKey, wKey := p.BlackEngine, p.WhiteEngine
+				hasB := c.Engines[bKey] != nil
+				hasW := c.Engines[wKey] != nil
+				bdk, wdk := declineKey(coachID, bKey), declineKey(coachID, wKey)
+				_, bDecl := w.declines[bdk]
+				_, wDecl := w.declines[wdk]
+				_, bOff := w.offers[bdk]
+				_, wOff := w.offers[wdk]
+				slog.Warn("PollAssignments first pending pair",
+					"pair", p.ID,
+					"bKey", bKey, "bExist", hasB, "bConnected", p.BlackConnected, "bDeclined", bDecl, "bOffered", bOff,
+					"wKey", wKey, "wExist", hasW, "wConnected", p.WhiteConnected, "wDeclined", wDecl, "wOffered", wOff,
+				)
+				break
+			}
 		slog.Warn("PollAssignments empty breakdown", "coach", coachID, "pairs", len(w.pairs),
-			"no_engine", noEngine, "connected", connected, "declined", declined, "offered", offered, "at_max", atMax)
+				"no_engine", noEngine, "connected", connected, "declined", declined, "offered", offered, "at_max", atMax,
+				"candidates_complete", len(complete), "candidates_single", len(single))
 	}
 	return out
 }

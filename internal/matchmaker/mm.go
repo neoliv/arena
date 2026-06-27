@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
+	"github.com/neoliv/arena/internal/game"
 	"github.com/neoliv/arena/internal/db"
 	"github.com/neoliv/arena/internal/elo"
 	"github.com/neoliv/arena/internal/web"
@@ -105,10 +106,10 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 		if g.Disconnect {
 			disc = 1
 		}
-		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect, error_type)
+		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect, error_code)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			matchID, i+1, blackID, whiteID, g.Result, g.FinalScore, g.OpeningLine,
-			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc, g.ErrorType)
+			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc, g.ErrorCode)
 		if err != nil || gres == nil {
 			slog.Error("storeMatch: insert game failed", "err", err, "match", matchID, "game", i+1)
 			continue
@@ -154,7 +155,7 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 }
 
 func (m *MatchMaker) resolveEngine(name, ver string) int {
-	m.DB.Exec(`INSERT OR IGNORE INTO engines (name,version,created) VALUES (?,?,datetime('now'))`, name, ver)
+	m.DB.Exec(`INSERT OR IGNORE INTO engines (name,version,created) VALUES (?,?,unixepoch())`, name, ver)
 	var id int
 	m.DB.QueryRow(`SELECT id FROM engines WHERE name=? AND version=?`, name, ver).Scan(&id)
 	return id
@@ -305,7 +306,7 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 
 	tc, _ := json.Marshal(map[string]interface{}{"type": "total", "seconds": gameTimeSec})
 	res, err := m.DB.Exec(`INSERT INTO match_assignments (engine1_id, engine2_id, coach1_ai_id, coach2_ai_id, time_control, num_games, status, in_progress_at)
-		VALUES (?,?,?,?,?,2,'in_progress',datetime('now'))`, bID, wID, bCAID, wCAID, tc)
+		VALUES (?,?,?,?,?,2,'in_progress',unixepoch())`, bID, wID, bCAID, wCAID, tc)
 	if err != nil {
 		slog.Warn("match_assignments insert failed", "err", err)
 	}
@@ -320,24 +321,24 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 	// coach error store. The coach is authoritative — if it didn't report
 	// an error, the failure is infrastructure (engine blameless).
 	for i := range games {
-		if games[i].ErrorType != "crash" {
+		if games[i].ErrorCode != game.ErrCrash {
 			continue
 		}
 		// Check both sessions — play failures can happen on either stream.
-		var coachErr string
+		var coachErr int8
 		if m.ErrorStore != nil {
 			coachErr = m.ErrorStore.Get(blackSid)
-			if coachErr == "" {
+			if coachErr == 0 {
 				coachErr = m.ErrorStore.Get(whiteSid)
 			}
 		}
-		if coachErr != "" {
-			games[i].ErrorType = coachErr
-			slog.Info("coach error verdict applied", "error_type", coachErr)
+		if coachErr != 0 {
+			games[i].ErrorCode = coachErr
+			slog.Info("coach error verdict applied", "error_code", coachErr)
 		} else {
 			// No coach verdict — infrastructure, engine blameless.
 			slog.Warn("wsSend failure without coach verdict — treating as infrastructure")
-			games[i].ErrorType = ""
+			games[i].ErrorCode = game.ErrNone
 			games[i].Disconnect = true
 		}
 	}
@@ -352,7 +353,7 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 	// Mark assignment completed so it disappears from "In Progress".
 	if assignID > 0 {
 		m.dbWriteMu.Lock()
-		m.DB.Exec(`UPDATE match_assignments SET status='completed', completed_at=datetime('now') WHERE id=?`, assignID)
+		m.DB.Exec(`UPDATE match_assignments SET status='completed', completed_at=unixepoch() WHERE id=?`, assignID)
 		m.dbWriteMu.Unlock()
 	}
 
@@ -439,6 +440,8 @@ func (m *MatchMaker) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	m.Wanted.RegisterCoach(req.CoachID, req.CoresTotal, req.Engines)
 	slog.Info("coach registered in matchmaker", "coach", req.CoachID, "engines", len(req.Engines))
+		// Immediately rebuild pairs so the coach does not wait 15s for the next Tick.
+		go m.Wanted.Tick()
 	w.Write([]byte(`{"status":"ok"}`))
 }
 

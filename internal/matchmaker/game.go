@@ -103,7 +103,7 @@ type gameResult struct {
 	BlackNodes   int64
 	WhiteNodes   int64
 	Disconnect   bool   // stream/timeout error, not a real game
-	ErrorType    string // "", "timeout", "illegal_move", "crash", "resign", "invalid_response"
+	ErrorCode    int8   // game.ErrNone (0), game.ErrTimeout (2), etc.
 	BlackDepth   int
 	WhiteDepth   int
 	Moves        []gameMove
@@ -161,8 +161,8 @@ func playGames(ctx context.Context, black, white coach.Stream, numGames int, gam
 
 		gr := playOneGame(ctx, e1, e2, opening, gameTimeSec, bName, wName, assignmentID, i)
 		results = append(results, gr)
-		if gr.Disconnect {
-			slog.Warn("game disconnected, stopping match pair", "assign", assignmentID, "game", i+1)
+		if gr.Disconnect || (gr.ErrorCode != game.ErrNone && gr.ErrorCode != game.ErrResign) {
+			slog.Warn("game error, stopping match pair", "assign", assignmentID, "game", i+1, "error_code", gr.ErrorCode)
 			break
 		}
 	}
@@ -232,12 +232,12 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	for {
 		if gr.BlackTimeS >= timeLimit {
 			gr.Result = "0-1"
-			gr.ErrorType = "timeout"
+			gr.ErrorCode = game.ErrTimeout
 			break
 		}
 		if gr.WhiteTimeS >= timeLimit {
 			gr.Result = "1-0"
-			gr.ErrorType = "timeout"
+			gr.ErrorCode = game.ErrTimeout
 			break
 		}
 
@@ -247,14 +247,19 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 		legal := board.LegalMoves(curPlayer)
 		if legal == 0 {
-			consecutivePasses++
-			if consecutivePasses >= 2 {
+			// If the previous turn was also a forced pass, both sides have
+			// no moves — game over. consecutivePasses is incremented by the
+			// PASS handler below when the engine returns PASS.
+			if consecutivePasses >= 1 {
+				consecutivePasses++
 				break
 			}
-			sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
-			continue
+			// Fall through to genmove below. The engine will detect it has
+			// no legal moves and return PASS, triggering the voluntary-pass
+			// handler which correctly notifies only the opponent.
+		} else {
+			consecutivePasses = 0
 		}
-		consecutivePasses = 0
 
 		current := black
 		if sideToMove == "w" {
@@ -271,7 +276,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		if err != nil {
-			gr.ErrorType = "crash"
+			gr.ErrorCode = game.ErrCrash
 					slog.Error("genmove failed", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err, "elapsed_ms", int(elapsed*1000))
 			// "read timeout" = engine hung, counts as loss
 			// "stream closed" / "write timeout" = infrastructure, no Elo
@@ -299,7 +304,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		mv := strings.ToUpper(parts[0])
 
 		if mv == "RESIGN" {
-			gr.ErrorType = "resign"
+			gr.ErrorCode = game.ErrResign
 			if sideToMove == "b" {
 				gr.Result = "0-1"
 			} else {
@@ -324,7 +329,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 
 		if len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8' {
-			gr.ErrorType = "invalid_response"
+			gr.ErrorCode = game.ErrInvalidResponse
 			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
 			if sideToMove == "b" {
 				gr.Result = "0-1"
@@ -335,7 +340,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 		sq := game.SqFromString(mv)
 		if sq < 0 || (legal>>sq)&1 == 0 {
-			gr.ErrorType = "illegal_move"
+			gr.ErrorCode = game.ErrIllegalMove
 			slog.Warn("illegal move from engine", "side", sideToMove, "move", mv)
 			if sideToMove == "b" {
 				gr.Result = "0-1"
@@ -358,11 +363,11 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		playResp, err := wsSend(opponent, playCmd, 10)
 		if err != nil || strings.HasPrefix(playResp, "?") {
 			if err != nil {
-				gr.ErrorType = "crash" // will be resolved by coach verdict in post-processing
+				gr.ErrorCode = game.ErrCrash // will be resolved by coach verdict in post-processing
 				gr.Disconnect = true
 				slog.Error("play send failed", "assign", assignmentID, "game", gameIdx+1, "move", mv, "err", err)
 			} else {
-				gr.ErrorType = "invalid_response"
+				gr.ErrorCode = game.ErrInvalidResponse
 				slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
 			}
 			if sideToMove == "b" {

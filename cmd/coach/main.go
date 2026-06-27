@@ -1239,7 +1239,7 @@ func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[st
 					rss := ival["rss_mb"].(map[string]float64)
 					parts = append(parts, fmt.Sprintf("%s:%s cpu=%.0f%% rss=%.0fMB", p["name"], p["version"], cpu["avg"]*100, rss["avg"]))
 				}
-				slog.Debug("resource stats reported", "players", len(pl), "summary", strings.Join(parts, ", "))
+				slog.Info("resource stats reported", "players", len(pl), "summary", strings.Join(parts, ", "))
 			}(players)
 
 		case <-reportTicker.C:

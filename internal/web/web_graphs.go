@@ -6,6 +6,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+
+	"github.com/neoliv/arena/internal/game"
 	"strings"
 	"time"
 )
@@ -262,26 +264,27 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 
 	// Infra errors: disconnect=1 but no coach verdict → infrastructure.
 	var infraCount int
-	h.DB.QueryRow(`SELECT COUNT(*) FROM games WHERE disconnect=1 AND error_type=''`).Scan(&infraCount)
+	h.DB.QueryRow(`SELECT COUNT(*) FROM games WHERE disconnect=1 AND error_code=0`).Scan(&infraCount)
 
-	rows, err := h.DB.Query(`SELECT e.name, g.error_type, COUNT(*) as cnt,
+	rows, err := h.DB.Query(`SELECT e.name, g.error_code, COUNT(*) as cnt,
 			(SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id) as total_games
 			FROM games g JOIN engines e ON (e.id = g.black_id OR e.id = g.white_id)
-			WHERE g.error_type != ''
-			GROUP BY e.name, g.error_type ORDER BY e.name, cnt DESC`)
+			WHERE g.error_code != 0
+			GROUP BY e.name, g.error_code ORDER BY e.name, cnt DESC`)
 	if err != nil || rows == nil {
 		io.WriteString(w, "<p>No error data.</p>")
 		return
 	}
 	defer rows.Close()
 	type errBar struct {
-		engine, etype string
-		count, games  int
+		engine       string
+			ecode        int8
+		count, games int
 	}
 	var bars []errBar
 	for rows.Next() {
 		var b errBar
-		rows.Scan(&b.engine, &b.etype, &b.count, &b.games)
+		rows.Scan(&b.engine, &b.ecode, &b.count, &b.games)
 		bars = append(bars, b)
 	}
 	if len(bars) == 0 {
@@ -289,12 +292,12 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	errorColors := map[string]string{
-		"illegal_move":     "#e05555",
-		"timeout":          "#e8a840",
-		"crash":            "#b055c0",
-		"resign":           "#78909c",
-		"invalid_response": "#a08870",
+	errorColors := map[int8]string{
+		game.ErrIllegalMove:     "#e05555",
+		game.ErrTimeout:         "#e8a840",
+		game.ErrCrash:           "#b055c0",
+		game.ErrResign:          "#78909c",
+		game.ErrInvalidResponse: "#a08870",
 	}
 
 	// Group by engine, preserving order
@@ -316,7 +319,7 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 
 	io.WriteString(w, `<h2>Errors</h2>`)
 	if infraCount > 0 {
-		fmt.Fprintf(w, `<p style="color:var(--muted);margin-bottom:1em">%d infrastructure failures (no engine blame) — coach connection lost or network issue.</p>`, infraCount)
+		fmt.Fprintf(w, `<p style="color:var(--muted);margin-bottom:1em;font-size:1em;font-weight:600">%d infrastructure failures (no engine blame) — coach connection lost or network issue.</p>`, infraCount)
 	}
 	io.WriteString(w, `<div style="max-width:680px">`)
 	barMax := 520.0 // px at 100%
@@ -329,14 +332,14 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 			if bw < 2 {
 				bw = 2
 			}
-			col := errorColors[b.etype]
+			col := errorColors[b.ecode]
 			if col == "" {
 				col = "#888"
 			}
 			fmt.Fprintf(w, `<div style="display:flex;align-items:center;gap:6px;margin:2px 0 2px 8px">`+
 				`<div style="width:%.0fpx;height:14px;background:%s;border-radius:3px;min-width:2px;flex-shrink:0"></div>`+
-				`<span style="font-size:.9em">%d/%d %s%% %s</span></div>`,
-				bw, col, b.count, b.games, fmtPct(pct), b.etype)
+				`<span style="font-size:1em;font-weight:600">%s%% %d/%d %s</span></div>`,
+				bw, col, fmtPct(pct), b.count, b.games, game.ErrorLabel[b.ecode])
 		}
 		io.WriteString(w, `</div>`)
 	}

@@ -84,7 +84,7 @@ func (db *DB) Migrate() error {
 		"ALTER TABLE engines ADD COLUMN engine_id TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN engine_manifest TEXT DEFAULT ''",
 			"ALTER TABLE games ADD COLUMN disconnect INTEGER DEFAULT 0",
-		"ALTER TABLE games ADD COLUMN error_type TEXT DEFAULT ''",
+		"ALTER TABLE games ADD COLUMN error_code INTEGER DEFAULT 0",
 			"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0)",
 			"CREATE INDEX IF NOT EXISTS idx_gm_game ON game_moves(game_id)",
 		"CREATE INDEX IF NOT EXISTS idx_assign_session1 ON match_assignments(session1_id)",
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS engines (
     created         TEXT DEFAULT '',
 	    changelog_short TEXT DEFAULT '',
 	    changelog_full  TEXT DEFAULT '',
-	    created_at      TEXT DEFAULT (datetime('now')),
+	    created_at      INTEGER DEFAULT (unixepoch()),
     UNIQUE(name, version)
 );
 
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS matches (
     wins_1        INTEGER DEFAULT 0,
     wins_2        INTEGER DEFAULT 0,
     draws         INTEGER DEFAULT 0,
-    created_at    TEXT DEFAULT (datetime('now'))
+    created_at    INTEGER DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS games (
@@ -143,8 +143,8 @@ CREATE TABLE IF NOT EXISTS games (
     black_depth   INTEGER,
     white_depth   INTEGER,
     disconnect    INTEGER DEFAULT 0,
-    error_type    TEXT DEFAULT '',
-    created_at    TEXT DEFAULT (datetime('now'))
+    error_code    INTEGER DEFAULT 0,
+    created_at    INTEGER DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS elo_history (
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS elo_history (
     wins           INTEGER DEFAULT 0,
     losses         INTEGER DEFAULT 0,
     draws          INTEGER DEFAULT 0,
-    created_at    TEXT DEFAULT (datetime('now'))
+    created_at    INTEGER DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS bisections (
@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS bisections (
     status        TEXT DEFAULT 'pending',
     current_good  TEXT,
     current_bad   TEXT,
-    created_at    TEXT DEFAULT (datetime('now')),
+    created_at    INTEGER DEFAULT (unixepoch()),
     finished_at   TEXT
 );
 
@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS speed_stats (
     total_branch  INTEGER NOT NULL DEFAULT 0,
     total_empties INTEGER NOT NULL DEFAULT 0,
     sample_count  INTEGER NOT NULL DEFAULT 1,
-    created_at    TEXT DEFAULT (datetime('now'))
+    created_at    INTEGER DEFAULT (unixepoch())
 );
 
 CREATE INDEX IF NOT EXISTS idx_speed_engine ON speed_stats(engine_id);
@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS bisect_steps (
     elo_result    REAL,
     verdict       TEXT,
     games_played  INTEGER,
-    created_at    TEXT DEFAULT (datetime('now'))
+    created_at    INTEGER DEFAULT (unixepoch())
 );
 
 CREATE INDEX IF NOT EXISTS idx_games_match ON games(match_id);
@@ -232,8 +232,8 @@ CREATE TABLE IF NOT EXISTS coaches (
     cores_total   INTEGER NOT NULL DEFAULT 0,
     memory_mb_total INTEGER NOT NULL DEFAULT 0,
     last_seen     TEXT,
-    created_at    TEXT DEFAULT (datetime('now')),
-    updated_at    TEXT DEFAULT (datetime('now'))
+    created_at    INTEGER DEFAULT (unixepoch()),
+    updated_at    INTEGER DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS coach_ais (
@@ -250,8 +250,8 @@ CREATE TABLE IF NOT EXISTS coach_ais (
     engine_id           TEXT DEFAULT '',
     engine_manifest     TEXT DEFAULT '',
     is_available        INTEGER DEFAULT 0,
-    created_at          TEXT DEFAULT (datetime('now')),
-    updated_at          TEXT DEFAULT (datetime('now')),
+    created_at          INTEGER DEFAULT (unixepoch()),
+    updated_at          INTEGER DEFAULT (unixepoch()),
     created           TEXT DEFAULT '',
     changelog_short   TEXT DEFAULT '',
     changelog_full    TEXT DEFAULT '',
@@ -272,7 +272,7 @@ CREATE TABLE IF NOT EXISTS match_assignments (
     decline_reason TEXT DEFAULT '',
     retry_count   INTEGER DEFAULT 0,
     retry_after   TEXT,
-    created_at    TEXT DEFAULT (datetime('now')),
+    created_at    INTEGER DEFAULT (unixepoch()),
     assigned_at   TEXT,
     ready_at      TEXT,
     in_progress_at TEXT,
@@ -290,7 +290,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     email       TEXT NOT NULL DEFAULT '',
     nickname    TEXT DEFAULT '',
     comment     TEXT DEFAULT '',
-    created_at  TEXT DEFAULT (datetime('now')),
+    created_at  INTEGER DEFAULT (unixepoch()),
     last_used   TEXT DEFAULT '',
     use_count   INTEGER DEFAULT 0,
     active      INTEGER DEFAULT 1
@@ -300,6 +300,6 @@ CREATE TABLE IF NOT EXISTS web_sessions (
     id          TEXT PRIMARY KEY,
     token       TEXT NOT NULL,
     email       TEXT NOT NULL DEFAULT '',
-    created_at  TEXT DEFAULT (datetime('now'))
+    created_at  INTEGER DEFAULT (unixepoch())
 );
 `
