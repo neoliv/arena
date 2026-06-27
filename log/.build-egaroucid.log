@@ -11,7 +11,7 @@ cd /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/sr
 -- Detecting CXX compile features
 -- Detecting CXX compile features - done
 -- Egaroucid engine variant: SIMD
--- Configuring done (0.1s)
+-- Configuring done (0.2s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach
 gmake[1]: Entering directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'

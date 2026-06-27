@@ -236,6 +236,13 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		if mv == "PASS" {
 			consecutivePasses++
 			gr.Moves = append(gr.Moves, "PASS")
+			// Genmove already applied the pass internally. Tell the opponent.
+			passCmd := "play " + sideToMove + " pass"
+			if sideToMove == "B" {
+				white.Send(passCmd)
+			} else {
+				black.Send(passCmd)
+			}
 			if consecutivePasses >= 2 {
 				break
 			}

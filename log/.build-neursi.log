@@ -3,8 +3,8 @@ make: 'coach-build' is up to date.
 warning: unused imports: `EC_CACHE_MASK`, `SCORE_MAX`, and `SCORE_MIN`
  --> src/endgame/tests.rs:3:22
   |
-3 | ...::{SCORE_MIN, SCORE_MAX, SCORE_WIN, EndgameCache, EC_CACHE_SIZE, EC_CACHE_MASK};
-  |       ^^^^^^^^^  ^^^^^^^^^                                          ^^^^^^^^^^^^^
+3 | use crate::endgame::{SCORE_MIN, SCORE_MAX, SCORE_WIN, EndgameCache, EC_CACHE_SIZE, EC_CACHE_MASK};
+  |                      ^^^^^^^^^  ^^^^^^^^^                                          ^^^^^^^^^^^^^
   |
   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
@@ -48,13 +48,13 @@ warning: value assigned to `skipped_count` is never read
 warning: unused variable: `parity`
   --> src/endgame_edax.rs:59:75
    |
-59 | ...u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
-   |                           ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
+59 | fn solve_3(player: u64, opponent: u64, a: i32, x1: u32, x2: u32, x3: u32, parity: u8, nodes: &mut u64) -> i32 {
+   |                                                                           ^^^^^^ help: if this is intentional, prefix it with an underscore: `_parity`
 
 warning: static `EDGE_STABILITY` is never used
    --> src/endgame.rs:180:8
     |
-180 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 256]> = std...
+180 | static EDGE_STABILITY: std::sync::OnceLock<[[u8; 256]; 256]> = std::sync::OnceLock::new();
     |        ^^^^^^^^^^^^^^
     |
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
@@ -80,13 +80,13 @@ warning: function `count_last_flip` is never used
 warning: function `nws` is never used
    --> src/endgame_edax.rs:123:4
     |
-123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: ...
+123 | fn nws(player: u64, opponent: u64, n_empties: i32, a: i32, nodes: &mut u64) -> i32 {
     |    ^^^
 
 warning: function `verify_byte_equivalence` is never used
  --> src/nnue_verify.rs:9:4
   |
-9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsM...
+9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMmap) -> usize {
   |    ^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `benchmark_access` is never used
@@ -105,5 +105,5 @@ warning: unused import: `neursi::board::*`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 3.98s
+    Finished `release` profile [optimized] target(s) in 3.92s
 coach-engine/ ready: 4 files

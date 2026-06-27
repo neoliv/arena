@@ -309,6 +309,12 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 		if mv == "PASS" {
 			consecutivePasses++
+			// Genmove already applied the pass internally. Tell the opponent.
+			opp := white
+			if sideToMove == "w" {
+				opp = black
+			}
+			wsSend(opp, "play "+sideToMove+" pass", 10)
 			if consecutivePasses >= 2 {
 				break
 			}
