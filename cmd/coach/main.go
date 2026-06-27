@@ -67,10 +67,11 @@ type runningEngine struct {
 	cmd       *exec.Cmd
 	cancel    context.CancelFunc
 	sessionID string
-	// killReason distinguishes time-budget kills (engine loss) from
-	// infrastructure kills (no partner — no penalty).
-	// "": still running; "timeout": engine exceeded time budget;
-	// "nopartner": watchdog fired with no game activity.
+	// killReason records why the coach killed this engine.
+	// "": still running (or engine exited on its own).
+	// "timeout": engine exceeded time budget (engine fault).
+	// "nopartner": watchdog fired — no game activity within budget (infra).
+	// "shutdown": coach stopping or server restart (infra).
 	killReason string
 }
 
@@ -376,7 +377,7 @@ func main() {
 					switch re.killReason {
 					case "timeout":
 						slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sid, "err", err)
-					case "nopartner":
+					case "nopartner", "shutdown":
 						slog.Warn("engine INFRASTRUCTURE KILL (no partner) — no penalty", "session", sid, "err", err)
 						// Infrastructure failures don't count against the engine.
 						mu.Lock()
@@ -414,7 +415,7 @@ func main() {
 
 	mu.Lock()
 	for _, re := range running {
-		re.killReason = "nopartner"
+		re.killReason = "shutdown"
 		re.cancel()
 		re.cmd.Process.Kill()
 	}
@@ -1334,7 +1335,7 @@ func killAllRunning(mu *sync.Mutex, running map[string]*runningEngine) {
 	defer mu.Unlock()
 	n := len(running)
 	for sid, re := range running {
-		re.killReason = "nopartner"
+		re.killReason = "shutdown"
 		re.cmd.Process.Kill()
 		delete(running, sid)
 	}

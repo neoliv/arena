@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -990,6 +991,60 @@ func writeJSON(path string, summary sprt.Summary) {
 
 // ── Speed mode (--mode=speed) ──────────────────────────────────────────
 
+// ── Speed test anomaly detection ─────────────────────────────────────────
+
+// speedAnomaly records a detected issue during speed benchmarking.
+type speedAnomaly struct {
+	Engine   string // "candidate" or "reference"
+	Position string // position name
+	Severity string // "warn" or "critical"
+	Detail   string // human-readable description
+}
+
+// readProcessCPU reads CPU time (utime+stime+cutime+cstime) in ticks
+// from /proc/[pid]/stat. Fields are 1-indexed: utime=14, stime=15,
+// cutime=16, cstime=17. Returns 0 on any error.
+func readProcessCPU(pid int) uint64 {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return 0
+	}
+	// stat format: pid (comm) state ... — find the closing paren
+	s := string(data)
+	closeParen := strings.LastIndexByte(s, ')')
+	if closeParen < 0 {
+		return 0
+	}
+	parts := strings.Fields(s[closeParen+2:])
+	if len(parts) < 15 {
+		return 0
+	}
+	utime, _ := strconv.ParseUint(parts[11], 10, 64)
+	stime, _ := strconv.ParseUint(parts[12], 10, 64)
+	cutime, _ := strconv.ParseUint(parts[13], 10, 64)
+	cstime, _ := strconv.ParseUint(parts[14], 10, 64)
+	return utime + stime + cutime + cstime
+}
+
+// readProcessPss reads Proportional Set Size in KiB from /proc/[pid]/smaps_rollup.
+// Pss divides shared pages (e.g. mmapped NNUE weights) evenly among sharing processes.
+func readProcessPss(pid int) uint64 {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/smaps_rollup", pid))
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "Pss:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				v, _ := strconv.ParseUint(fields[1], 10, 64)
+				return v
+			}
+		}
+	}
+	return 0
+}
+
 // speedPosition holds a test position for the speed benchmark.
 type speedPosition struct {
 	black uint64
@@ -1036,19 +1091,23 @@ var speedPositions = []speedPosition{
 }
 
 // runSpeedTest runs the speed benchmark for both engines and prints results.
+// Also collects and reports anomalies (depth mismatch, CPU variance, memory changes).
 func runSpeedTest(candidateCmd, referenceCmd string) {
 	candInfo := queryEngineInfo(candidateCmd)
 	refInfo := queryEngineInfo(referenceCmd)
-	candName := engineInfoSimpleStr(candInfo, candidateCmd)
-	refName := engineInfoSimpleStr(refInfo, referenceCmd)
+	candName := engineInfoToSimple(candInfo).Name
+	refName := engineInfoToSimple(refInfo).Name
 
 	fmt.Printf("\n=== Speed Test ===\n")
 	fmt.Printf("Candidate: %s\n", candName)
 	fmt.Printf("Reference: %s\n", refName)
 	fmt.Printf("Depth: 10  Runs: 2 per position (after 1 warmup)\n\n")
 
-	candResults := runEngineSpeedTests(candidateCmd)
-	refResults := runEngineSpeedTests(referenceCmd)
+	var anomalies []speedAnomaly
+	candResults, candAnoms := runEngineSpeedTests(candidateCmd, "candidate")
+	anomalies = append(anomalies, candAnoms...)
+	refResults, refAnoms := runEngineSpeedTests(referenceCmd, "reference")
+	anomalies = append(anomalies, refAnoms...)
 
 	// Print summary table
 	fmt.Printf("%-15s | %-15s | %-15s | %s\n", "Position", "Candidate NPS", "Reference NPS", "Ratio")
@@ -1061,6 +1120,13 @@ func runSpeedTest(candidateCmd, referenceCmd string) {
 		ref := refResults[pos.name]
 		if cand <= 0 || ref <= 0 {
 			fmt.Printf("%-15s | %-15s | %-15s | %s\n", pos.name, "N/A", "N/A", "N/A")
+			// Record anomaly for failed position
+			if cand <= 0 {
+				anomalies = append(anomalies, speedAnomaly{Engine: "candidate", Position: pos.name, Severity: "critical", Detail: "failed to produce NPS result"})
+			}
+			if ref <= 0 {
+				anomalies = append(anomalies, speedAnomaly{Engine: "reference", Position: pos.name, Severity: "critical", Detail: "failed to produce NPS result"})
+			}
 			continue
 		}
 		ratio := cand / ref
@@ -1071,78 +1137,79 @@ func runSpeedTest(candidateCmd, referenceCmd string) {
 	}
 
 	if count > 0 {
-		avgCand := candSum / float64(count)
-		avgRef := refSum / float64(count)
-		fmt.Printf("%-15s | %15.0f | %15.0f | %.3fx\n", "OVERALL", avgCand, avgRef, avgCand/avgRef)
+		candAvg := candSum / float64(count)
+		refAvg := refSum / float64(count)
+		fmt.Println(strings.Repeat("-", 68))
+		fmt.Printf("%-15s | %15.0f | %15.0f | %.3fx\n", "AVERAGE", candAvg, refAvg, candAvg/refAvg)
 	}
 
-	fmt.Println()
-}
-
-// engineInfoSimpleStr returns a short display string for an engine.
-func engineInfoSimpleStr(info engineInfoJSON, cmd string) string {
-	name := info.Name
-	if name == "" {
-		name = filepath.Base(strings.Fields(cmd)[0])
-	}
-	ver := info.Version
-	if ver == "" {
-		ver = "unknown"
-	}
-	if info.Commit != "" {
-		return fmt.Sprintf("%s %s (%s)", name, ver, info.Commit[:8])
-	}
-	return fmt.Sprintf("%s %s", name, ver)
-}
-
-// runEngineSpeedTests benchmarks NPS for every position on one engine.
-func runEngineSpeedTests(cmd string) map[string]float64 {
-	results := make(map[string]float64, len(speedPositions))
-	for _, pos := range speedPositions {
-		nps, err := benchmarkPosition(cmd, pos)
-		if err != nil {
-			slog.Warn("speed position skipped", "pos", pos.name, "err", err)
-			results[pos.name] = 0
-		} else {
-			results[pos.name] = nps
+	// Report anomalies
+	if len(anomalies) > 0 {
+		fmt.Printf("\n⚠ Anomalies detected (%d):\n", len(anomalies))
+		for _, a := range anomalies {
+			tag := "WARN"
+			if a.Severity == "critical" {
+				tag = "CRITICAL"
+			}
+			fmt.Printf("  [%s] %s/%s: %s\n", tag, a.Engine, a.Position, a.Detail)
 		}
+	} else {
+		fmt.Printf("\n✓ No anomalies detected.\n")
 	}
-	return results
 }
 
-// benchmarkPosition measures average NPS for a single position on one engine.
-func benchmarkPosition(cmd string, pos speedPosition) (float64, error) {
+// runEngineSpeedTests benchmarks one engine on all positions.
+func runEngineSpeedTests(cmd, label string) (map[string]float64, []speedAnomaly) {
+	results := make(map[string]float64, len(speedPositions))
+	var anomalies []speedAnomaly
+	for _, pos := range speedPositions {
+		nps, posAnoms, err := benchmarkPosition(cmd, pos, label)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", label, pos.name, err)
+			results[pos.name] = 0
+			anomalies = append(anomalies, speedAnomaly{Engine: label, Position: pos.name, Severity: "critical", Detail: err.Error()})
+			continue
+		}
+		results[pos.name] = nps
+		anomalies = append(anomalies, posAnoms...)
+	}
+	return results, anomalies
+}
+
+// benchmarkPosition measures NPS for one engine on one position.
+// Also validates depth and samples CPU/Pss for anomaly detection.
+func benchmarkPosition(cmd string, pos speedPosition, label string) (float64, []speedAnomaly, error) {
 	s := game.StartEngine(cmd)
 	if s == nil {
-		return 0, fmt.Errorf("failed to start engine: %s", cmd)
+		return 0, nil, fmt.Errorf("failed to start engine: %s", cmd)
 	}
 	defer s.Stop()
+	pid := s.PID()
+	var anomalies []speedAnomaly
 
 	// Init board
 	resp := s.Send("boardsize 8")
 	if strings.HasPrefix(resp, "?") {
-		return 0, fmt.Errorf("boardsize rejected: %s", strings.TrimSpace(resp))
+		return 0, anomalies, fmt.Errorf("boardsize rejected: %s", strings.TrimSpace(resp))
 	}
 	resp = s.Send("clear_board")
 	if strings.HasPrefix(resp, "?") {
-		return 0, fmt.Errorf("clear_board rejected: %s", strings.TrimSpace(resp))
+		return 0, anomalies, fmt.Errorf("clear_board rejected: %s", strings.TrimSpace(resp))
 	}
 
 	// Set up position
 	if pos.name != "initial" {
 		if len(pos.setup) > 0 {
-			// Known play sequence — works with any GTP engine
 			for _, setup := range pos.setup {
 				resp = s.Send(setup)
 				if strings.HasPrefix(resp, "?") {
-					return 0, fmt.Errorf("setup move rejected %q: %s", setup, strings.TrimSpace(resp))
+					return 0, anomalies, fmt.Errorf("setup move rejected %q: %s", setup, strings.TrimSpace(resp))
 				}
 			}
 		} else {
-			// Use position GTP extension (neursi 0.1.0+)
 			resp = s.Send(fmt.Sprintf("position %016x %016x", pos.black, pos.white))
 			if strings.HasPrefix(resp, "?") {
-				return 0, fmt.Errorf("position command not supported by engine")
+				return 0, anomalies, fmt.Errorf("position command not supported by engine")
 			}
 		}
 	}
@@ -1150,71 +1217,127 @@ func benchmarkPosition(cmd string, pos speedPosition) (float64, error) {
 	// Set fixed depth
 	resp = s.Send("set_depth 10")
 	if strings.HasPrefix(resp, "?") {
-		return 0, fmt.Errorf("set_depth rejected: %s", strings.TrimSpace(resp))
+		return 0, anomalies, fmt.Errorf("set_depth rejected: %s", strings.TrimSpace(resp))
 	}
 
-	// doGenmove sends one genmove and returns the computed NPS.
-	doGenmove := func() (float64, error) {
+	// Sample baseline resources
+	pssBefore := readProcessPss(pid)
+	_ = readProcessCPU(pid) // baseline CPU sample
+
+	// doGenmove sends genmove and returns NPS + parsed stats.
+	doGenmove := func() (float64, speedStatsJSON, error) {
 		resp := s.Send("genmove b")
 		if strings.HasPrefix(resp, "?") {
-			return 0, fmt.Errorf("genmove error: %s", strings.TrimSpace(resp))
+			return 0, speedStatsJSON{}, fmt.Errorf("genmove error: %s", strings.TrimSpace(resp))
 		}
 		trimmed := strings.TrimSpace(resp)
 		trimmed = strings.TrimPrefix(trimmed, "= ")
 		if trimmed == "PASS" {
-			// No legal moves for black — try white
 			resp = s.Send("genmove w")
 			if strings.HasPrefix(resp, "?") {
-				return 0, fmt.Errorf("genmove w error: %s", strings.TrimSpace(resp))
+				return 0, speedStatsJSON{}, fmt.Errorf("genmove w error: %s", strings.TrimSpace(resp))
 			}
 			trimmed = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(resp), "= "))
 			if trimmed == "PASS" {
-				return 0, fmt.Errorf("no legal moves for either side")
+				return 0, speedStatsJSON{}, fmt.Errorf("no legal moves for either side")
 			}
 		}
-		// Validate the move is a legal square
 		if !isValidSquare(trimmed) {
 			fmt.Fprintf(os.Stderr, "ILLEGAL MOVE from engine at position %q: %s\n", pos.name, trimmed)
 			os.Exit(2)
 		}
 		stats := s.LastStats()
 		if stats == "" {
-			return 0, fmt.Errorf("no arena-stats in genmove response")
+			return 0, speedStatsJSON{}, fmt.Errorf("no arena-stats in genmove response")
 		}
 		var ss speedStatsJSON
 		if err := json.Unmarshal([]byte(stats), &ss); err != nil {
-			return 0, fmt.Errorf("stats parse error: %w", err)
+			return 0, speedStatsJSON{}, fmt.Errorf("stats parse error: %w", err)
 		}
 		if ss.TimeMs == 0 {
-			return 0, fmt.Errorf("zero time in stats")
+			return 0, speedStatsJSON{}, fmt.Errorf("zero time in stats")
 		}
 		nps := float64(ss.Nodes) * 1000.0 / ss.TimeMs
-		return nps, nil
+		return nps, ss, nil
 	}
 
-	// Warmup (ignore errors)
-	doGenmove()
+	// Warmup (ignore errors, but check depth)
+	_, ssWarm, err := doGenmove()
+	if err == nil && ssWarm.Depth < 10 {
+		anomalies = append(anomalies, speedAnomaly{
+			Engine: label, Position: pos.name, Severity: "warn",
+			Detail: fmt.Sprintf("warmup depth %d < requested 10", ssWarm.Depth),
+		})
+	}
 
 	// Timed runs
 	var npsValues []float64
+	var cpuValues []uint64
 	for i := 0; i < 2; i++ {
-		nps, err := doGenmove()
+		cpuBeforeRun := readProcessCPU(pid)
+		nps, ss, err := doGenmove()
+		cpuAfterRun := readProcessCPU(pid)
 		if err == nil {
 			npsValues = append(npsValues, nps)
+			if cpuAfterRun > cpuBeforeRun {
+				cpuValues = append(cpuValues, cpuAfterRun-cpuBeforeRun)
+			}
+			// Depth validation
+			if ss.Depth < 10 {
+				anomalies = append(anomalies, speedAnomaly{
+					Engine: label, Position: pos.name, Severity: "critical",
+					Detail: fmt.Sprintf("depth %d < requested 10 (run %d)", ss.Depth, i+1),
+				})
+			}
 		}
 	}
 
-	if len(npsValues) == 0 {
-		return 0, fmt.Errorf("no successful timed runs")
+	// Resource sampling after all runs
+	cpuAfter := readProcessCPU(pid)
+	pssAfter := readProcessPss(pid)
+
+	// CPU variance check
+	if len(cpuValues) == 2 {
+		cpu0, cpu1 := cpuValues[0], cpuValues[1]
+		if cpu0 > 0 && cpu1 > 0 {
+			ratio := float64(max(cpu0, cpu1)) / float64(min(cpu0, cpu1))
+			if ratio > 2.0 {
+				anomalies = append(anomalies, speedAnomaly{
+					Engine: label, Position: pos.name, Severity: "warn",
+					Detail: fmt.Sprintf("CPU ticks vary %.1fx between runs (%d vs %d)", ratio, cpu0, cpu1),
+				})
+			}
+		}
 	}
 
-	// Return average NPS
+	// Pss change check
+	if pssBefore > 0 && pssAfter > 0 {
+		pssDelta := int64(pssAfter) - int64(pssBefore)
+		if pssDelta < 0 {
+			pssDelta = -pssDelta
+		}
+		pssChangePct := float64(pssDelta) / float64(pssBefore) * 100
+		if pssChangePct > 10 {
+			anomalies = append(anomalies, speedAnomaly{
+				Engine: label, Position: pos.name, Severity: "warn",
+				Detail: fmt.Sprintf("Pss changed %.0f%% (%d→%d KiB)", pssChangePct, pssBefore, pssAfter),
+			})
+		}
+	}
+	_ = cpuAfter
+
+	if len(npsValues) == 0 {
+		return 0, anomalies, fmt.Errorf("no successful timed runs")
+	}
+
 	sum := 0.0
 	for _, n := range npsValues {
 		sum += n
 	}
-	return sum / float64(len(npsValues)), nil
+	return sum / float64(len(npsValues)), anomalies, nil
 }
+
+// isValidSquare checks if a string is a valid Othello square (A1-H8, case-insensitive).}
 
 // isValidSquare checks if a string is a valid Othello square (A1-H8, case-insensitive).
 func isValidSquare(s string) bool {
