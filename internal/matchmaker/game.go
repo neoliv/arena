@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
+	"github.com/neoliv/arena/internal/game"
 )
 
 // ── Embedded opening book ──────────────────────────────────────────────
@@ -43,27 +44,27 @@ func loadOpenings() []string {
 			if len(moves) == 0 {
 				continue
 			}
-			board := newBoard()
+			board := game.NewBoard()
 			valid := true
 			for i, mv := range moves {
 				c := "b"
 				if i%2 == 1 {
 					c = "w"
 				}
-				sq := sqFromString(mv)
+				sq := game.SqFromString(mv)
 				if sq < 0 {
 					valid = false
 					break
 				}
-				player := board.black
+				player := board.Black()
 				if c == "w" {
-					player = board.white
+					player = board.White()
 				}
-				if board.legalMoves(player)&(1<<sq) == 0 {
+				if board.LegalMoves(player)&(1<<sq) == 0 {
 					valid = false
 					break
 				}
-				board = board.applyMove(player, sq)
+				board = board.ApplyMove(player, sq)
 			}
 			if valid {
 				openingsCache = append(openingsCache, line)
@@ -184,7 +185,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		}
 	}
 
-	board := newBoard()
+	board := game.NewBoard()
 
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
@@ -207,13 +208,13 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 				return gr
 			}
 		}
-		sq := sqFromString(mv)
+		sq := game.SqFromString(mv)
 		if sq >= 0 {
-			player := board.black
+			player := board.Black()
 			if color == "w" {
-				player = board.white
+				player = board.White()
 			}
-			board = board.applyMove(player, sq)
+			board = board.ApplyMove(player, sq)
 		}
 	}
 
@@ -221,8 +222,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	timeLimit := gameTimeSec * 1.05
 
 	sideToMove := "b"
-	curPlayer := board.black
-	oppPlayer := board.white
+	curPlayer := board.Black()
+	oppPlayer := board.White()
 	if len(moves)%2 == 1 {
 		sideToMove = "w"
 		curPlayer, oppPlayer = oppPlayer, curPlayer
@@ -240,11 +241,11 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-		if board.isOver() {
+		if board.IsOver() {
 			break
 		}
 
-		legal := board.legalMoves(curPlayer)
+		legal := board.LegalMoves(curPlayer)
 		if legal == 0 {
 			consecutivePasses++
 			if consecutivePasses >= 2 {
@@ -332,7 +333,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			}
 			break
 		}
-		sq := sqFromString(mv)
+		sq := game.SqFromString(mv)
 		if sq < 0 || (legal>>sq)&1 == 0 {
 			gr.ErrorType = "illegal_move"
 			slog.Warn("illegal move from engine", "side", sideToMove, "move", mv)
@@ -344,7 +345,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 			break
 		}
 
-		board = board.applyMove(curPlayer, sq)
+		board = board.ApplyMove(curPlayer, sq)
 		// Standard GTP: genmove applies the move to the engine's own board.
 		// play is sent ONLY to the opponent to announce the move.
 		// Sending play to the engine that just moved is a protocol violation
@@ -433,8 +434,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	}
 
 	// Compute final score from the board (works for all endings: timeout, resign, normal)
-	bCount := popcount(board.black)
-	wCount := popcount(board.white)
+	bCount := game.Popcount(board.Black())
+	wCount := game.Popcount(board.White())
 	if gr.FinalScore == 0 {
 		if bCount > wCount {
 			gr.FinalScore = bCount - wCount
@@ -457,20 +458,11 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	return gr
 }
 
-func flipSide(sideToMove string, curPlayer, oppPlayer uint64, board othelloBoard) (string, uint64, uint64) {
+func flipSide(sideToMove string, curPlayer, oppPlayer uint64, board game.Board) (string, uint64, uint64) {
 	if sideToMove == "b" {
-		return "w", board.white, board.black
+		return "w", board.White(), board.Black()
 	}
-	return "b", board.black, board.white
-}
-
-func popcount(x uint64) int {
-	c := 0
-	for x != 0 {
-		x &= x - 1
-		c++
-	}
-	return c
+	return "b", board.Black(), board.White()
 }
 
 func parseMoveList(line string) []string {

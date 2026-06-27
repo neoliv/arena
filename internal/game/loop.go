@@ -255,8 +255,8 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		if sq < 0 || (legal>>sq)&1 == 0 {
 			slog.Warn("illegal move from engine",
 				"side", sideToMove, "move", mv,
-				"empties", 64-popcount(board.black|board.white),
-				"legal_count", popcount(legal),
+				"empties", 64-Popcount(board.black|board.white),
+				"legal_count", Popcount(legal),
 				"legal", fmt.Sprintf("%064b", legal),
 				"black", fmt.Sprintf("%064b", board.black),
 				"white", fmt.Sprintf("%064b", board.white),
@@ -273,7 +273,7 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		gr.Moves = append(gr.Moves, mv)
 		// Framework board after move (for debugging board divergence).
 		slog.Debug("framework board", "side", sideToMove, "move", mv,
-			"empties", 64-popcount(board.black|board.white),
+			"empties", 64-Popcount(board.black|board.white),
 			"black", fmt.Sprintf("%016x", board.black),
 			"white", fmt.Sprintf("%016x", board.white))
 

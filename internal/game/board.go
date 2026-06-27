@@ -140,6 +140,12 @@ func applyFlip(me, opp uint64, sq int) flipResult {
 	return flipResult{me, opp}
 }
 
+// Black returns the black disc bitboard.
+func (b *Board) Black() uint64 { return b.black }
+
+// White returns the white disc bitboard.
+func (b *Board) White() uint64 { return b.white }
+
 // IsOver returns true if neither player has a legal move.
 func (b *Board) IsOver() bool {
 	return b.LegalMoves(b.black) == 0 && b.LegalMoves(b.white) == 0
@@ -147,8 +153,8 @@ func (b *Board) IsOver() bool {
 
 // Result computes the final game result from the board.
 func (b *Board) Result() (blackCount, whiteCount int, result string) {
-	bc := popcount(b.black)
-	wc := popcount(b.white)
+	bc := Popcount(b.black)
+	wc := Popcount(b.white)
 	if bc > wc {
 		return bc, wc, "1-0"
 	}
@@ -184,7 +190,7 @@ func SqToString(sq int) string {
 	return string([]byte{col, row})
 }
 
-func popcount(x uint64) int {
+func Popcount(x uint64) int {
 	c := 0
 	for x != 0 {
 		x &= x - 1
