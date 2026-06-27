@@ -18,8 +18,9 @@ ssh "${VPS_USER}@${VPS}" "systemctl stop arena"
 
 # Backup
 echo "--- Backing up DB ---"
-ssh "${VPS_USER}@${VPS}" "cp '$DB' '$DB.bak-\$(date +%Y%m%d-%H%M%S)'"
-echo "  backup created"
+BACKUP_NAME="${DB}.bak-$(date +%Y%m%d-%H%M%S)"
+ssh "${VPS_USER}@${VPS}" "cp '$DB' '$BACKUP_NAME'"
+echo "  backup created: $BACKUP_NAME"
 
 # Clear all data tables, keep tokens and sessions
 echo "--- Clearing tables ---"
