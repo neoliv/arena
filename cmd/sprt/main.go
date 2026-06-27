@@ -29,6 +29,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -52,6 +53,7 @@ func main() {
 		beta        = flag.Float64("beta", 0.05, "False negative rate")
 		maxGames    = flag.Int("max-games", 400, "Maximum game pairs")
 		concurrency = flag.Int("concurrency", 4, "Concurrent game pairs")
+	noSmoke   = flag.Bool("no-smoke", false, "Skip pre-SPRT smoke test (used internally)")
 		outputDir   = flag.String("output", "", "Output directory for WTHOR + JSON + manifest")
 		resumePath  = flag.String("resume", "", "Resume from a previous manifest file")
 	)
@@ -105,6 +107,11 @@ func main() {
 	if *mode == "speed" {
 		runSpeedTest(*candidate, *reference)
 		return
+	}
+
+	if !*noSmoke && !smokeTest(*candidate, *reference, candSimple, refSimple) {
+		fmt.Fprintln(os.Stderr, "FATAL: smoke test failed — aborting SPRT")
+		os.Exit(2)
 	}
 
 	slog.Info("SPRT starting",
@@ -1351,6 +1358,88 @@ func isValidSquare(s string) bool {
 	}
 	return col >= 'A' && col <= 'H' && row >= '1' && row <= '8'
 }
+
+// ── Smoke test ─────────────────────────────────────────────────────────
+
+// queryFeatureList sends "feature_list" GTP command and returns parsed tags.
+func queryFeatureList(cmd string) ([]string, error) {
+	s := game.StartEngine(cmd)
+	if s == nil {
+		return nil, fmt.Errorf("failed to start engine: %s", cmd)
+	}
+	defer s.Stop()
+	if resp := s.Send("boardsize 8"); strings.HasPrefix(resp, "?") {
+		if err := s.Init(1); err != nil {
+			return nil, fmt.Errorf("init: %w", err)
+		}
+	} else {
+		s.Send("clear_board")
+	}
+	resp := s.Send("feature_list")
+	resp = strings.TrimPrefix(strings.TrimSpace(resp), "= ")
+	var tags []string
+	if err := json.Unmarshal([]byte(resp), &tags); err != nil {
+		return nil, fmt.Errorf("feature_list parse: %w (%q)", err, resp)
+	}
+	return tags, nil
+}
+
+// smokeTest runs pre-SPRT validation: feature check, illegal-move check, speed check.
+func smokeTest(candidateCmd, referenceCmd string, candSimple, refSimple sprt.EngineIdentity) bool {
+	fmt.Fprintf(os.Stderr, "\n=== Smoke Test ===\n")
+
+	// 1. Feature list
+	candFeatures, err := queryFeatureList(candidateCmd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  feature_list: FAILED (%v) — binary may be stale, rebuild\n", err)
+		return false
+	}
+	refFeatures, err := queryFeatureList(referenceCmd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  feature_list: FAILED (%v) — binary may be stale, rebuild\n", err)
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "  candidate: [%s]\n", strings.Join(candFeatures, ", "))
+	fmt.Fprintf(os.Stderr, "  reference: [%s]\n", strings.Join(refFeatures, ", "))
+
+	// 2. Illegal-move check: run self as subprocess with --max-games 4.
+	fmt.Fprintf(os.Stderr, "  4-pair smoke test...\n")
+	self, _ := os.Executable()
+	smoke := exec.Command(self, "--candidate", candidateCmd, "--reference", referenceCmd,
+		"--max-games", "4", "--tc", "1", "--concurrency", "1", "--no-smoke")
+	smokeOut, _ := smoke.CombinedOutput()
+	if strings.Contains(string(smokeOut), "illegal move") {
+		n := strings.Count(string(smokeOut), "illegal move")
+		fmt.Fprintf(os.Stderr, "  smoke: FAILED — %d illegal moves\n", n)
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "  smoke: OK\n")
+
+	// 3. Quick speed check (must be within [0.5, 2.0] of baseline).
+	candNPS, _ := runEngineSpeedTests(candidateCmd, "candidate")
+	refNPS, _ := runEngineSpeedTests(referenceCmd, "reference")
+	if len(candNPS) > 0 && len(refNPS) > 0 {
+		var candSum, refSum float64
+		var count int
+		for _, pos := range speedPositions {
+			if candNPS[pos.name] > 0 && refNPS[pos.name] > 0 {
+				candSum += candNPS[pos.name]; refSum += refNPS[pos.name]; count++
+			}
+		}
+		if count > 0 {
+			ratio := candSum / refSum
+			fmt.Fprintf(os.Stderr, "  speed: %.3fx\n", ratio)
+			if ratio < 0.5 || ratio > 2.0 {
+				fmt.Fprintf(os.Stderr, "  speed: FAILED — ratio %.3fx outside [0.5, 2.0]\n", ratio)
+				return false
+			}
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "=== Smoke: PASSED ===\n\n")
+	return true
+}
+
 
 // ── Embedded opening book ──────────────────────────────────────────────
 
