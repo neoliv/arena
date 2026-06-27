@@ -1,6 +1,10 @@
-coach_id: "dev-sandbox"
-label: "Sandbox under Claude + DeepSeek control (dev)"
+# Arena Coach configuration.
+# coach-update.sh copies this to ~/coach/coach.yaml on every run.
+# Edit this file to change coach settings — it's the single source of truth.
+coach_id: "oliv"
+label: "Workstation"
 arena_url: "https://arena.arsac.org"
-max_cores: 6
-max_ram_mb: 16384
+max_cores: 8
+max_ram_mb: 16384  # 8 × 1792 MB (largest engine) + overhead
+engines_dir: "~/coach/engines"
 share_dir: "~/coach/share"

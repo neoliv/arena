@@ -281,7 +281,7 @@ func main() {
 		if !pollOK {
 			// Arena unreachable — exponential backoff.
 			consecutiveFailures++
-			delay := time.Duration(consecutiveFailures) * 5 * time.Second
+			delay := time.Duration(1<<min(consecutiveFailures-1, 6)) * time.Second
 			if delay > 60*time.Second { delay = 60 * time.Second }
 			slog.Warn("poll failed (arena unreachable?), backing off", "delay_s", delay.Seconds(), "failures", consecutiveFailures)
 			select {
@@ -331,11 +331,17 @@ func main() {
 					instCount++
 				}
 			}
-			if instCount >= ai.MaxInstances || usedCores+ai.Cores > totalCores(cfg) || usedMem+ai.MemoryMB > totalMem(cfg) {
+			if (ai.MaxInstances > 0 && instCount >= ai.MaxInstances) || usedCores+ai.Cores > totalCores(cfg) || usedMem+ai.MemoryMB > totalMem(cfg) {
 				mu.Unlock()
-				slog.Debug("at capacity, skipping assignment", "ai", ai.Name,
-					"instances", instCount, "max", ai.MaxInstances,
-					"cores_used", usedCores, "cores_needed", ai.Cores)
+				reason := ""
+				if instCount >= ai.MaxInstances {
+					reason = fmt.Sprintf("instances at max (%d/%d)", instCount, ai.MaxInstances)
+				} else if usedCores+ai.Cores > totalCores(cfg) {
+					reason = fmt.Sprintf("cores: need %d, have %d/%d used", ai.Cores, usedCores, totalCores(cfg))
+				} else {
+					reason = fmt.Sprintf("memory: need %d MB, have %d/%d MB used", ai.MemoryMB, usedMem, totalMem(cfg))
+				}
+				slog.Warn("at capacity, skipping assignment", "ai", ai.Name, "reason", reason)
 				continue
 			}
 			mu.Unlock()
@@ -494,9 +500,6 @@ func registerWithArena(client *http.Client, cfg config, cfgMu *sync.RWMutex) err
 			mem = 64
 		}
 		maxInst := a.MaxInstances
-		if maxInst == 0 {
-			maxInst = 1
-		}
 		ais = append(ais, aiReg{a.Name, a.Version, a.Created, a.ChangelogShort, a.ChangelogFull, a.BuildCmd, a.RunCmd, a.EngineID, a.EngineManifest, cores, mem, maxInst})
 	}
 	cfgMu.RUnlock()
@@ -794,6 +797,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 	var totalThinkMs int64
 	budgetMs := int64(gameTimeSec * 1000 * 105 / 100 * 2) // 2 games, 5% margin each
 	engineTimedOut := false
+		gameStarted := false // disarmed by clear_board
 
 	// gameOver is closed by the WS→stdin goroutine when the MM closes
 	// the relay (normal game end). The stdout goroutine checks this to
@@ -919,6 +923,11 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 				break
 			}
 			cmdStr := string(msg)
+			if strings.HasPrefix(cmdStr, "clear_board") {
+				timingMu.Lock()
+				gameStarted = true
+				timingMu.Unlock()
+			}
 			if strings.HasPrefix(cmdStr, "genmove") {
 				timingMu.Lock()
 				genmoveStart = time.Now()
@@ -945,9 +954,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 			}
 			timingMu.Lock()
 			timedOut := engineTimedOut
-			timingMu.Unlock()
-			if !timedOut {
+			started := gameStarted
+			if !timedOut && !started {
 				re.killReason = "nopartner"
+			}
+			timingMu.Unlock()
+			if re.killReason == "nopartner" {
 				slog.Warn("engine INFRASTRUCTURE KILL (no partner found)", "session", sessionID, "seconds", wdSec)
 				cmd.Process.Kill()
 			}
