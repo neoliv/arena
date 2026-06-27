@@ -153,16 +153,19 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 
 		legal := board.LegalMoves(curPlayer)
 		if legal == 0 {
-			consecutivePasses++
-			if consecutivePasses >= 2 {
+			// If the previous turn was also a forced pass, both sides have
+			// no moves — game over. consecutivePasses is incremented by the
+			// PASS handler below when the engine returns PASS.
+			if consecutivePasses >= 1 {
+				consecutivePasses++
 				break
 			}
-			gr.Moves = append(gr.Moves, "PASS")
-			sideToMove = flipSide(sideToMove)
-			plyCount++
-			continue
+			// Fall through to genmove below. The engine will detect it has
+			// no legal moves and return PASS, triggering the voluntary-pass
+			// handler which correctly notifies only the opponent.
+		} else {
+			consecutivePasses = 0
 		}
-		consecutivePasses = 0
 
 		current := black
 		if sideToMove == "W" {
