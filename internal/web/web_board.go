@@ -67,35 +67,62 @@ func renderBoardSVG(b game.Board, lastSq int) string {
 	return svg.String()
 }
 
-// boardInteractionJS is the JavaScript snippet for hovering move rows to
-// swap the board SVG and clicking to lock/unlock the view.
+// boardInteractionJS adds board navigation via click on chart bars or move rows,
+// left/right arrow keys when the board is focused, and a ply counter display.
 const boardInteractionJS = `<script>
 (function(){
-  var rows=document.querySelectorAll('tr.filter-row[data-board-idx]');
   var cont=document.getElementById('board-container');
+  var plyCtr=document.getElementById('ply-counter');
   var label=document.getElementById('board-label');
   var dataEl=document.getElementById('board-data');
   var viewer=document.getElementById('board-viewer');
   var defIdx=viewer?parseInt(viewer.getAttribute('data-default-idx')):-1;
+  var maxIdx=defIdx;
+  var curIdx=defIdx;
   var locked=false;
+
   function show(idx){
+    idx=Math.max(0,Math.min(maxIdx,idx));
     var d=dataEl?dataEl.querySelector('[data-idx="'+idx+'"]'):null;
     if(!d)return;
     cont.innerHTML=d.innerHTML;
-    var ply=parseInt(idx)+1;
-    label.textContent='Move: '+ply+(locked?' (locked — click again to unlock)':'');
+    curIdx=idx;
+    var ply=idx+1;
+    if(plyCtr)plyCtr.textContent=ply;
+    if(label)label.textContent='Move '+ply+'/'+(maxIdx+1)+(locked?' (locked)':'');
   }
-  rows.forEach(function(r){
-    r.addEventListener('mouseenter',function(){if(!locked)show(parseInt(this.getAttribute('data-board-idx')));});
+
+  // Click on any element with data-board-idx (chart bars + move rows)
+  document.addEventListener('click',function(e){
+    var el=e.target.closest('[data-board-idx]');
+    if(!el)return;
+    var idx=parseInt(el.getAttribute('data-board-idx'));
+    if(isNaN(idx))return;
+    if(locked&&curIdx===idx){locked=false;show(defIdx);}
+    else{locked=true;show(idx);}
   });
-  viewer&&viewer.addEventListener('mouseleave',function(){if(!locked&&defIdx>=0)show(defIdx);});
-  rows.forEach(function(r){
-    r.addEventListener('click',function(){
-      var idx=parseInt(this.getAttribute('data-board-idx'));
-      if(locked&&cont.getAttribute('data-locked-idx')==idx){
-        locked=false;cont.removeAttribute('data-locked-idx');show(defIdx);
-      }else{locked=true;cont.setAttribute('data-locked-idx',idx);show(idx);}
-    });
+
+  // Hover on move rows shows board without locking
+  document.addEventListener('mouseover',function(e){
+    if(locked)return;
+    var el=e.target.closest('tr.filter-row[data-board-idx]');
+    if(!el)return;
+    var idx=parseInt(el.getAttribute('data-board-idx'));
+    if(!isNaN(idx))show(idx);
+  });
+
+  // Mouseleave from viewer restores default
+  viewer&&viewer.addEventListener('mouseleave',function(){if(!locked)show(defIdx);});
+
+  // Arrow keys when board container is focused
+  cont&&cont.addEventListener('keydown',function(e){
+    if(e.key==='ArrowLeft'){e.preventDefault();show(curIdx-1);}
+    else if(e.key==='ArrowRight'){e.preventDefault();show(curIdx+1);}
+  });
+
+  // Click on board itself focuses it for arrow keys
+  cont&&cont.addEventListener('click',function(e){
+    if(!e.target.closest('[data-board-idx]'))cont.focus();
   });
 })();
 </script>`

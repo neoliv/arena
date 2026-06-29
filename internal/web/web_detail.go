@@ -6,7 +6,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/neoliv/arena/internal/game"
@@ -411,7 +410,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 						tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
 					plyLabel := fmt.Sprintf("%d:%s", openingPlies+i+1, m.move)
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, x, barY, h, color, tip)
+					fmt.Fprintf(w, `<rect data-board-idx="%d" x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, openingPlies+i, x, barY, h, color, tip)
 					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, htmlEscape(plyLabel))
 				}
 				io.WriteString(w, `</svg></div>`)
@@ -559,10 +558,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			if len(boardStates) > 0 {
 				lastIdx := len(boardStates) - 1
 				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-bottom:1.5em">`, lastIdx)
-				io.WriteString(w, `<div id="board-container" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px">`)
+				io.WriteString(w, `<div style="display:flex;align-items:center;justify-content:center;gap:16px">`)
+				io.WriteString(w, `<div id="board-container" tabindex="0" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px;outline:none">`)
 				io.WriteString(w, renderBoardSVG(boardStates[lastIdx].board, boardStates[lastIdx].lastSq))
 				io.WriteString(w, `</div>`)
-				io.WriteString(w, `<div id="board-label" style="color:var(--muted);margin-top:.3em;font-size:.9em">Move: `+strconv.Itoa(len(boardStates))+` — hover a row to view earlier positions</div>`)
+				fmt.Fprintf(w, `<div id="ply-counter" style="font-size:2.5em;font-weight:700;color:var(--fg);min-width:1.5em;text-align:center">%d</div>`, len(boardStates))
+				io.WriteString(w, `</div>`)
+				io.WriteString(w, `<div id="board-label" style="color:var(--muted);margin-top:.3em;font-size:.9em">←→ keys when board focused · click bar/row to jump</div>`)
 				// Hidden board data for hover interaction
 				io.WriteString(w, `<div id="board-data" style="display:none">`)
 				for idx, bs := range boardStates {

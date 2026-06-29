@@ -435,7 +435,7 @@ warning: associated items `new`, `cursor`, and `last_move` are never used
    |            ^^^^^^^^^
 
 warning: `cli` (bin "cli") generated 35 warnings (run `cargo fix --bin "cli" -p cli` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 0.07s
+    Finished `release` profile [optimized] target(s) in 0.08s
 mkdir -p coach-engine/players.d
 cp /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp || { echo "ERROR: Neural Reversi binary not found"; exit 1; }
 # Pre-decompress weight files so engine loads raw binary (no zstd overhead)
