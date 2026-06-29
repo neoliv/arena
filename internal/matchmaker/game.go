@@ -209,17 +209,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 				break
 			}
-			opp := white; if side == "w" { opp = black }
-			if resp, _, err := tracedSend(gid, "opp", opp, "play "+side+" pass", 10); err != nil {
-				gr.ErrorCode = game.ErrCrash
-				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
-				break
-			} else if strings.HasPrefix(resp, "?") {
-				slog.Error("opponent rejected pass", "gid", gid, "resp", resp)
-				gr.ErrorCode = game.ErrInvalidResponse
-				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
-				break
-			}
+			// A pass does not change the board — no play command needed.
+			// The opponent infers the pass from the next genmove it receives.
 			pass++; if pass == 2 { break }
 			if side == "b" { side, curPlayer, oppPlayer = "w", board.White(), board.Black() } else { side, curPlayer, oppPlayer = "b", board.Black(), board.White() }
 			continue

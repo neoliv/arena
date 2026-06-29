@@ -69,27 +69,27 @@ When neur rejects a play with `? wrong color`:
 
 ## The Fix
 
-Check play command responses. If the opponent rejects a play, the game
-cannot continue (the opponent's board has diverged from the framework).
-The opponent engine is malfunctioning — flag as ErrInvalidResponse and
+Two changes:
+
+1. **Remove `play <side> pass` to opponent.** A pass does not change the board
+   — the opponent doesn't need to be told. It infers the turn change from the
+   next `genmove` it receives. This eliminates the pass-rejection class of
+   errors entirely.
+
+2. **Check normal move play responses.** For non-pass moves, the opponent
+   MUST accept the play command (the board changes). If rejected with `?`,
+   the game stops with `ErrInvalidResponse` — the opponent engine has
+   diverged from the framework board and the game cannot continue.
 award the game to the moving player.
 
-### Corrected pass handling
+### Corrected pass handling (simplified)
 
 ```
 if genmove_response == "PASS":
     if legal_moves != 0:
         → ErrIllegalPass, break
 
-    opp = other_engine
-    resp, _, err = tracedSend(opp, "play <side> pass")
-    if err != nil:
-        → ErrCrash, break                   // couldn't reach opponent
-
-    if strings.HasPrefix(resp, "?"):
-        slog.Error("opponent rejected pass", "resp", resp)
-        → ErrInvalidResponse, break         // opponent malfunction
-
+    // No play command sent — opponent infers pass from next genmove.
     pass_counter++
     if pass_counter == 2: break
 
