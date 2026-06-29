@@ -6,7 +6,64 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/neoliv/arena/internal/game"
 )
+
+// moveRow is a single row from the game_moves table.
+type moveRow struct {
+	num            int
+	side, move     string
+	nodes          int
+	depth          int
+	timeMs         float64
+	nps            int
+	score          int
+}
+
+// computeBoardStates replays the entire game from the opening line through
+// every engine move using game.Board.ApplyMove.
+func computeBoardStates(opening string, moves []moveRow) []boardState {
+	var states []boardState
+	board := game.NewBoard()
+	for i := 0; i+1 < len(opening); i += 2 {
+		mv := strings.ToUpper(opening[i : i+2])
+		sq := game.SqFromString(mv)
+		if sq < 0 {
+			continue
+		}
+		side := "b"
+		player := board.Black()
+		if i%4 != 0 {
+			side = "w"
+			player = board.White()
+		}
+		board = board.ApplyMove(player, sq)
+		states = append(states, boardState{board, sq, side})
+	}
+	for _, m := range moves {
+		player := board.Black()
+		if m.side == "w" {
+			player = board.White()
+		}
+		if m.move == "PASS" {
+			states = append(states, boardState{board, -1, m.side})
+			continue
+		}
+		sq := game.SqFromString(m.move)
+		if sq < 0 {
+			states = append(states, boardState{board, -1, m.side})
+			continue
+		}
+		board = board.ApplyMove(player, sq)
+		states = append(states, boardState{board, sq, m.side})
+	}
+	return states
+}
+
+
 
 func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -112,15 +169,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	mRows, _ := h.DB.Query("SELECT move_num, side, move, nodes, depth, time_ms, score FROM game_moves WHERE game_id=? ORDER BY move_num", gid)
 	if mRows != nil {
 		defer mRows.Close()
-		type moveRow struct {
-			num            int
-			side, move     string
-			nodes          int
-			depth          int
-			timeMs         float64
-			nps            int
-			score          int
-		}
+
 		var moves []moveRow
 		maxTime, maxNodes, maxNPS, maxDepth, maxBScore, maxWScore := 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 		for mRows.Next() {
@@ -161,6 +210,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		boardStates := computeBoardStates(opening, moves)
 
 		discDiffs := make([]int, len(moves))
 		bCount, wCount := 2, 2
@@ -504,6 +555,23 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			io.WriteString(w, `</table></div>`)
 
+			// ── Board viewer ──────────────────────────────────────
+			if len(boardStates) > 0 {
+				lastIdx := len(boardStates) - 1
+				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-bottom:1.5em">`, lastIdx)
+				io.WriteString(w, `<div id="board-container" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px">`)
+				io.WriteString(w, renderBoardSVG(boardStates[lastIdx].board, boardStates[lastIdx].lastSq))
+				io.WriteString(w, `</div>`)
+				io.WriteString(w, `<div id="board-label" style="color:var(--muted);margin-top:.3em;font-size:.9em">Move: `+strconv.Itoa(len(boardStates))+` — hover a row to view earlier positions</div>`)
+				// Hidden board data for hover interaction
+				io.WriteString(w, `<div id="board-data" style="display:none">`)
+				for idx, bs := range boardStates {
+					fmt.Fprintf(w, `<div data-idx="%d">%s</div>`, idx, renderBoardSVG(bs.board, bs.lastSq))
+				}
+				io.WriteString(w, `</div></div>`)
+				io.WriteString(w, boardInteractionJS)
+			}
+
 			// ── Moves summary (below graphs, above move table) ──
 			totalTime := bTime + wTime
 			totalMoves := bStats.moves + wStats.moves
@@ -516,13 +584,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					totalMoves, totalPlies, totalTime, fmtVal(bStats.totalNodes+wStats.totalNodes))
 			}
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Dp</th><th>NPS</th><th>Score</th></tr>`)
-			for _, m := range moves {
+			for i, m := range moves {
 				side := "Black"
 				if m.side == "w" {
 					side = "White"
 				}
-				fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%s</td><td>%d</td><td>%s</td><td>%+d</td></tr>`,
-					openingPlies+m.num, side, m.move, m.timeMs, fmtVal(float64(m.nodes)), m.depth, fmtVal(float64(m.nps)), m.score)
+				fmt.Fprintf(w, `<tr class="filter-row" data-board-idx="%d"><td>%d</td><td>%s</td><td>%s</td><td>%.1fms</td><td>%s</td><td>%d</td><td>%s</td><td>%+d</td></tr>`,
+					openingPlies+i, openingPlies+m.num, side, m.move, m.timeMs, fmtVal(float64(m.nodes)), m.depth, fmtVal(float64(m.nps)), m.score)
 			}
 			io.WriteString(w, "</table>"+`</div>`+pageFoot)
 		} else {

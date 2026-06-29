@@ -38,7 +38,8 @@ input,select{background:var(--bg);color:var(--fg);border:1px solid var(--nav-hl)
 #filterBox{width:100%;max-width:300px;padding:.4em .6em;margin-bottom:1em;font-size:1em;border:1px solid var(--muted);border-radius:4px;outline:none;transition:border-color .2s}#filterBox:focus{border-color:var(--link)}
 .stats-table{width:auto;min-width:400px}.stats-table td:first-child{width:140px;font-weight:600;color:var(--muted)}tr.critical td:last-child{color:#f44336;font-weight:600}tr.warning td:last-child{color:#ff9800;font-weight:600}
 .stats-table{width:auto;min-width:400px}.stats-table td:first-child{width:140px;font-weight:600;color:var(--muted)}tr.critical td:last-child{color:#f44336;font-weight:600}tr.warning td:last-child{color:#ff9800;font-weight:600}
-</style>`
+#board-container svg{max-width:320px;width:100%;height:auto}
+	</style>`
 
 const searchJS = `<scr` + `ipt>
 var filterMode='OR';
