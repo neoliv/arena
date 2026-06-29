@@ -210,7 +210,16 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 				break
 			}
 			opp := white; if side == "w" { opp = black }
-			tracedSend(gid, "opp", opp, "play "+side+" pass", 10)
+			if resp, _, err := tracedSend(gid, "opp", opp, "play "+side+" pass", 10); err != nil {
+				gr.ErrorCode = game.ErrCrash
+				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+				break
+			} else if strings.HasPrefix(resp, "?") {
+				slog.Error("opponent rejected pass", "gid", gid, "resp", resp)
+				gr.ErrorCode = game.ErrInvalidResponse
+				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+				break
+			}
 			pass++; if pass == 2 { break }
 			if side == "b" { side, curPlayer, oppPlayer = "w", board.White(), board.Black() } else { side, curPlayer, oppPlayer = "b", board.Black(), board.White() }
 			continue
@@ -238,7 +247,16 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 		if board.IsOver() { break }
 
 		opp := white; if side == "w" { opp = black }
-		tracedSend(gid, "opp", opp, "play "+side+" "+mv, 10)
+			if resp, _, err := tracedSend(gid, "opp", opp, "play "+side+" "+mv, 10); err != nil {
+				gr.ErrorCode = game.ErrCrash
+				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+				break
+			} else if strings.HasPrefix(resp, "?") {
+				slog.Error("opponent rejected play", "gid", gid, "resp", resp)
+				gr.ErrorCode = game.ErrInvalidResponse
+				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+				break
+			}
 
 		nodes, depth, score, coachMs := parseStats(stats, elapsed*1000)
 		gr.Moves = append(gr.Moves, gameMove{Side: side, Move: mv, Nodes: nodes, Depth: depth, TimeMs: coachMs, Score: score})

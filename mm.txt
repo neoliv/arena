@@ -1,0 +1,124 @@
+# MM Game Loop — Pass & Play Sync Logic
+
+## Current code (game.go playOneGame)
+
+### Pass handling (lines 205-217)
+
+```
+if genmove_response == "PASS":
+    if legal_moves != 0:
+        → ErrIllegalPass, break           // engine passed but had legal moves
+
+    opp = other_engine
+    tracedSend(opp, "play <side> pass")   // ← TELL OPPONENT ABOUT PASS
+                                           // ❌ RESPONSE NOT CHECKED
+
+    pass_counter++
+    if pass_counter == 2: break            // double pass → game over
+
+    side = toggle
+    curPlayer = toggle
+    continue                                // next iteration
+```
+
+### Normal move play sync (lines 240-241)
+
+```
+// After framework applies move:
+board = board.ApplyMove(curPlayer, sq)
+...
+opp = other_engine
+tracedSend(opp, "play <side> <move>")     // ← TELL OPPONENT ABOUT MOVE
+                                           // ❌ RESPONSE NOT CHECKED
+
+side = toggle
+curPlayer = toggle
+```
+
+## The Bug
+
+Both `tracedSend` calls for play commands are **fire-and-forget** — the
+response is read and logged, but the return values are discarded.
+
+If the opponent engine rejects the play command (returns `? ...`), the MM:
+1. Ignores the rejection
+2. Toggles sides and continues
+3. The opponent engine did NOT apply the move/pass — its board diverged
+4. On the next genmove to that engine, the engine sees wrong side_to_move
+5. Engine responds `? wrong color, expected <color>` → ErrResign
+
+### Why it happens late in game
+
+Early moves are standard openings — both engines agree on the board state.
+The first divergence typically happens when one engine processes a play
+command differently (e.g., passes differently, or interprets a borderline
+position differently). Once divergence starts, EVERY subsequent play to
+that engine is rejected, and eventually a genmove hits the wrong color.
+
+### Which engines are affected
+
+neur (Neural Reversi 6.1.0) validates color on BOTH play AND genmove
+(via validate_color in gtp.rs:784-803). Edax adapter was already fixed
+to strip color validation. neursi was also fixed.
+
+When neur rejects a play with `? wrong color`:
+- The MM ignores it (fire-and-forget tracedSend)
+- neur's board misses a move → side_to_move stays on the wrong color
+- Next genmove: neur says `? wrong color, expected <color>`
+- MM: `strings.HasPrefix(resp, "?")` → ErrResign
+
+## The Fix
+
+Check play command responses. If the opponent rejects a play, the game
+cannot continue (the opponent's board has diverged from the framework).
+The opponent engine is malfunctioning — flag as ErrInvalidResponse and
+award the game to the moving player.
+
+### Corrected pass handling
+
+```
+if genmove_response == "PASS":
+    if legal_moves != 0:
+        → ErrIllegalPass, break
+
+    opp = other_engine
+    resp, _, err = tracedSend(opp, "play <side> pass")
+    if err != nil:
+        → ErrCrash, break                   // couldn't reach opponent
+
+    if strings.HasPrefix(resp, "?"):
+        slog.Error("opponent rejected pass", "resp", resp)
+        → ErrInvalidResponse, break         // opponent malfunction
+
+    pass_counter++
+    if pass_counter == 2: break
+
+    side = toggle
+    curPlayer = toggle
+    continue
+```
+
+### Corrected normal move play sync
+
+```
+board = board.ApplyMove(curPlayer, sq)
+
+opp = other_engine
+resp, _, err = tracedSend(opp, "play <side> <move>")
+if err != nil:
+    → ErrCrash, break
+
+if strings.HasPrefix(resp, "?"):
+    slog.Error("opponent rejected play", "resp", resp)
+    → ErrInvalidResponse, break             // opponent malfunction
+
+side = toggle
+curPlayer = toggle
+```
+
+### Scoring
+
+When the opponent rejects a play, the moving player wins:
+- Opponent malfunction = ErrInvalidResponse (code 5)
+- Winner = player who just moved (their move was legal, opponent broke)
+- Score = forfeit (max(actual, 34) - 30) like other engine errors

@@ -6,9 +6,10 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/neoliv/arena/internal/game"
-	"strings"
 	"time"
 )
 
@@ -277,9 +278,10 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type errBar struct {
-		engine       string
-			ecode        int8
-		count, games int
+		engine        string
+		ecode         int8
+		count, games  int
+		recentIDs     []int
 	}
 	var bars []errBar
 	for rows.Next() {
@@ -287,6 +289,28 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&b.engine, &b.ecode, &b.count, &b.games)
 		bars = append(bars, b)
 	}
+
+	// Fetch up to 5 most recent game IDs for each (engine, error_code) pair.
+	recentRows, recentErr := h.DB.Query(`SELECT e.name, g.error_code, g.id
+		FROM games g JOIN engines e ON (e.id = g.black_id OR e.id = g.white_id)
+		WHERE g.error_code != 0 ORDER BY e.name, g.error_code, g.created_at DESC`)
+	if recentErr == nil && recentRows != nil {
+		defer recentRows.Close()
+		recentMap := map[string][]int{} // key: "engine|ecode"
+		for recentRows.Next() {
+			var engName string; var ecode int8; var gid int
+			recentRows.Scan(&engName, &ecode, &gid)
+			key := engName + "|" + strconv.Itoa(int(ecode))
+			if len(recentMap[key]) < 5 {
+				recentMap[key] = append(recentMap[key], gid)
+			}
+		}
+		for i := range bars {
+			key := bars[i].engine + "|" + strconv.Itoa(int(bars[i].ecode))
+			bars[i].recentIDs = recentMap[key]
+		}
+	}
+
 	if len(bars) == 0 {
 		io.WriteString(w, "<p>No errors recorded — all games clean.</p>")
 		return
@@ -336,10 +360,18 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 			if col == "" {
 				col = "#888"
 			}
+			idLinks := ""
+			if len(b.recentIDs) > 0 {
+				parts := make([]string, len(b.recentIDs))
+				for i, gid := range b.recentIDs {
+					parts[i] = `<a href="/games/` + strconv.Itoa(gid) + `" style="font-size:.85em">[` + strconv.Itoa(gid) + `]</a>`
+				}
+				idLinks = " " + strings.Join(parts, " ")
+			}
 			fmt.Fprintf(w, `<div style="display:flex;align-items:center;gap:6px;margin:2px 0 2px 8px">`+
 				`<div style="width:%.0fpx;height:14px;background:%s;border-radius:3px;min-width:2px;flex-shrink:0"></div>`+
-				`<span style="font-size:1em;font-weight:600">%s%% %d/%d %s</span></div>`,
-				bw, col, fmtPct(pct), b.count, b.games, game.ErrorLabel[b.ecode])
+				`<span style="font-size:1em;font-weight:600">%s%% %d/%d %s%s</span></div>`,
+				bw, col, fmtPct(pct), b.count, b.games, game.ErrorLabel[b.ecode], idLinks)
 		}
 		io.WriteString(w, `</div>`)
 	}

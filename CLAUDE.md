@@ -64,6 +64,11 @@ health check. Manual `systemctl stop/scp/start` skips log truncation and is forb
 
 `arena-clear-db.sh` also truncates the server log — use it instead of raw `sqlite3 DELETE`.
 
+**When to use `--clear-db`:** Required for any deploy that changes the framework
+(game loop, board, scoring, error codes, matchmaker, relay). NOT required for
+web-only changes (HTML, CSS, dashboard under `internal/web/` that don't touch
+the game pipeline).
+
 ## Common Pitfalls
 
 ### SQLite ALTER TABLE
