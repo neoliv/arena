@@ -9,162 +9,121 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
 	"github.com/neoliv/arena/internal/game"
 )
 
+var traceGameID atomic.Int64
 func InitTrace(path string) error { return nil }
 
-// ── Embedded opening book ──────────────────────────────────────────────
-
-// 48 balanced 8-ply openings extracted from Othello opening theory.
-// All lines have 45-55% win rates for both colors in tournament play.
 //
 //go:embed openings_8ply.txt
 var embeddedOpeningsBook string
+var (openingsOnce sync.Once; openingsCache []string)
 
-var (
-	openingsCache []string
-	openingsOnce  sync.Once
-)
-
-// loadOpenings parses the embedded opening book into lines, filtering
-// comments and empty lines. Cached after first call.
 func loadOpenings() []string {
 	openingsOnce.Do(func() {
-		nSkipped := 0
 		for _, line := range strings.Split(embeddedOpeningsBook, "\n") {
 			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			// Validate by simulating on a fresh board. Some openings in
-			// the book may be invalid due to coordinate system mismatches.
+			if line == "" || strings.HasPrefix(line, "#") { continue }
 			moves := parseMoveList(line)
-			if len(moves) == 0 {
-				continue
-			}
+			if len(moves) == 0 { continue }
 			board := game.NewBoard()
 			valid := true
 			for i, mv := range moves {
-				c := "b"
-				if i%2 == 1 {
-					c = "w"
-				}
+				c := "b"; if i%2 == 1 { c = "w" }
 				sq := game.SqFromString(mv)
-				if sq < 0 {
-					valid = false
-					break
-				}
-				player := board.Black()
-				if c == "w" {
-					player = board.White()
-				}
-				if board.LegalMoves(player)&(1<<sq) == 0 {
-					valid = false
-					break
-				}
+				if sq < 0 { valid = false; break }
+				player := board.Black(); if c == "w" { player = board.White() }
+				if board.LegalMoves(player)&(1<<sq) == 0 { valid = false; break }
 				board = board.ApplyMove(player, sq)
 			}
-			if valid {
-				openingsCache = append(openingsCache, line)
-			} else {
-				nSkipped++
-			}
+			if valid { openingsCache = append(openingsCache, line) }
 		}
-		if nSkipped > 0 {
-			slog.Warn("skipped invalid opening lines", "count", nSkipped)
-		}
-		if len(openingsCache) == 0 {
-			openingsCache = append(openingsCache, "")
-		}
+		if len(openingsCache) == 0 { openingsCache = append(openingsCache, "") }
 	})
 	return openingsCache
 }
 
-// ── Game structures ────────────────────────────────────────────────────
-
-type gameMove struct {
-	Side      string
-	Move      string
-	Nodes     int64
-	Depth     int
-	TimeMs    float64
-	Score     int
-}
+type gameMove struct { Side, Move string; Nodes int64; Depth int; TimeMs float64; Score int }
 type gameResult struct {
-	Black        string
-	White        string
-	Result       string
-	FinalScore   int
-	OpeningLine  string
-	BlackTimeS   float64
-	WhiteTimeS   float64
-	BlackNodes   int64
-	WhiteNodes   int64
-	Disconnect   bool   // stream/timeout error, not a real game
-	ErrorCode    int8   // game.ErrNone (0), game.ErrTimeout (2), etc.
-	BlackDepth   int
-	WhiteDepth   int
-	Moves        []gameMove
+	Gid int64; Black, White, Result string; FinalScore int; OpeningLine string
+	BlackTimeS, WhiteTimeS float64; BlackNodes, WhiteNodes int64
+	Disconnect bool; ErrorCode int8; BlackDepth, WhiteDepth int; Moves []gameMove
 }
 
-// ── WebSocket helpers ──────────────────────────────────────────────────
-
-func wsSend(stream coach.Stream, cmd string, timeoutSec float64) (string, error) {
+func sendCmd(stream coach.Stream, cmd string, timeoutSec float64) (string, []string, error) {
 	select {
 	case stream.Out <- cmd:
 	case <-time.After(time.Duration(timeoutSec) * time.Second):
-		return "", fmt.Errorf("write timeout: %s", cmd)
+		return "", nil, fmt.Errorf("write timeout: %s", cmd)
 	}
-
+	var comments []string
 	for {
 		select {
 		case resp, ok := <-stream.In:
-			if !ok {
-				return "", fmt.Errorf("stream closed")
-			}
+			if !ok { return "", comments, fmt.Errorf("stream closed") }
 			s := strings.TrimSpace(resp)
-			if s != "" && !strings.HasPrefix(s, "#") {
-				return resp, nil
-			}
+			if s == "" { continue }
+			if strings.HasPrefix(s, "#") { comments = append(comments, s); continue }
+			if strings.HasPrefix(s, "=") || strings.HasPrefix(s, "?") { return s, comments, nil }
 		case <-time.After(time.Duration(timeoutSec) * time.Second):
-			return "", fmt.Errorf("read timeout: %s", cmd)
+			return "", comments, fmt.Errorf("read timeout: %s", cmd)
 		}
 	}
 }
 
-// ── Game execution ─────────────────────────────────────────────────────
+func gtpLog(gid int64, side, dir, msg string) {
+	if len(msg) > 200 { msg = msg[:200] + "..." }
+	slog.Info("GTP", "gid", gid, "dir", dir, "side", side, "msg", msg)
+}
+
+func tracedSend(gid int64, side string, stream coach.Stream, cmd string, timeoutSec float64) (string, []string, error) {
+	gtpLog(gid, side, ">>", cmd)
+	resp, comments, err := sendCmd(stream, cmd, timeoutSec)
+	if err != nil { gtpLog(gid, side, "<<", err.Error()) } else { gtpLog(gid, side, "<<", strings.TrimSpace(resp)) }
+	return resp, comments, err
+}
+
+func parseStats(lines []string, fallbackMs float64) (nodes int64, depth int, score int, coachMs float64) {
+	coachMs = fallbackMs
+	for _, s := range lines {
+		if strings.HasPrefix(s, "# time_ms ") {
+			if fields := strings.Fields(s); len(fields) >= 2 { fmt.Sscanf(fields[1], "%f", &coachMs) }
+			continue
+		}
+		if idx := strings.Index(s, "{"); idx >= 0 {
+			var ns struct { Nodes int64 `json:"nodes"`; Depth int `json:"depth"`; Score int `json:"score"` }
+			if json.Unmarshal([]byte(s[idx:]), &ns) == nil { nodes, depth, score = ns.Nodes, ns.Depth, ns.Score }
+		}
+	}
+	return
+}
+
+func boardString(b game.Board) string {
+	blk, wht := b.Black(), b.White()
+	var buf [64]byte
+	for sq := 0; sq < 64; sq++ {
+		switch { case blk&(1<<sq) != 0: buf[sq] = 'B'; case wht&(1<<sq) != 0: buf[sq] = 'W'; default: buf[sq] = '.' }
+	}
+	return string(buf[:])
+}
 
 func playGames(ctx context.Context, black, white coach.Stream, numGames int, gameTimeSec float64, assignmentID int) []gameResult {
 	openings := loadOpenings()
 	var results []gameResult
-
 	for i := 0; i < numGames; i++ {
-		// Per PAIR (every 2 games): pick a random opening line.
-		// Both games in the pair use the SAME line with colors swapped
-		// so each engine plays both sides of the identical position.
 		opening := openings[rand.Intn(len(openings))]
-		if i%2 == 1 && i > 0 {
-			// Reuse the previous game's opening for the color-swapped rematch.
-			opening = results[i-1].OpeningLine
-		}
-
-		var e1, e2 coach.Stream
-		bName, wName := "Black", "White"
-		if i%2 == 1 {
-			e1, e2 = white, black
-			bName, wName = wName, bName
-		} else {
-			e1, e2 = black, white
-		}
-
+		if i%2 == 1 && i > 0 { opening = results[i-1].OpeningLine }
+		var e1, e2 coach.Stream; bName, wName := "Black", "White"
+		if i%2 == 1 { e1, e2 = white, black; bName, wName = wName, bName } else { e1, e2 = black, white }
 		gr := playOneGame(ctx, e1, e2, opening, gameTimeSec, bName, wName, assignmentID, i)
 		results = append(results, gr)
 		if gr.Disconnect || (gr.ErrorCode != game.ErrNone && gr.ErrorCode != game.ErrResign) {
-			slog.Warn("game error, stopping match pair", "assign", assignmentID, "game", i+1, "error_code", gr.ErrorCode)
+			slog.Warn("game error, stopping pair", "gid", gr.Gid, "assign", assignmentID, "game", i+1, "error_code", gr.ErrorCode)
 			break
 		}
 	}
@@ -172,316 +131,150 @@ func playGames(ctx context.Context, black, white coach.Stream, numGames int, gam
 }
 
 func playOneGame(ctx context.Context, black, white coach.Stream, opening string, gameTimeSec float64, bName, wName string, assignmentID, gameIdx int) gameResult {
-	gr := gameResult{Black: bName, White: wName, OpeningLine: opening}
+	gid := traceGameID.Add(1)
+	slog.Info("game start", "gid", gid, "black", bName, "white", wName)
+	gr := gameResult{Gid: gid, Black: bName, White: wName, OpeningLine: opening}
 
 	for _, s := range []coach.Stream{black, white} {
-		if _, err := wsSend(s, "boardsize 8", 10); err != nil {
-			slog.Error("init failed", "cmd", "boardsize 8", "err", err)
-			gr.Result = "0-1"; gr.Disconnect = true
-			return gr
-		}
-		if _, err := wsSend(s, "clear_board", 10); err != nil {
-			slog.Error("init failed", "cmd", "clear_board", "err", err)
-			gr.Result = "0-1"; gr.Disconnect = true
-			return gr
-		}
+		if _, _, err := tracedSend(gid, "both", s, "boardsize 8", 10); err != nil { gr.Disconnect = true; return gr }
+		if _, _, err := tracedSend(gid, "both", s, "clear_board", 10); err != nil { gr.Disconnect = true; return gr }
 	}
-
 	board := game.NewBoard()
 
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
-		color := "b"
-		if i%2 == 1 {
-			color = "w"
-		}
+		color := "b"; if i%2 == 1 { color = "w" }
+		sq := game.SqFromString(mv)
+		player := board.Black(); if color == "w" { player = board.White() }
+		if sq < 0 || board.LegalMoves(player)&(1<<sq) == 0 { gr.Disconnect = true; return gr }
+		board = board.ApplyMove(player, sq)
 		cmd := "play " + color + " " + mv
 		for _, s := range []coach.Stream{black, white} {
-			resp, err := wsSend(s, cmd, 10)
-			if err != nil {
-				slog.Error("opening play failed", "assign", assignmentID, "game", gameIdx+1, "move", mv, "color", color, "err", err)
-				gr.Result = "0-1"; gr.Disconnect = true
-				return gr
+			if resp, _, err := tracedSend(gid, "both", s, cmd, 10); err != nil || strings.HasPrefix(resp, "?") {
+				gr.Disconnect = true; return gr
 			}
-			if strings.HasPrefix(resp, "?") {
-				slog.Error("opening move REJECTED", "assign", assignmentID, "game", gameIdx+1,
-					"move", mv, "color", color, "opening", opening, "response", strings.TrimSpace(resp))
-				gr.Result = "0-1"; gr.Disconnect = true
-				return gr
-			}
-		}
-		sq := game.SqFromString(mv)
-		if sq >= 0 {
-			player := board.Black()
-			if color == "w" {
-				player = board.White()
-			}
-			board = board.ApplyMove(player, sq)
 		}
 	}
 
-	consecutivePasses := 0
-	timeLimit := gameTimeSec * 1.05
-
-	sideToMove := "b"
-	curPlayer := board.Black()
-	oppPlayer := board.White()
-	if len(moves)%2 == 1 {
-		sideToMove = "w"
-		curPlayer, oppPlayer = oppPlayer, curPlayer
-	}
+	timeLimit := gameTimeSec * 1.05; pass, side := 0, "b"
+	curPlayer, oppPlayer := board.Black(), board.White()
+	if len(moves)%2 == 1 { side, curPlayer, oppPlayer = "w", oppPlayer, curPlayer }
 
 	for {
-		if gr.BlackTimeS >= timeLimit {
-			gr.Result = "0-1"
+		if (side == "b" && gr.BlackTimeS >= timeLimit) || (side == "w" && gr.WhiteTimeS >= timeLimit) {
 			gr.ErrorCode = game.ErrTimeout
+			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 			break
 		}
-		if gr.WhiteTimeS >= timeLimit {
-			gr.Result = "1-0"
-			gr.ErrorCode = game.ErrTimeout
-			break
-		}
-
-		if board.IsOver() {
-			break
-		}
+		if board.IsOver() { break }
 
 		legal := board.LegalMoves(curPlayer)
-		if legal == 0 {
-			// If the previous turn was also a forced pass, both sides have
-			// no moves — game over. consecutivePasses is incremented by the
-			// PASS handler below when the engine returns PASS.
-			if consecutivePasses >= 1 {
-				consecutivePasses++
-				break
-			}
-			// Fall through to genmove below. The engine will detect it has
-			// no legal moves and return PASS, triggering the voluntary-pass
-			// handler which correctly notifies only the opponent.
-		} else {
-			consecutivePasses = 0
-		}
-
-		current := black
-		if sideToMove == "w" {
-			current = white
-		}
+		current := black; if side == "w" { current = white }
 
 		t0 := time.Now()
-		resp, err := wsSend(current, "genmove "+sideToMove, gameTimeSec)
+		resp, stats, err := tracedSend(gid, side, current, "genmove "+side, gameTimeSec)
 		elapsed := time.Since(t0).Seconds()
-		if sideToMove == "b" {
-			gr.BlackTimeS += elapsed
-		} else {
-			gr.WhiteTimeS += elapsed
-		}
+		if side == "b" { gr.BlackTimeS += elapsed } else { gr.WhiteTimeS += elapsed }
 
 		if err != nil {
 			gr.ErrorCode = game.ErrCrash
-					slog.Error("genmove failed", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err, "elapsed_ms", int(elapsed*1000))
-			// "read timeout" = engine hung, counts as loss
-			// "stream closed" / "write timeout" = infrastructure, no Elo
-			isInfra := strings.Contains(err.Error(), "stream closed") || strings.Contains(err.Error(), "write timeout")
-			gr.Disconnect = isInfra
-			if sideToMove == "b" {
-				gr.Result = "0-1"
-			} else {
-				gr.Result = "1-0"
-			}
-			if isInfra {
-				slog.Error("genmove failed (infra)", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err)
-			} else {
-				slog.Error("genmove failed (engine)", "assign", assignmentID, "game", gameIdx+1, "side", sideToMove, "err", err)
-			}
+			if strings.Contains(err.Error(), "stream closed") || strings.Contains(err.Error(), "write timeout") { gr.Disconnect = true }
+			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 			break
 		}
 
-		resp = strings.TrimSpace(strings.TrimPrefix(resp, "= "))
-		parts := strings.Fields(resp)
-		if len(parts) == 0 {
-			slog.Warn("empty genmove response", "side", sideToMove)
+		mv := strings.TrimPrefix(resp, "= "); mv = strings.TrimPrefix(mv, "=")
+		mv = strings.TrimSpace(mv)
+		if fields := strings.Fields(mv); len(fields) > 0 { mv = fields[0] }
+		mv = strings.ToUpper(mv)
+
+		if mv == "" { gr.ErrorCode = game.ErrInvalidResponse; if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }; break }
+
+		// Coach-induced timeout: "? timeout" → ErrTimeout (same as MM guard).
+		if strings.Contains(resp, "timeout") {
+			gr.ErrorCode = game.ErrTimeout
+			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 			break
 		}
-		mv := strings.ToUpper(parts[0])
-
-		if mv == "RESIGN" {
+		if mv == "RESIGN" || strings.HasPrefix(resp, "?") {
 			gr.ErrorCode = game.ErrResign
-			if sideToMove == "b" {
-				gr.Result = "0-1"
-			} else {
-				gr.Result = "1-0"
-			}
+			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 			break
 		}
 
 		if mv == "PASS" {
-			consecutivePasses++
-			// Genmove already applied the pass internally. Tell the opponent.
-			opp := white
-			if sideToMove == "w" {
-				opp = black
-			}
-			wsSend(opp, "play "+sideToMove+" pass", 10)
-			if consecutivePasses >= 2 {
+			if legal != 0 {
+				slog.Error("illegal pass", "gid", gid, "side", side, "legal_count", game.Popcount(legal))
+				gr.ErrorCode = game.ErrIllegalPass
+				if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 				break
 			}
-			sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
+			opp := white; if side == "w" { opp = black }
+			tracedSend(gid, "opp", opp, "play "+side+" pass", 10)
+			pass++; if pass == 2 { break }
+			if side == "b" { side, curPlayer, oppPlayer = "w", board.White(), board.Black() } else { side, curPlayer, oppPlayer = "b", board.Black(), board.White() }
 			continue
 		}
-
+		pass = 0
 		if len(mv) != 2 || mv[0] < 'A' || mv[0] > 'H' || mv[1] < '1' || mv[1] > '8' {
+			slog.Warn("invalid response format", "gid", gid, "side", side, "raw", resp)
 			gr.ErrorCode = game.ErrInvalidResponse
-			slog.Warn("invalid genmove response", "side", sideToMove, "raw", resp)
-			if sideToMove == "b" {
-				gr.Result = "0-1"
-			} else {
-				gr.Result = "1-0"
-			}
+			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 			break
 		}
 		sq := game.SqFromString(mv)
-		if sq < 0 || (legal>>sq)&1 == 0 {
+
+		if (legal>>sq)&1 == 0 {
+			slog.Error("illegal move", "gid", gid, "side", side, "move", mv, "legal_count", game.Popcount(legal),
+				"empties", 64-game.Popcount(board.Black()|board.White()),
+				"black", fmt.Sprintf("%064b", board.Black()), "white", fmt.Sprintf("%064b", board.White()), "legal", fmt.Sprintf("%064b", legal))
 			gr.ErrorCode = game.ErrIllegalMove
-			slog.Warn("illegal move from engine", "side", sideToMove, "move", mv)
-			if sideToMove == "b" {
-				gr.Result = "0-1"
-			} else {
-				gr.Result = "1-0"
-			}
+			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 			break
 		}
 
 		board = board.ApplyMove(curPlayer, sq)
-		// Standard GTP: genmove applies the move to the engine's own board.
-		// play is sent ONLY to the opponent to announce the move.
-		// Sending play to the engine that just moved is a protocol violation
-		// — engines like Edax reject it with "? wrong color".
-		opponent := white
-		if sideToMove == "w" {
-			opponent = black
-		}
-		playCmd := "play " + sideToMove + " " + mv
-		playResp, err := wsSend(opponent, playCmd, 10)
-		if err != nil || strings.HasPrefix(playResp, "?") {
-			if err != nil {
-				gr.ErrorCode = game.ErrCrash // will be resolved by coach verdict in post-processing
-				gr.Disconnect = true
-				slog.Error("play send failed", "assign", assignmentID, "game", gameIdx+1, "move", mv, "err", err)
-			} else {
-				gr.ErrorCode = game.ErrInvalidResponse
-				slog.Warn("play rejected, ending game", "move", mv, "response", playResp)
-			}
-			if sideToMove == "b" {
-				gr.Result = "1-0"
-			} else {
-				gr.Result = "0-1"
-			}
-			break
-		}
+		slog.Info("board", "gid", gid, "state", boardString(board))
+		if board.IsOver() { break }
 
-		// Consume all # stats lines, keeping the last.
-			// Prefer JSON format (# arena-stats v1: {...}), fall back to legacy.
-			var nodes int64
-			var depth int
-			var score int
-			var coachMs float64
-			for {
-				select {
-				case statsLine := <-current.In:
-					s := strings.TrimSpace(statsLine)
-					if s == "" { continue }
-					if strings.HasPrefix(s, "#") {
-						// Try JSON format first
-						if idx := strings.Index(s, "{"); idx >= 0 {
-							var ns struct {
-								Nodes   int64 `json:"nodes"`
-								Depth   int   `json:"depth"`
-								Score   int   `json:"score"`
-								Timeout bool  `json:"timeout"`
-							}
-							if err := json.Unmarshal([]byte(s[idx:]), &ns); err == nil {
-								nodes = ns.Nodes
-								depth = ns.Depth
-								score = ns.Score
-								}
-						}
-						continue
-					}
-				default:
-				}
-				break
-			}
-			if coachMs <= 0 {
-				coachMs = elapsed * 1000
-			}
+		opp := white; if side == "w" { opp = black }
+		tracedSend(gid, "opp", opp, "play "+side+" "+mv, 10)
 
-			gr.Moves = append(gr.Moves, gameMove{
-				Side: sideToMove, Move: mv,
-				Nodes: nodes, Depth: depth, TimeMs: coachMs, Score: score,
-			})
-			slog.Info("move stored", "side", sideToMove, "move", mv, "nodes", nodes, "depth", depth, "score", score, "ms", coachMs, "total", len(gr.Moves))
+		nodes, depth, score, coachMs := parseStats(stats, elapsed*1000)
+		gr.Moves = append(gr.Moves, gameMove{Side: side, Move: mv, Nodes: nodes, Depth: depth, TimeMs: coachMs, Score: score})
 
-		sideToMove, curPlayer, oppPlayer = flipSide(sideToMove, curPlayer, oppPlayer, board)
-
-		if len(gr.Moves) > 90 {
-			break
-		}
+		if side == "b" { side, curPlayer, oppPlayer = "w", board.White(), board.Black() } else { side, curPlayer, oppPlayer = "b", board.Black(), board.White() }
+		if len(gr.Moves) > 90 { break }
 	}
 
-	// Aggregate game-level stats from per-move data
 	for _, m := range gr.Moves {
-		if m.Side == "b" {
-			gr.BlackNodes += m.Nodes
-			if m.Depth > gr.BlackDepth { gr.BlackDepth = m.Depth }
-		} else {
-			gr.WhiteNodes += m.Nodes
-			if m.Depth > gr.WhiteDepth { gr.WhiteDepth = m.Depth }
-		}
+		if m.Side == "b" { gr.BlackNodes += m.Nodes; if m.Depth > gr.BlackDepth { gr.BlackDepth = m.Depth } } else { gr.WhiteNodes += m.Nodes; if m.Depth > gr.WhiteDepth { gr.WhiteDepth = m.Depth } }
 	}
 
-	// Compute final score from the board (works for all endings: timeout, resign, normal)
-	bCount := game.Popcount(board.Black())
-	wCount := game.Popcount(board.White())
-	if gr.FinalScore == 0 {
-		if bCount > wCount {
-			gr.FinalScore = bCount - wCount
-		} else if wCount > bCount {
-			gr.FinalScore = wCount - bCount
-		}
-	}
-
+	bCount, wCount := game.Popcount(board.Black()), game.Popcount(board.White())
 	if gr.Result == "" {
-		if bCount > wCount {
-			gr.Result = "1-0"
-		} else if wCount > bCount {
-			gr.Result = "0-1"
-		} else {
-			gr.Result = "1/2"
-		}
+		if bCount > wCount { gr.Result = "1-0" } else if wCount > bCount { gr.Result = "0-1" } else { gr.Result = "1/2" }
 	}
-
-	slog.Info("game result", "assign", assignmentID, "game", gameIdx+1, "result", gr.Result, "score", gr.FinalScore, "moves", len(gr.Moves), "black_s", gr.BlackTimeS, "white_s", gr.WhiteTimeS)
+	if gr.ErrorCode == game.ErrTimeout || gr.ErrorCode == game.ErrResign {
+		// Tournament forfeit rule: winner gets max(actual discs, 34), loser 30.
+		if gr.Result == "1-0" {
+			w := bCount; if w < 34 { w = 34 }
+			gr.FinalScore = w - 30
+		} else if gr.Result == "0-1" {
+			w := wCount; if w < 34 { w = 34 }
+			gr.FinalScore = w - 30
+		}
+	} else {
+		// Natural ending: FFO convention (empties to winner). Board is full so empties=0.
+		if bCount > wCount { gr.FinalScore = bCount - wCount } else if wCount > bCount { gr.FinalScore = wCount - bCount }
+	}
+	slog.Info("game result", "gid", gid, "assign", assignmentID, "game", gameIdx+1, "result", gr.Result, "score", gr.FinalScore, "moves", len(gr.Moves))
 	return gr
 }
 
-func flipSide(sideToMove string, curPlayer, oppPlayer uint64, board game.Board) (string, uint64, uint64) {
-	if sideToMove == "b" {
-		return "w", board.White(), board.Black()
-	}
-	return "b", board.Black(), board.White()
-}
-
 func parseMoveList(line string) []string {
-	if line == "" {
-		return nil
-	}
-	line = strings.TrimSpace(line)
+	line = strings.TrimSpace(line); if line == "" { return nil }
 	var m []string
-	for i := 0; i < len(line); i += 2 {
-		if i+1 < len(line) {
-			m = append(m, strings.ToUpper(line[i:i+2]))
-		}
-	}
+	for i := 0; i < len(line); i += 2 { if i+1 < len(line) { m = append(m, strings.ToUpper(line[i:i+2])) } }
 	return m
 }
