@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/neoliv/arena/internal/coach"
 	"github.com/neoliv/arena/internal/db"
@@ -105,13 +106,35 @@ type EngineStatus struct {
 	UnavailableReason string
 }
 
+// CoachStatus is a point-in-time snapshot of a coach (in-memory, not DB).
+type CoachStatus struct {
+	ID         string
+	SessionID  string
+	CoresTotal int
+	CoresUsed  int
+	MemUsed    int
+	LastSeen   time.Time
+}
+
+// AssignmentStatus is a point-in-time snapshot of an in-progress match.
+type AssignmentStatus struct {
+	ID           int64
+	BlackEngine  string
+	WhiteEngine  string
+	TimeControl  string
+	NumGames     int
+	InProgressAt time.Time
+}
+
 type Handler struct {
-	DB               *db.DB
-	Token            string
-	Sessions         *SessionStore
-	Limiter          *RateLimiter
-	EngineStatusFunc func() []EngineStatus
-	ResourceStore    *coach.PlayerResourceStore
+	DB                   *db.DB
+	Token                string
+	Sessions             *SessionStore
+	Limiter              *RateLimiter
+	EngineStatusFunc     func() []EngineStatus
+	CoachStatusFunc      func() []CoachStatus
+	ActiveAssignmentsFunc func() []AssignmentStatus
+	ResourceStore        *coach.PlayerResourceStore
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {

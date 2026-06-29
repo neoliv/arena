@@ -26,11 +26,13 @@ type EngineEntry struct {
 	MaxInstances      int    `json:"max_instances"`
 	Available         bool   `json:"available"`
 	UnavailableReason string `json:"unavailable_reason,omitempty"`
+	InstancesRunning  int    // per-heartbeat, zeroed when coach disconnects
 }
 
 // CoachEntry holds a coach's registered engines and metadata.
 type CoachEntry struct {
 	ID         string
+	SessionID  string // changes on coach restart → triggers cleanup
 	CoresTotal int
 	Engines    map[string]*EngineEntry // key: "name:version"
 	LastSeen   time.Time
@@ -52,6 +54,8 @@ type wantedPair struct {
 	WhiteConnectedAt time.Time
 	SessionID        string // base session ID for relay (both sides share this)
 	gameTimeSec      float64 // parsed from TimeControl
+	BlackCoachID     string // coach that was assigned the black side
+	WhiteCoachID     string // coach that was assigned the white side
 }
 
 // ── WantedList ──────────────────────────────────────────────────────────
@@ -72,6 +76,9 @@ type WantedList struct {
 	// TTL 20s. Populated when a connected side times out waiting for opponent.
 	declines map[string]time.Time
 }
+
+// lastEmptyPollLog gates repeated empty-poll warnings to once per 60s.
+var lastEmptyPollLog time.Time
 
 func NewWantedList(database *db.DB, storeCh chan<- GameResult) *WantedList {
 	return &WantedList{
@@ -159,12 +166,22 @@ func (w *WantedList) Tick() {
 		Games   int
 	}
 	var elos []engineElo
-	// Query engines directly — no JOIN on matches. A fresh DB has zero
-	// matches, which would make this return zero rows → zero pairs → deadlock.
+	// Use JOIN-based query instead of correlated subqueries.
 	rows, _ := w.DB.Query(`SELECT e.name, e.version,
-		COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 1500.0),
-		COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=e.id), 0)
-		FROM engines e ORDER BY e.name`)
+		COALESCE(lr.rating_after, 1500.0),
+		COALESCE(gc.game_count, 0)
+		FROM engines e
+		LEFT JOIN (
+			SELECT engine_id, rating_after,
+				ROW_NUMBER() OVER (PARTITION BY engine_id ORDER BY id DESC) AS rn
+			FROM elo_history
+		) lr ON lr.engine_id = e.id AND lr.rn = 1
+		LEFT JOIN (
+			SELECT engine_id, COUNT(*) AS game_count
+			FROM elo_history
+			GROUP BY engine_id
+		) gc ON gc.engine_id = e.id
+		ORDER BY e.name`)
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -174,6 +191,7 @@ func (w *WantedList) Tick() {
 			elos = append(elos, el)
 		}
 	}
+
 
 	// 2. Build priority-sorted wanted pairs
 	var newPairs []*wantedPair
@@ -245,6 +263,8 @@ func (w *WantedList) Tick() {
 			p.BlackConnectedAt = old.BlackConnectedAt
 			p.WhiteConnectedAt = old.WhiteConnectedAt
 			p.SessionID = old.SessionID
+			p.BlackCoachID = old.BlackCoachID
+			p.WhiteCoachID = old.WhiteCoachID
 		}
 	}
 
@@ -378,6 +398,8 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		w.offers[bdk] = now
 		w.offers[wdk] = now
 		if p.SessionID == "" { p.SessionID = p.ID }
+		p.BlackCoachID = coachID
+		p.WhiteCoachID = coachID
 		out = append(out,
 			Assignment{SessionID: p.SessionID + "-b", Engine: bKey, Side: "black", TimeControl: p.TimeControl, Opening: p.OpeningLine},
 			Assignment{SessionID: p.SessionID + "-w", Engine: wKey, Side: "white", TimeControl: p.TimeControl, Opening: p.OpeningLine},
@@ -402,16 +424,19 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 			used[bKey]++
 			w.offers[bdk] = now
 			if p.SessionID == "" { p.SessionID = p.ID }
+			p.BlackCoachID = coachID
 			out = append(out, Assignment{SessionID: p.SessionID + "-b", Engine: bKey, Side: "black", TimeControl: p.TimeControl, Opening: p.OpeningLine})
 		} else if wOk && !bOk && used[wKey] < maxInst(wKey) {
 			used[wKey]++
 			w.offers[wdk] = now
 			if p.SessionID == "" { p.SessionID = p.ID }
+			p.WhiteCoachID = coachID
 			out = append(out, Assignment{SessionID: p.SessionID + "-w", Engine: wKey, Side: "white", TimeControl: p.TimeControl, Opening: p.OpeningLine})
 		}
 	}
-		// Diagnostic: when returning empty, log breakdown.
-	if len(out) == 0 && len(w.pairs) > 0 {
+	// Diagnostic: when returning empty, log breakdown (throttled).
+	if len(out) == 0 && len(w.pairs) > 0 && time.Since(lastEmptyPollLog) > 60*time.Second {
+		lastEmptyPollLog = time.Now()
 		var noEngine, connected, declined, offered, atMax int
 		now2 := time.Now()
 		for _, p := range w.pairs {
@@ -430,27 +455,27 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 			if !bStale || !wStale { offered++; continue }
 			if used[bKey] >= maxInst(bKey) || used[wKey] >= maxInst(wKey) { atMax++; continue }
 		}
-			// Log first pending pair details for debugging
-			for _, p := range w.pairs {
-				if p.Status != "pending" { continue }
-				bKey, wKey := p.BlackEngine, p.WhiteEngine
-				hasB := c.Engines[bKey] != nil
-				hasW := c.Engines[wKey] != nil
-				bdk, wdk := declineKey(coachID, bKey), declineKey(coachID, wKey)
-				_, bDecl := w.declines[bdk]
-				_, wDecl := w.declines[wdk]
-				_, bOff := w.offers[bdk]
-				_, wOff := w.offers[wdk]
-				slog.Warn("PollAssignments first pending pair",
-					"pair", p.ID,
-					"bKey", bKey, "bExist", hasB, "bConnected", p.BlackConnected, "bDeclined", bDecl, "bOffered", bOff,
-					"wKey", wKey, "wExist", hasW, "wConnected", p.WhiteConnected, "wDeclined", wDecl, "wOffered", wOff,
-				)
-				break
-			}
+		// Log first pending pair details for debugging
+		for _, p := range w.pairs {
+			if p.Status != "pending" { continue }
+			bKey, wKey := p.BlackEngine, p.WhiteEngine
+			hasB := c.Engines[bKey] != nil
+			hasW := c.Engines[wKey] != nil
+			bdk, wdk := declineKey(coachID, bKey), declineKey(coachID, wKey)
+			_, bDecl := w.declines[bdk]
+			_, wDecl := w.declines[wdk]
+			_, bOff := w.offers[bdk]
+			_, wOff := w.offers[wdk]
+			slog.Warn("PollAssignments first pending pair",
+				"pair", p.ID,
+				"bKey", bKey, "bExist", hasB, "bConnected", p.BlackConnected, "bDeclined", bDecl, "bOffered", bOff,
+				"wKey", wKey, "wExist", hasW, "wConnected", p.WhiteConnected, "wDeclined", wDecl, "wOffered", wOff,
+			)
+			break
+		}
 		slog.Warn("PollAssignments empty breakdown", "coach", coachID, "pairs", len(w.pairs),
-				"no_engine", noEngine, "connected", connected, "declined", declined, "offered", offered, "at_max", atMax,
-				"candidates_complete", len(complete), "candidates_single", len(single))
+			"no_engine", noEngine, "connected", connected, "declined", declined, "offered", offered, "at_max", atMax,
+			"candidates_complete", len(complete), "candidates_single", len(single))
 	}
 	return out
 }
@@ -532,7 +557,7 @@ func (w *WantedList) ResetPair(pairID string) {
 	}
 }
 
-// ReapStale expires old offers and declines.
+// ReapStale expires old offers, declines, and disconnected coaches.
 func (w *WantedList) ReapStale(_ time.Duration) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -546,6 +571,33 @@ func (w *WantedList) ReapStale(_ time.Duration) {
 	for k, t := range w.declines {
 		if now.Sub(t) > 20*time.Second {
 			delete(w.declines, k)
+		}
+	}
+
+	// Expire coaches that haven't been seen in 60s (missed ~6 heartbeat intervals).
+	// Also clean up any pairs they owned — those games can never start.
+	for coachID, c := range w.coaches {
+		if now.Sub(c.LastSeen) > 60*time.Second {
+			slog.Info("coach expired (no heartbeat)", "coach", coachID,
+				"last_seen_s", now.Sub(c.LastSeen).Seconds())
+			// Remove pairs assigned to this coach (both sides).
+			for _, p := range w.pairs {
+				if p.Status == "pending" && (p.BlackCoachID == coachID || p.WhiteCoachID == coachID) {
+					slog.Info("removing stale pair for expired coach", "pair", p.ID,
+						"black", p.BlackEngine, "white", p.WhiteEngine,
+						"black_coach", p.BlackCoachID, "white_coach", p.WhiteCoachID)
+				}
+			}
+			// Filter out pairs owned by this coach.
+			livePairs := w.pairs[:0]
+			for _, p := range w.pairs {
+				if p.Status == "pending" && (p.BlackCoachID == coachID || p.WhiteCoachID == coachID) {
+					continue
+				}
+				livePairs = append(livePairs, p)
+			}
+			w.pairs = livePairs
+			delete(w.coaches, coachID)
 		}
 	}
 }

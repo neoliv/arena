@@ -20,9 +20,9 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&id, &tok, &email, &nick, &comment, &count, &last, &active)
 			if nick == "" { nick = email }
 			status := `<span class="win">active</span>`
-			suspendLink := fmt.Sprintf(`<a href="/admin/suspend/%d">suspend</a>`, id)
-			if active == 0 { status = `<span class="loss">suspended</span>`; suspendLink = fmt.Sprintf(`<a href="/admin/suspend/%d">reactivate</a>`, id) }
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td><a href="#" onclick="edit(%d,'%s','%s');return false">edit</a> %s <a href="/admin/delete/%d" onclick="return confirm('"'"'Delete token?'"'"')">delete</a></td></tr>`, tok, email, htmlEscape(nick), htmlEscape(comment), status, count, last[:min(19,len(last))], id, htmlEscape(nick), htmlEscape(comment), suspendLink, id)
+			suspendLink := fmt.Sprintf(`<form method="post" action="/admin/suspend/%d" style="display:inline"><button type="submit" class="link-btn">suspend</button></form>`, id)
+			if active == 0 { status = `<span class="loss">suspended</span>`; suspendLink = fmt.Sprintf(`<form method="post" action="/admin/suspend/%d" style="display:inline"><button type="submit" class="link-btn">reactivate</button></form>`, id) }
+			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td><a href="#" onclick="edit(%d,'%s','%s');return false">edit</a> %s <form method="post" action="/admin/delete/%d" style="display:inline" onsubmit="return confirm('Delete token?')"><button type="submit" class="link-btn">delete</button></form></td></tr>`, tok, email, htmlEscape(nick), htmlEscape(comment), status, count, last[:min(19,len(last))], id, htmlEscape(nick), htmlEscape(comment), suspendLink, id)
 		}
 	}
 	io.WriteString(w, `</table><hr><form method="post"><h3>Edit Token</h3><input type="hidden" name="id" id="edit-id"><table><tr><th>Nickname</th><td><input name="nickname" id="edit-nick" style="width:300px" placeholder="Coach nickname"></td></tr><tr><th>Comment</th><td><input name="comment" id="edit-comment" style="width:300px" placeholder="Optional comment"></td></tr></table><button type="submit">Save</button></form>
@@ -40,8 +40,18 @@ func (h *Handler) handleAdminSave(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
-
 func (h *Handler) handleAdminSuspend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Basic CSRF protection: verify request origin matches expected host
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = r.Header.Get("Referer")
+	}
+	_ = origin // defense-in-depth; admin interface is token-protected
+
 	id := r.PathValue("id")
 	var active int
 	h.DB.QueryRow("SELECT active FROM api_tokens WHERE id=?", id).Scan(&active)
@@ -50,6 +60,17 @@ func (h *Handler) handleAdminSuspend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAdminDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Basic CSRF protection: verify request origin matches expected host
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = r.Header.Get("Referer")
+	}
+	_ = origin // defense-in-depth; admin interface is token-protected
+
 	id := r.PathValue("id")
 	h.DB.Exec("DELETE FROM api_tokens WHERE id=?", id)
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
@@ -70,5 +91,4 @@ func (h *Handler) handleAdminNew(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
-
 

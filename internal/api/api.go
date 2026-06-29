@@ -93,9 +93,15 @@ func (s *Server) HandleRegisterEngine(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleListEngines(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.DB.Query(`SELECT e.id, e.name, e.version, e.git_commit, e.submitted_by,
-		COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 1500.0),
-		COALESCE((SELECT games FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 0)
-		FROM engines e ORDER BY 6 DESC`)
+		COALESCE(latest.rating_after, 1500.0),
+		COALESCE(latest.games, 0)
+		FROM engines e
+		LEFT JOIN (
+			SELECT engine_id, rating_after, games,
+				ROW_NUMBER() OVER (PARTITION BY engine_id ORDER BY created_at DESC) AS rn
+			FROM elo_history
+		) latest ON e.id = latest.engine_id AND latest.rn = 1
+		ORDER BY 6 DESC`)
 	if err != nil {
 		jsonError(w, "db error", http.StatusInternalServerError)
 		return
@@ -111,6 +117,7 @@ func (s *Server) HandleListEngines(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&o.ID, &o.Name, &o.Version, &o.GitCommit, &o.SubmittedBy, &o.Elo, &o.Games)
 		list = append(list, o)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, list)
 }
 
@@ -219,6 +226,7 @@ func (s *Server) HandleListMatches(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&o.ID, &o.E1, &o.E2, &o.TotalGames, &o.Wins1, &o.Wins2, &o.Draws, &o.CreatedAt)
 		list = append(list, o)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, list)
 }
 
@@ -250,6 +258,7 @@ func (s *Server) HandleGetMatch(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&g.Number, &g.Black, &g.White, &g.Result, &g.FinalScore, &g.OpeningLine, &g.PGN)
 		games = append(games, g)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, map[string]any{"match": m, "games": games})
 }
 
@@ -257,12 +266,18 @@ func (s *Server) HandleGetMatch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleGetElo(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.DB.Query(`SELECT e.id, e.name, e.version,
-		COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY created_at DESC LIMIT 1), 1500.0),
-		COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=e.id), 0),
-		COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=e.id AND wins>0), 0),
-		COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=e.id AND losses>0), 0),
-		COALESCE((SELECT COUNT(*) FROM elo_history WHERE engine_id=e.id AND draws>0), 0)
-		FROM engines e ORDER BY 4 DESC`)
+		COALESCE(latest.rating_after, 1500.0),
+		COALESCE(latest.games, 0),
+		COALESCE(latest.wins, 0),
+		COALESCE(latest.losses, 0),
+		COALESCE(latest.draws, 0)
+		FROM engines e
+		LEFT JOIN (
+			SELECT engine_id, rating_after, games, wins, losses, draws,
+				ROW_NUMBER() OVER (PARTITION BY engine_id ORDER BY created_at DESC) AS rn
+			FROM elo_history
+		) latest ON e.id = latest.engine_id AND latest.rn = 1
+		ORDER BY 4 DESC`)
 	if err != nil {
 		jsonError(w, "db error", http.StatusInternalServerError)
 		return
@@ -274,6 +289,7 @@ func (s *Server) HandleGetElo(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&r.EngineID, &r.EngineName, &r.Version, &r.Elo, &r.Games, &r.Wins, &r.Losses, &r.Draws)
 		ratings = append(ratings, r)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, ratings)
 }
 
@@ -288,6 +304,7 @@ func (s *Server) HandleGetEngineElo(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&e.ID, &e.EngineID, &e.OpponentID, &e.MatchID, &e.RatingBefore, &e.RatingAfter, &e.Games, &e.Wins, &e.Losses, &e.Draws)
 		h = append(h, e)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, h)
 }
 
@@ -303,6 +320,7 @@ func (s *Server) HandleVersionHistory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var v ev; rows.Scan(&v.ID, &v.Version, &v.GitCommit, &v.CreatedAt); vers = append(vers, v)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	type oppOut struct{ Name, Version string; Games, Wins, Losses int; WinRate float64 }
 	type vp struct {
 		Version, GitCommit, Date string; Elo float64
@@ -330,6 +348,7 @@ func (s *Server) HandleVersionHistory(w http.ResponseWriter, r *http.Request) {
 			if o.Games > 0 { o.WinRate = float64(o.Wins) / float64(o.Games) * 100 }
 			p.Opponents = append(p.Opponents, o)
 		}
+		if err := orows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 		orows.Close()
 		result = append(result, p)
 	}
@@ -363,6 +382,7 @@ func (s *Server) HandleListGames(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&o.ID, &o.Black, &o.White, &o.Result, &o.FinalScore, &o.OpeningLine, &o.GameNumber, &o.CreatedAt)
 		list = append(list, o)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, list)
 }
 
@@ -405,6 +425,7 @@ func (s *Server) HandleGetBisect(w http.ResponseWriter, r *http.Request) {
 		var s2 step; rows.Scan(&s2.Commit, &s2.EloResult, &s2.Verdict, &s2.GamesPlayed, &s2.CreatedAt)
 		steps = append(steps, s2)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, map[string]any{"bisection": b, "steps": steps})
 }
 
@@ -442,6 +463,9 @@ func (s *Server) RecomputeElo(engineID int) {
 	s.eloMu.Lock()
 	defer s.eloMu.Unlock()
 
+	// OPTIMIZATION: This replays all game history for every match submission.
+	// For large databases, switch to incremental updates: only process new games
+	// since the last Elo recomputation.
 	rows, _ := s.DB.Query(`SELECT g.id,g.black_id,g.white_id,g.result,g.match_id,eb.name,ew.name
 		FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id
 		WHERE (g.black_id=? OR g.white_id=?) AND COALESCE(g.disconnect,0)=0 ORDER BY g.created_at, g.id`, engineID, engineID)
@@ -449,6 +473,7 @@ func (s *Server) RecomputeElo(engineID int) {
 	type gr struct{ ID, BlackID, WhiteID, MatchID int; Result, BlackName, WhiteName string }
 	var games []gr
 	for rows.Next() { var g gr; rows.Scan(&g.ID, &g.BlackID, &g.WhiteID, &g.Result, &g.MatchID, &g.BlackName, &g.WhiteName); games = append(games, g) }
+		if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	if len(games) == 0 { return }
 
 	s.DB.Exec(`DELETE FROM elo_history WHERE engine_id=?`, engineID)
@@ -556,6 +581,7 @@ func (s *Server) HandleGetSpeed(w http.ResponseWriter, r *http.Request) {
 		p.Timeouts = timeouts
 		pts = append(pts, p)
 	}
+	if err := rows.Err(); err != nil { slog.Warn("rows iteration error", "err", err) }
 	jsonOK(w, pts)
 }
 

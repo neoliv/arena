@@ -3,21 +3,23 @@ package game
 import "strings"
 
 // Compact Othello board for move validation and game-end detection.
-// Bitboard: LSB = A1 (0), MSB = H8 (63). Row-major, little-endian.
+//
+// DESIGN DECISION: All validation logic uses the simplest possible algorithm:
+// convert bitboards to an 8x8 integer array, walk all 8 compass directions
+// step by step through opponent discs until hitting own disc or edge/empty.
+// No bit tricks, no parallel prefix, no shift masks, no precomputed tables.
+//
+// This is NOT fast — it's trivially verifiable against the literal Othello
+// rules by inspection. Speed is irrelevant for the matchmaker's validation
+// board (at most ~60 moves per game, ~1ms each). Correctness is paramount.
+//
+// All operations (LegalMoves, ApplyMove, isOver) share the single applyFlip
+// function. If applyFlip is correct, everything built on it is correct.
 
 type Board struct {
 	black uint64
 	white uint64
 }
-
-// Edge masks to prevent bitboard wrapping. Each byte corresponds to one
-// row (bits 0-7 = row 0, ..., bits 56-63 = row 7).
-const (
-	notA    uint64 = 0xfefefefefefefefe // exclude file A (bit 0 of each byte)
-	notH    uint64 = 0x7f7f7f7f7f7f7f7f // exclude file H (bit 7 of each byte)
-	notRow0 uint64 = 0xffffffffffffff00 // exclude row 0
-	notRow7 uint64 = 0x00ffffffffffffff // exclude row 7
-)
 
 // NewBoard returns the standard Othello starting position.
 func NewBoard() Board {
@@ -27,57 +29,110 @@ func NewBoard() Board {
 	}
 }
 
+// grid returns the board as an 8x8 array: 0=empty, 1=black, 2=white.
+
+// setGrid sets the bitboards from an 8x8 grid.
+
+// 8 compass directions as (dRow, dCol) pairs.
+var dirs = [8][2]int{
+	{0, 1},   // E
+	{-1, 1},  // NE
+	{-1, 0},  // N
+	{-1, -1}, // NW
+	{0, -1},  // W
+	{1, -1},  // SW
+	{1, 0},   // S
+	{1, 1},   // SE
+}
+
+// inBounds returns true if (row, col) is on the 8×8 board.
+func inBounds(row, col int) bool {
+	return row >= 0 && row < 8 && col >= 0 && col < 8
+}
+
+// flipResult holds the new bitboards after a move.
+type flipResult struct{ me, opp uint64 }
+
+// applyFlip places a disc of color 'me' at square 'sq' and flips opponent
+// discs in all 8 directions. Uses simple 8×8 array walks — no bit tricks,
+// no shift masks, trivially verifiable against the literal Othello rules.
+func applyFlip(me, opp uint64, sq int) flipResult {
+	// Build 8x8 grid: me discs = 1, opp discs = 2, empty = 0
+	row, col := sq/8, sq%8
+	var board [8][8]int
+	for s := 0; s < 64; s++ {
+		r, c := s/8, s%8
+		if me&(1<<s) != 0 {
+			board[r][c] = 1
+		} else if opp&(1<<s) != 0 {
+			board[r][c] = 2
+		}
+	}
+
+	// Place the disc.
+	board[row][col] = 1
+
+	// Walk all 8 directions.
+	for _, d := range dirs {
+		dr, dc := d[0], d[1]
+
+		// Step 1: must have opponent disc adjacent.
+		r2, c2 := row+dr, col+dc
+		if !inBounds(r2, c2) || board[r2][c2] != 2 {
+			continue
+		}
+
+		// Step 2: walk further through opponent discs.
+		var toFlip []int // list of (row*8+col) indices
+		toFlip = append(toFlip, r2*8+c2)
+		r, c := r2+dr, c2+dc
+		for inBounds(r, c) && board[r][c] == 2 {
+			toFlip = append(toFlip, r*8+c)
+			r += dr
+			c += dc
+		}
+
+		// Step 3: must end at own disc.
+		if inBounds(r, c) && board[r][c] == 1 {
+			for _, sq := range toFlip {
+				board[sq/8][sq%8] = 1 // flip to player
+			}
+		}
+	}
+
+	// Convert back to bitboards.
+	me, opp = 0, 0
+	for s := 0; s < 64; s++ {
+		r, c := s/8, s%8
+		switch board[r][c] {
+		case 1:
+			me |= 1 << s
+		case 2:
+			opp |= 1 << s
+		}
+	}
+	return flipResult{me, opp}
+}
+
 // LegalMoves returns a bitboard of legal move destinations for player.
-// Reference implementation: for each empty square, walk all 8 directions
-// through opponent discs until hitting own disc (legal) or edge/empty (not).
-// Trivially verifiable against the literal Othello rules — no bit tricks,
-// no iteration counts to get wrong.
 func (b *Board) LegalMoves(player uint64) uint64 {
-	var opp uint64
+	opp := b.white
 	if player == b.black {
 		opp = b.white
 	} else {
 		opp = b.black
 	}
-	empty := ^(b.black | b.white)
 	var moves uint64
 	for sq := 0; sq < 64; sq++ {
-		if empty&(1<<sq) == 0 {
+		if b.black&(1<<sq) != 0 || b.white&(1<<sq) != 0 {
 			continue
 		}
-		if isLegalMove(player, opp, sq) {
+		r := applyFlip(player, opp, sq)
+		if r.me != (player | (1 << sq)) {
 			moves |= 1 << sq
 		}
 	}
 	return moves
-}
-
-// dir8 is the 8 compass direction offsets (row, col).
-var dir8 = [8][2]int{{0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}}
-
-// isLegalMove checks if placing a disc at sq is legal for player.
-// Walks each direction through opponent discs; legal if the line is
-// capped by the player's own disc with at least one opponent between.
-func isLegalMove(player, opp uint64, sq int) bool {
-	r, c := sq/8, sq%8
-	for _, d := range dir8 {
-		nr, nc := r+d[0], c+d[1]
-		foundOpp := false
-		for nr >= 0 && nr < 8 && nc >= 0 && nc < 8 {
-			idx := nr*8 + nc
-			if opp&(1<<idx) != 0 {
-				foundOpp = true
-				nr += d[0]
-				nc += d[1]
-				continue
-			}
-			if foundOpp && player&(1<<idx) != 0 {
-				return true
-			}
-			break
-		}
-	}
-	return false
 }
 
 // ApplyMove applies a legal move and returns the new board.
@@ -90,122 +145,51 @@ func (b *Board) ApplyMove(player uint64, sq int) Board {
 	return Board{black: r.opp, white: r.me}
 }
 
-type flipResult struct{ me, opp uint64 }
-
-func applyFlip(me, opp uint64, sq int) flipResult {
-	bit := uint64(1) << sq
-	me |= bit
-	var flipped uint64
-
-	// For each direction, walk from the placed disc through opponent
-	// discs until hitting own disc (capture) or empty/edge (no capture).
-	dirs := []struct{ shift int; mask uint64 }{
-		{1, notH},                  // E
-		{-1, notA},                 // W
-		{8, notRow7},              // S
-		{-8, notRow0},             // N
-		{9, notRow7 & notH},       // SE
-		{-9, notRow0 & notA},      // NW
-		{-7, notRow0 & notH},      // NE
-		{7, notRow7 & notA},       // SW
-	}
-
-	for _, d := range dirs {
-		mask := opp & d.mask
-		if mask == 0 {
-			continue
-		}
-		var cand uint64
-		if d.shift > 0 {
-			cand = (bit << d.shift) & mask
-			for i := 0; i < 7; i++ {
-				cand |= (cand << d.shift) & opp
-			}
-			if (cand << d.shift) & me != 0 {
-				flipped |= cand
-			}
-		} else {
-			sh := -d.shift
-			cand = (bit >> sh) & mask
-			for i := 0; i < 7; i++ {
-				cand |= (cand >> sh) & opp
-			}
-			if (cand >> sh) & me != 0 {
-				flipped |= cand
-			}
-		}
-	}
-	me |= flipped
-	opp &^= flipped
-	return flipResult{me, opp}
-}
-
 // Black returns the black disc bitboard.
 func (b *Board) Black() uint64 { return b.black }
 
 // White returns the white disc bitboard.
 func (b *Board) White() uint64 { return b.white }
 
+// Result returns disc counts and game result string.
+func (b *Board) Result() (int, int, string) {
+	bc, wc := Popcount(b.black), Popcount(b.white)
+	if bc > wc { return bc, wc, "1-0" }
+	if wc > bc { return bc, wc, "0-1" }
+	return bc, wc, "1/2"
+}
+
 // IsOver returns true if neither player has a legal move.
 func (b *Board) IsOver() bool {
 	return b.LegalMoves(b.black) == 0 && b.LegalMoves(b.white) == 0
 }
 
-// Result computes the final game result from the board.
-func (b *Board) Result() (blackCount, whiteCount int, result string) {
-	bc := Popcount(b.black)
-	wc := Popcount(b.white)
-	if bc > wc {
-		return bc, wc, "1-0"
-	}
-	if wc > bc {
-		return bc, wc, "0-1"
-	}
-	return bc, wc, "1/2"
-}
-
 // SqFromString converts an Othello square name (e.g., "F5") to a bit index.
 func SqFromString(s string) int {
-	if len(s) < 2 {
-		return -1
-	}
-	col := s[0]
-	row := s[1]
-	if col >= 'a' && col <= 'h' {
-		col -= 32
-	}
-	if col < 'A' || col > 'H' || row < '1' || row > '8' {
-		return -1
-	}
+	if len(s) < 2 { return -1 }
+	col, row := s[0], s[1]
+	if col >= 'a' && col <= 'h' { col -= 32 }
+	if col < 'A' || col > 'H' || row < '1' || row > '8' { return -1 }
 	return int(col-'A') + int(row-'1')*8
 }
 
 // SqToString converts a bit index to an Othello square name.
 func SqToString(sq int) string {
-	if sq < 0 || sq >= 64 {
-		return "??"
-	}
-	col := byte(sq%8) + 'A'
-	row := byte(sq/8) + '1'
-	return string([]byte{col, row})
+	if sq < 0 || sq >= 64 { return "??" }
+	return string([]byte{byte(sq%8) + 'A', byte(sq/8) + '1'})
 }
 
 func Popcount(x uint64) int {
 	c := 0
-	for x != 0 {
-		x &= x - 1
-		c++
-	}
+	for x != 0 { x &= x - 1; c++ }
 	return c
 }
 
 // ParseColor returns "B", "W", or "" for the given color string.
 func ParseColor(s string) string {
 	switch strings.ToLower(s) {
-	case "b", "black":
-		return "B"
-	case "w", "white":
-		return "W"
+	case "b", "black": return "B"
+	case "w", "white": return "W"
 	}
 	return ""
 }

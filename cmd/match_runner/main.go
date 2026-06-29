@@ -137,11 +137,23 @@ func main() {
 
 func runGame(blackPath, whitePath, opening string, gameTimeSec float64, blackName, whiteName string) gameResult {
 	gr := gameResult{OpeningLine: opening}
-	black, white := startEngine(blackPath), startEngine(whitePath)
+	black, err := startEngine(blackPath)
+	if err != nil {
+		slog.Error("start black engine", "path", blackPath, "err", err)
+		return gr
+	}
+	white, err2 := startEngine(whitePath)
+	if err2 != nil {
+		slog.Error("start white engine", "path", whitePath, "err", err2)
+		black.stop()
+		return gr
+	}
 	defer black.stop(); defer white.stop()
 	for _, e := range []*gtpEngine{black, white} {
 		e.send("boardsize 8"); e.send("clear_board")
-		e.send(fmt.Sprintf("game_time %.1f", gameTimeSec))
+		if resp := e.send(fmt.Sprintf("game_time %.1f", gameTimeSec)); strings.HasPrefix(resp, "?") {
+			slog.Warn("game_time not supported by engine (deprecated GTP extension)", "response", strings.TrimSpace(resp))
+		}
 	}
 	moves := parseMoveList(opening)
 	for i, mv := range moves {
@@ -190,21 +202,37 @@ func runGame(blackPath, whitePath, opening string, gameTimeSec float64, blackNam
 	}
 	if moveNum%2 == 1 { pgnBuf.WriteString("\n") }
 	finalResp := black.send("final_score")
-	finalResp = strings.TrimPrefix(strings.TrimSpace(finalResp), "= ")
-	var finalScore int
-	if strings.HasPrefix(finalResp, "B+") { fmt.Sscanf(finalResp, "B+%d", &finalScore); gr.Result = "1-0" } else if strings.HasPrefix(finalResp, "W+") { fmt.Sscanf(finalResp, "W+%d", &finalScore); gr.Result = "0-1" } else { gr.Result = "1/2" }
-	gr.FinalScore = finalScore
+	finalResp = strings.TrimSpace(finalResp)
+	if strings.HasPrefix(finalResp, "?") {
+		slog.Warn("final_score not supported by engine (deprecated GTP extension)", "response", finalResp)
+		if gr.Result == "" { gr.Result = "1/2" }
+	} else {
+		finalResp = strings.TrimPrefix(finalResp, "= ")
+		var finalScore int
+		if strings.HasPrefix(finalResp, "B+") { fmt.Sscanf(finalResp, "B+%d", &finalScore); gr.Result = "1-0" } else if strings.HasPrefix(finalResp, "W+") { fmt.Sscanf(finalResp, "W+%d", &finalScore); gr.Result = "0-1" } else { gr.Result = "1/2" }
+		gr.FinalScore = finalScore
+	}
 	fmt.Fprintf(&pgnBuf, "{%s} %s\n", finalResp, gr.Result)
 	gr.PGN = pgnBuf.String()
 	return gr
 }
 
-func startEngine(path string) *gtpEngine {
+func startEngine(path string) (*gtpEngine, error) {
 	parts := strings.Fields(path)
 	cmd := exec.Command(parts[0], parts[1:]...)
-	stdin, _ := cmd.StdinPipe(); stdout, _ := cmd.StdoutPipe(); cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil { slog.Error("start engine", "path", path, "err", err) }
-	return &gtpEngine{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start: %w", err)
+	}
+	return &gtpEngine{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}, nil
 }
 
 type gtpEngine struct {
@@ -268,6 +296,9 @@ func submitSpeedStats(url, token, name1, ver1, name2, ver2 string, games []gameR
 
 func hostname() string { h, _ := os.Hostname(); return h }
 
+// handleShortFlags is duplicated across cmd/*/main.go.
+// Canonical source: cmd/coach/main.go
+// TODO: move to internal/cmdutil/
 func handleShortFlags(name string) {
 	for _, a := range os.Args[1:] {
 		if a == "-h" {

@@ -20,6 +20,16 @@ import (
 
 // ── MatchMaker ──────────────────────────────────────────────────────────
 
+// MatchAssignment tracks a match in progress (in-memory only — reset on restart).
+type MatchAssignment struct {
+	ID           int64
+	BlackEngine  string // "name:version"
+	WhiteEngine  string
+	TimeControl  string
+	NumGames     int
+	InProgressAt time.Time
+}
+
 // MatchMaker orchestrates engine pairing, relay-based game execution,
 // and result storage. It owns the WantedList (in-memory engine registry
 // and wanted-pair generation) and a dedicated SQLite writer goroutine.
@@ -33,6 +43,11 @@ type MatchMaker struct {
 	dbWriteMu  sync.Mutex // serializes all DB writes (SQLite single-writer)
 	wakeup     chan struct{}
 	quit       chan struct{}
+
+	// In-memory transient state (reset on arena restart — coaches re-register).
+	assignMu    sync.Mutex
+	assignments map[int64]*MatchAssignment
+	nextAssignID int64
 }
 
 // GameResult carries completed game data for storage.
@@ -44,12 +59,13 @@ type GameResult struct {
 func New(database *db.DB, relay *coach.Relay) *MatchMaker {
 	storeCh := make(chan GameResult, 64)
 	m := &MatchMaker{
-		DB:      database,
-		Relay:   relay,
-		Wanted:  NewWantedList(database, storeCh),
-		storeCh: storeCh,
-		wakeup:  make(chan struct{}, 1),
-		quit:    make(chan struct{}),
+		DB:          database,
+		Relay:       relay,
+		Wanted:      NewWantedList(database, storeCh),
+		storeCh:     storeCh,
+		wakeup:      make(chan struct{}, 1),
+		quit:        make(chan struct{}),
+		assignments: make(map[int64]*MatchAssignment),
 	}
 	// When a coach dials the relay, check if both sides of a pair are ready.
 	relay.OnConnect = func(sessionID string) {
@@ -119,13 +135,9 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 
 		// Store per-move data for game detail charts.
 		for mn, mv := range g.Moves {
-			nps := int64(0)
-			if mv.TimeMs > 0 {
-				nps = int64(float64(mv.Nodes) / (mv.TimeMs / 1000.0))
-			}
-			m.DB.Exec(`INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score, nps)
-				VALUES (?,?,?,?,?,?,?,?,?)`,
-				gameID, mn+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score, nps)
+			m.DB.Exec(`INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score)
+				VALUES (?,?,?,?,?,?,?,?)`,
+				gameID, mn+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score)
 		}
 
 		if g.Result == "1-0" {
@@ -235,29 +247,25 @@ func (m *MatchMaker) reapLoneConnections(timeout time.Duration) {
 			slog.Info("reaping lone black connection", "pair", p.ID)
 			m.Relay.Cleanup(p.SessionID + "-b")
 			p.BlackConnected = false
-			// Decline BOTH sides: the no-show white AND the connected black.
-			// Otherwise the same engine gets re-offered the same pair on every poll → cycle.
-			for coachID, c := range m.Wanted.coaches {
-				if _, ok := c.Engines[p.WhiteEngine]; ok {
-					m.Wanted.declines[declineKey(coachID, p.WhiteEngine)] = now
-				}
-				if _, ok := c.Engines[p.BlackEngine]; ok {
-					m.Wanted.declines[declineKey(coachID, p.BlackEngine)] = now
-				}
+			// Decline BOTH sides using the stored coach IDs so only the
+			// coaches that were actually assigned are penalized.
+			if p.BlackCoachID != "" {
+				m.Wanted.declines[declineKey(p.BlackCoachID, p.BlackEngine)] = now
+			}
+			if p.WhiteCoachID != "" {
+				m.Wanted.declines[declineKey(p.WhiteCoachID, p.WhiteEngine)] = now
 			}
 		}
 		if p.WhiteConnected && !p.BlackConnected && now.Sub(p.WhiteConnectedAt) > timeout {
 			slog.Info("reaping lone white connection", "pair", p.ID)
 			m.Relay.Cleanup(p.SessionID + "-w")
 			p.WhiteConnected = false
-			// Decline BOTH sides: the no-show black AND the connected white.
-			for coachID, c := range m.Wanted.coaches {
-				if _, ok := c.Engines[p.BlackEngine]; ok {
-					m.Wanted.declines[declineKey(coachID, p.BlackEngine)] = now
-				}
-				if _, ok := c.Engines[p.WhiteEngine]; ok {
-					m.Wanted.declines[declineKey(coachID, p.WhiteEngine)] = now
-				}
+			// Decline BOTH sides using the stored coach IDs.
+			if p.BlackCoachID != "" {
+				m.Wanted.declines[declineKey(p.BlackCoachID, p.BlackEngine)] = now
+			}
+			if p.WhiteCoachID != "" {
+				m.Wanted.declines[declineKey(p.WhiteCoachID, p.WhiteEngine)] = now
 			}
 		}
 	}
@@ -285,34 +293,29 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 	}
 
 	var gameTimeSec float64 = 30
-	fmt.Sscanf(p.TimeControl, "%fs", &gameTimeSec)
+	if n, _ := fmt.Sscanf(p.TimeControl, "%fs", &gameTimeSec); n != 1 {
+		slog.Warn("unparseable time control, using default", "time_control", p.TimeControl, "default_s", gameTimeSec)
+	}
 
 	slog.Info("both streams ready, executing match", "pair", p.ID)
 
-	// Resolve engine IDs and create an in-progress row so the web
-	// dashboard shows the match under "In Progress".
+	// Resolve engine IDs for Elo/storage (called on game completion).
 	bParts := splitEngineKey(p.BlackEngine)
 	wParts := splitEngineKey(p.WhiteEngine)
-	m.dbWriteMu.Lock()
-	bID := m.resolveEngine(bParts[0], bParts[1])
-	wID := m.resolveEngine(wParts[0], wParts[1])
 
-	// Look up coach_ais IDs (needed for the legacy match_assignments FK).
-	var bCAID, wCAID int64
-	m.DB.QueryRow(`SELECT ca.id FROM coach_ais ca WHERE ca.engine_name=? AND ca.engine_version=? LIMIT 1`,
-		bParts[0], bParts[1]).Scan(&bCAID)
-	m.DB.QueryRow(`SELECT ca.id FROM coach_ais ca WHERE ca.engine_name=? AND ca.engine_version=? LIMIT 1`,
-		wParts[0], wParts[1]).Scan(&wCAID)
-
-	tc, _ := json.Marshal(map[string]interface{}{"type": "total", "seconds": gameTimeSec})
-	res, err := m.DB.Exec(`INSERT INTO match_assignments (engine1_id, engine2_id, coach1_ai_id, coach2_ai_id, time_control, num_games, status, in_progress_at)
-		VALUES (?,?,?,?,?,2,'in_progress',unixepoch())`, bID, wID, bCAID, wCAID, tc)
-	if err != nil {
-		slog.Warn("match_assignments insert failed", "err", err)
+	// In-memory match assignment (appears under "In Progress" on the dashboard).
+	m.assignMu.Lock()
+	m.nextAssignID++
+	assignID := m.nextAssignID
+	m.assignments[assignID] = &MatchAssignment{
+		ID:           assignID,
+		BlackEngine:  p.BlackEngine,
+		WhiteEngine:  p.WhiteEngine,
+		TimeControl:  p.TimeControl,
+		NumGames:     2,
+		InProgressAt: time.Now(),
 	}
-	var assignID int64
-	if res != nil { assignID, _ = res.LastInsertId() }
-	m.dbWriteMu.Unlock()
+	m.assignMu.Unlock()
 
 	ctx := context.Background()
 	games := playGames(ctx, blackStream, whiteStream, 2, gameTimeSec, int(assignID))
@@ -352,9 +355,9 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 
 	// Mark assignment completed so it disappears from "In Progress".
 	if assignID > 0 {
-		m.dbWriteMu.Lock()
-		m.DB.Exec(`UPDATE match_assignments SET status='completed', completed_at=unixepoch() WHERE id=?`, assignID)
-		m.dbWriteMu.Unlock()
+		m.assignMu.Lock()
+		delete(m.assignments, assignID)
+		m.assignMu.Unlock()
 	}
 
 	// Cleanup relay sessions and error store entries
@@ -414,6 +417,79 @@ func (m *MatchMaker) EngineStatus() []web.EngineStatus {
 	return out
 }
 
+// CoachStatus returns a snapshot of all registered coaches with their declared
+// resources and per-engine instance counts. Used by the web Coaches page.
+func (m *MatchMaker) CoachStatus() []web.CoachStatus {
+	m.Wanted.mu.RLock()
+	defer m.Wanted.mu.RUnlock()
+	var out []web.CoachStatus
+	now := time.Now()
+	for _, c := range m.Wanted.coaches {
+		if now.Sub(c.LastSeen) > 90*time.Second {
+			continue // coach appears offline
+		}
+		cs := web.CoachStatus{
+			ID:         c.ID,
+			SessionID:  c.SessionID,
+			CoresTotal: c.CoresTotal,
+			LastSeen:   c.LastSeen,
+		}
+		for _, e := range c.Engines {
+			cs.CoresUsed += e.Cores * e.InstancesRunning
+			cs.MemUsed += e.MemoryMB * e.InstancesRunning
+		}
+		out = append(out, cs)
+	}
+	return out
+}
+
+// ActiveAssignments returns matches currently in progress. Used by the
+// web Games page "In Progress" section.
+func (m *MatchMaker) ActiveAssignments() []web.AssignmentStatus {
+	m.assignMu.Lock()
+	defer m.assignMu.Unlock()
+	var out []web.AssignmentStatus
+	for _, a := range m.assignments {
+		out = append(out, web.AssignmentStatus{
+			ID:           a.ID,
+			BlackEngine:  a.BlackEngine,
+			WhiteEngine:  a.WhiteEngine,
+			TimeControl:  a.TimeControl,
+			NumGames:     a.NumGames,
+			InProgressAt: a.InProgressAt,
+		})
+	}
+	return out
+}
+
+// OnCoachHeartbeat updates in-memory coach state from a heartbeat.
+// Replaces the old DB-backed coach_ais.instances_running update.
+// Returns true if the session ID changed (coach restarted → pairs need cleanup).
+func (m *MatchMaker) OnCoachHeartbeat(coachID string, sessionID string, aiUpdates map[string]int) bool {
+	m.Wanted.mu.Lock()
+	defer m.Wanted.mu.Unlock()
+	c, ok := m.Wanted.coaches[coachID]
+	if !ok {
+		return false
+	}
+	c.LastSeen = time.Now()
+	sessionChanged := false
+	if sessionID != "" && sessionID != c.SessionID {
+		sessionChanged = true
+		c.SessionID = sessionID
+	}
+	// Zero all first: engines not in the heartbeat have 0 instances.
+	for _, e := range c.Engines {
+		e.InstancesRunning = 0
+	}
+	for key, count := range aiUpdates {
+		if e, ok := c.Engines[key]; ok {
+			e.InstancesRunning = count
+		}
+	}
+	return sessionChanged
+}
+
 var _ = web.EngineStatus{} // compile-time check
 
 func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
@@ -440,8 +516,8 @@ func (m *MatchMaker) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	m.Wanted.RegisterCoach(req.CoachID, req.CoresTotal, req.Engines)
 	slog.Info("coach registered in matchmaker", "coach", req.CoachID, "engines", len(req.Engines))
-		// Immediately rebuild pairs so the coach does not wait 15s for the next Tick.
-		go m.Wanted.Tick()
+	// Immediately rebuild pairs so the coach does not wait 15s for the next Tick.
+	go m.Wanted.Tick()
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
@@ -454,10 +530,16 @@ func (m *MatchMaker) HandlePoll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"coach required"}`, 400)
 		return
 	}
+	if len(coachID) > 128 {
+		http.Error(w, `{"error":"coach ID too long"}`, 400)
+		return
+	}
 	m.Wanted.Heartbeat(coachID, 0, 0)
 	n := 3
 	if ns := r.URL.Query().Get("n"); ns != "" {
-		fmt.Sscanf(ns, "%d", &n)
+		if _, err := fmt.Sscanf(ns, "%d", &n); err != nil {
+			n = 3
+		}
 		if n > 16 { n = 16 }
 	}
 	assignments := m.Wanted.PollAssignments(coachID, n)

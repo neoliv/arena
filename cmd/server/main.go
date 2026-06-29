@@ -146,6 +146,13 @@ func main() {
 	// Matchmaker (in-memory engine registry + pull-based assignment)
 	mm := matchmaker.New(database, relay)
 	mm.ErrorStore = coachErrors
+	// Wire heartbeat → in-memory coach state (replaces old DB coach_ais.instances_running).
+	coachHandler.OnHeartbeat = func(coachID string, sessionID string, aiUpdates map[string]int) bool {
+		return mm.OnCoachHeartbeat(coachID, sessionID, aiUpdates)
+	}
+	if err := matchmaker.InitTrace("/var/log/arena/game_trace.log"); err != nil {
+		slog.Warn("game trace disabled", "err", err)
+	}
 	mux.HandleFunc("GET /api/matchmaker/status", mm.HandleStatus)
 	mux.HandleFunc("POST /api/matchmaker/register", mm.HandleRegister)
 	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)
@@ -157,7 +164,7 @@ func main() {
 
 	sessions := web.NewSessionStore(database)
 	limiter := web.NewRateLimiter()
-	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus, ResourceStore: resourceStore}
+	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus, CoachStatusFunc: mm.CoachStatus, ActiveAssignmentsFunc: mm.ActiveAssignments, ResourceStore: resourceStore}
 	webHandler.RegisterRoutes(mux)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +198,9 @@ func envDefault(key, def string) string {
 	return def
 }
 
+// handleShortFlags is duplicated across cmd/*/main.go.
+// Canonical source: cmd/coach/main.go
+// TODO: move to internal/cmdutil/
 func handleShortFlags(name string) {
 	for _, a := range os.Args[1:] {
 		if a == "-h" {

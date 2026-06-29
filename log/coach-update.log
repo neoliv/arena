@@ -1,27 +1,28 @@
-=== Arena Coach Update === (Sat Jun 27 09:47:22 PM CEST 2026)
+=== Arena Coach Update === (Mon Jun 29 10:13:45 PM CEST 2026)
+0. coach.yaml copied from arena source
 1. Coach binary...
 Already up to date.
    updated (binary changed)
+   Added new entry: neursi.yaml
    Added new entry: edax.yaml
    Added new entry: egaroucid.yaml
    Added new entry: neural-reversi.yaml
-   Added new entry: neursi.yaml
 
 ─── edax ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/edax
-   -> /home/oliv/coach/engines/bdab329b7e4d787a/
+   -> /home/oliv/coach/engines/eace3fa1a915221c/
 
 ─── egaroucid ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid
-   -> /home/oliv/coach/engines/1be1e38824e9b049/
+   -> /home/oliv/coach/engines/f853a369db965a0e/
 
 ─── neural-reversi ───
    /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi
-   -> /home/oliv/coach/engines/a25094222532afd8/
+   -> /home/oliv/coach/engines/86cb3d79284a1aa3/
 
 ─── neursi ───
    /home/oliv/dev/agent/neursi/engine
-   -> /home/oliv/coach/engines/f7d0a0b0612c2f0e/
+   -> /home/oliv/coach/engines/94a803167d328a79/
 
 ─── Reload ───
 Coach binary was updated — restarting service...

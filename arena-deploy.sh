@@ -56,15 +56,10 @@ echo "  logs reset"
 # ── Clear DB ─────────────────────────────────────────────────────────────
 
 if $CLEAR_DB; then
-    echo "--- Clearing DB (keeping tokens + sessions) ---"
-    DB="/opt/arena/arena.db"
-    ssh "${VPS_USER}@${VPS}" "cp '$DB' '$DB.bak-deploy-\$(date +%Y%m%d-%H%M%S)'"
-    for t in bisect_steps bisections coach_ais coaches elo_history engines game_moves games match_assignments matches speed_stats; do
-        count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")
-        ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"DELETE FROM $t\""
-        echo "  cleared $t ($count rows)"
-    done
-    echo "  DB cleared"
+    echo "--- Clearing DB (delegating to arena-clear-db.sh --no-restart) ---"
+    # Single source of truth for which tables to clear and how to preserve
+    # tokens + sessions. Do NOT inline DELETE statements here.
+    bash "$(dirname "$0")/arena-clear-db.sh" "$VPS" --no-restart
 fi
 
 # ── Copy binary ──────────────────────────────────────────────────────────

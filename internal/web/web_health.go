@@ -65,7 +65,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	kv("  database", fmt.Sprintf("%s (%s)", niceSize(dbSize), dbPath), "")
 	kv("  backups", fmt.Sprintf("%s (%d file", niceSize(backupSize), backupCount)+func() string { if backupCount != 1 { return "s)" } else { return ")" } }(), "")
 	kv("Last backup", lastBackup, "")
-	io.WriteString(w, "</table>"+`</div>`+pageFoot)
+	io.WriteString(w, "</table>")
 
 	// ── System ──
 	sysDur, sysStart := sysUptime()
@@ -85,7 +85,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	kv("CPU", fmt.Sprintf("%d%% (%d cores)", sysCPU, runtime.NumCPU()), cpuClass)
 	kv("Memory", fmt.Sprintf("%d%% (%s / %s)", sysMemPct, niceSize(memUsed), niceSize(memTotal)), memClass2)
 	kv("Disk", fmt.Sprintf("%d%% (%s / %s)", diskPct, niceSize(diskUsed), niceSize(diskTotal)), diskClass)
-	io.WriteString(w, "</table>"+`</div>`+pageFoot)
+	io.WriteString(w, "</table>"+pageFoot)
 }
 
 func fileSize(path string) int64 {

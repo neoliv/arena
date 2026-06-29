@@ -24,6 +24,11 @@ type Handler struct {
 	ErrorStore    *CoachErrorStore
 	rateMu        sync.Mutex
 	rateWindows   map[string][]time.Time
+
+	// OnHeartbeat is called on each coach heartbeat to update in-memory state.
+	// Replaces the old DB coach_ais.instances_running update.
+	// Returns true if the session ID changed (coach restarted).
+	OnHeartbeat func(coachID string, sessionID string, aiUpdates map[string]int) (sessionChanged bool)
 }
 
 type registerReq struct {
@@ -137,9 +142,9 @@ func jsonErr(w http.ResponseWriter, msg string, code int) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-// HandleRegister persists coach and engine info to the database.
-// The matchmaker's in-memory registry is populated separately via
-// POST /api/matchmaker/register (called by the coach after this).
+// HandleRegister persists ENGINE info to the database (persistent identity).
+// Coach and assignment state is in-memory only (MM's WantedList), reset on restart.
+// The matchmaker's in-memory registry is populated via POST /api/matchmaker/register.
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAuthOrOpen(r) {
 		jsonErr(w, "unauthorized", http.StatusUnauthorized)
@@ -156,18 +161,6 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	coachID, err := h.DB.UpsertCoach(req.CoachID, req.Version, req.Label, req.Resources.Cores, req.Resources.MemoryMB)
-	if err != nil {
-		slog.Error("register coach", "err", err)
-		jsonErr(w, "db error", http.StatusInternalServerError)
-		return
-	}
-
-	// Coach restarted — cancel all its pending assignments.
-	h.DB.Exec(`UPDATE match_assignments SET status='failed', decline_reason='coach restarted'
-		WHERE status IN ('pending','assigned','accepted','ready','in_progress','retry')
-		AND (coach1_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?) OR coach2_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?))`, coachID, coachID)
-
 	registered := 0
 	for _, ai := range req.AIs {
 		if registered >= 64 {
@@ -176,24 +169,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		if ai.Name == "" || ai.Version == "" {
 			continue
 		}
-		cores := ai.ResourceCores
-		if cores == 0 {
-			cores = 1
-		}
-		mem := ai.ResourceMemoryMB
-		if mem == 0 {
-			mem = 64
-		}
-		maxInst := ai.MaxConcurrency
-		if maxInst == 0 {
-			maxInst = 1
-		}
-		_, err := h.DB.UpsertCoachAI(coachID, ai.Name, ai.Version, ai.Created, ai.ChangelogShort, ai.ChangelogFull, cores, mem, maxInst, ai.RunCmd, ai.BuildCmd, ai.EngineID, ai.EngineManifest)
-		if err != nil {
-			slog.Error("register coach ai", "name", ai.Name, "version", ai.Version, "err", err)
-			continue
-		}
-		_, err = h.DB.Exec(`INSERT INTO engines (name, version, created, changelog_short, changelog_full, engine_id, engine_manifest) VALUES (?, ?, ?, ?, ?, ?, ?)
+		_, err := h.DB.Exec(`INSERT INTO engines (name, version, created, changelog_short, changelog_full, engine_id, engine_manifest) VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(name, version) DO UPDATE SET created=excluded.created, changelog_short=excluded.changelog_short, changelog_full=excluded.changelog_full, engine_id=excluded.engine_id, engine_manifest=excluded.engine_manifest`,
 			ai.Name, ai.Version, ai.Created, ai.ChangelogShort, ai.ChangelogFull, ai.EngineID, ai.EngineManifest)
 		if err != nil {
@@ -204,7 +180,9 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"status": "registered", "ais_registered": registered})
 }
 
-// HandleHeartbeat updates coach liveness and running AI counts in the database.
+// HandleHeartbeat updates coach liveness and running AI counts in memory.
+// The old DB-backed coaches/coach_ais tables are no longer used — everything
+// is in the MM's in-memory WantedList (repopulated on re-registration).
 func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAuthOrOpen(r) {
 		jsonErr(w, "unauthorized", http.StatusUnauthorized)
@@ -221,33 +199,17 @@ func (h *Handler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var coachID int
-	var lastSession string
-	if err := h.DB.QueryRow("SELECT id, COALESCE(session_id,'') FROM coaches WHERE coach_id=?", req.CoachID).Scan(&coachID, &lastSession); err != nil {
-		jsonErr(w, "coach not registered", http.StatusNotFound)
-		return
-	}
-
-	// Coach restarted (new session) — clean all its stale assignments.
-	if req.SessionID != "" && req.SessionID != lastSession {
-		h.DB.Exec(`UPDATE match_assignments SET status='failed', decline_reason='coach restarted'
-			WHERE status IN ('pending','assigned','accepted','ready','in_progress','retry')
-			AND (coach1_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?)
-			  OR coach2_ai_id IN (SELECT id FROM coach_ais WHERE coach_id=?))`,
-			coachID, coachID)
-		h.DB.Exec("UPDATE coaches SET session_id=? WHERE id=?", req.SessionID, coachID)
-	}
-
 	aiUpdates := make(map[string]int)
 	for _, ai := range req.AIsAvailable {
 		key := ai.Name + ":" + ai.Version
 		aiUpdates[key] = ai.CurrentMatches
 	}
-	if err := h.DB.UpdateCoachHeartbeat(coachID, aiUpdates); err != nil {
-		slog.Error("heartbeat", "err", err)
-		jsonErr(w, "db error", http.StatusInternalServerError)
-		return
+
+	// Update in-memory state via the MM callback.
+	if h.OnHeartbeat != nil {
+		h.OnHeartbeat(req.CoachID, req.SessionID, aiUpdates)
 	}
+
 	jsonOK(w, map[string]any{"ok": true, "server_gen": h.ServerGen})
 }
 

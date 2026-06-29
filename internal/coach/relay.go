@@ -30,6 +30,7 @@ type relaySlot struct {
 	ready  chan struct{} // closed when stream is available
 	done   chan struct{} // closed by Cleanup
 	cancel context.CancelFunc
+	in     chan string // writable reference for cleanup on replacement
 }
 
 // NewRelay creates a new relay manager.
@@ -42,6 +43,10 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	sessionID := req.PathValue("session_id")
 	if sessionID == "" {
 		http.Error(w, "session_id required", http.StatusBadRequest)
+		return
+	}
+	if len(sessionID) > 128 {
+		http.Error(w, "session ID too long", http.StatusBadRequest)
 		return
 	}
 
@@ -57,7 +62,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	out := make(chan string, 8)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Reader: WebSocket → in channel
+	// Reader: WebSocket -> in channel
 	go func() {
 		defer close(in)
 		for {
@@ -65,7 +70,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 			if err != nil {
 				return
 			}
-			slog.Info("relay read", "msg", string(msg)[:min(60, len(string(msg)))])
+			slog.Info("relay read", "session", sessionID, "msg", string(msg)[:min(512, len(string(msg)))])
 			select {
 			case in <- string(msg):
 			case <-ctx.Done():
@@ -74,7 +79,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 		}
 	}()
 
-	// Writer: out channel → WebSocket
+	// Writer: out channel -> WebSocket
 	go func() {
 		for {
 			select {
@@ -82,7 +87,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 				if !ok {
 					return
 				}
-				slog.Info("relay write", "cmd", cmd[:min(20, len(cmd))]); if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
+				slog.Info("relay write", "session", sessionID, "cmd", cmd[:min(512, len(cmd))]); if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
 					slog.Warn("relay write error", "err", err)
 					return
 				}
@@ -97,8 +102,18 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if exists {
-		if slot.cancel != nil { slot.cancel() }
+		oldIn := slot.in // save before overwriting
+		if slot.cancel != nil {
+			slot.cancel()
+		}
+		if oldIn != nil {
+			close(oldIn) // signal old reader goroutine to exit
+			for range oldIn { // drain to unblock stuck senders
+			}
+		}
 		slot.stream = stream
+		slot.cancel = cancel
+		slot.in = in
 		if slot.ready != nil {
 			select {
 			case <-slot.ready:
@@ -108,7 +123,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	} else {
-		slot = &relaySlot{stream: stream, ready: make(chan struct{}), done: make(chan struct{}), cancel: cancel}
+		slot = &relaySlot{stream: stream, in: in, ready: make(chan struct{}), done: make(chan struct{}), cancel: cancel}
 		close(slot.ready)
 		r.sessions[sessionID] = slot
 	}

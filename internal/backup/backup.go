@@ -63,6 +63,12 @@ func (m *Manager) doBackup() error {
 	db, err := sql.Open("sqlite", m.dbPath+"?_journal_mode=WAL&_busy_timeout=30000")
 	if err != nil { return err }
 	defer db.Close()
+	// Validate backup path to prevent SQL injection (VACUUM INTO does not support parameters).
+	for _, c := range tmpPath {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '-' || c == '_') {
+			return fmt.Errorf("invalid backup path character: %c", c)
+		}
+	}
 	_, err = db.Exec(fmt.Sprintf("VACUUM INTO '%s'", tmpPath))
 	if err != nil { return fmt.Errorf("vacuum: %w", err) }
 	defer os.Remove(tmpPath)

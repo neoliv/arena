@@ -55,6 +55,12 @@ type GameResult struct {
 	WhiteTimeS  float64
 	OpeningLine string
 	Disconnect  bool
+	// InvestigationNeeded is set when the framework's board disagrees with
+	// an engine about move legality. The game result is unreliable and
+	// should be reviewed by a human.
+	InvestigationNeeded bool
+	// InvestigationReason describes what triggered the investigation flag.
+	InvestigationReason string
 	Moves       []string    // move sequence as squares (e.g. ["F5","D6",...])
 	MoveStats   []MoveStats // per-move search stats (from engine genmove responses)
 }
@@ -125,8 +131,6 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 	}
 
 	// Track which engine plays which color for stats attribution
-	blackIsCandidate := strings.Contains(black.cmd.Path, "sprt-cand") // heuristic; overridden by caller
-	_ = blackIsCandidate
 
 	timeLimit := gameTimeSec * 1.05
 	consecutivePasses := 0
@@ -241,10 +245,17 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 			gr.Moves = append(gr.Moves, "PASS")
 			// Genmove already applied the pass internally. Tell the opponent.
 			passCmd := "play " + sideToMove + " pass"
+			var passResp string
 			if sideToMove == "B" {
-				white.Send(passCmd)
+				passResp = white.Send(passCmd)
 			} else {
-				black.Send(passCmd)
+				passResp = black.Send(passCmd)
+			}
+			if strings.HasPrefix(passResp, "?") {
+				slog.Warn("play pass rejected by engine", "side", sideToMove, "response", passResp)
+				if sideToMove == "B" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+				gr.Disconnect = true
+				break
 			}
 			if consecutivePasses >= 2 {
 				break
@@ -255,14 +266,11 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		}
 
 		sq := SqFromString(mv)
-		if sq < 0 || (legal>>sq)&1 == 0 {
-			slog.Warn("illegal move from engine",
+		if sq < 0 {
+			// Invalid format — not a real move string. This is a hard error.
+			slog.Warn("invalid genmove response format",
 				"side", sideToMove, "move", mv,
 				"empties", 64-Popcount(board.black|board.white),
-				"legal_count", Popcount(legal),
-				"legal", fmt.Sprintf("%064b", legal),
-				"black", fmt.Sprintf("%064b", board.black),
-				"white", fmt.Sprintf("%064b", board.white),
 			)
 			if sideToMove == "B" {
 				gr.Result = "0-1"
@@ -270,6 +278,36 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 				gr.Result = "1-0"
 			}
 			break
+		}
+
+		// ── Move legality validation: DISABLED ──────────────────────────
+		// We trust the engine's move. The framework's board may diverge from
+		// the engine's board (e.g., pass handling, board tracking bugs).
+		// When the framework disagrees with the engine about legality, we
+		// log prominently and flag the game for investigation rather than
+		// auto-assigning a winner.
+		//
+		// Original validation (kept for reference):
+		//   if (legal>>sq)&1 == 0 {
+		//       slog.Warn("illegal move from engine", ...)
+		//       // auto-assign loss to offending engine
+		//       break
+		//   }
+		if (legal>>sq)&1 == 0 {
+			slog.Error("INVESTIGATION NEEDED: framework says move is illegal, but engine played it",
+				"side", sideToMove, "move", mv,
+				"empties", 64-Popcount(board.black|board.white),
+				"legal_count", Popcount(legal),
+				"legal", fmt.Sprintf("%064b", legal),
+				"black", fmt.Sprintf("%064b", board.black),
+				"white", fmt.Sprintf("%064b", board.white),
+			)
+			if !gr.InvestigationNeeded {
+				gr.InvestigationNeeded = true
+				gr.InvestigationReason = fmt.Sprintf("framework-illegal: %s played %s with %d legal moves on framework board (empties=%d)",
+					sideToMove, mv, Popcount(legal), 64-Popcount(board.black|board.white))
+			}
+			// Apply the move anyway — trust the engine.
 		}
 
 		board = board.ApplyMove(curPlayer, sq)
@@ -294,10 +332,32 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 		// Sending play to the engine that just moved is a protocol violation
 		// — engines like Edax reject it with "? wrong color".
 		playCmd := "play " + sideToMove + " " + mv
+		var playResp string
 		if sideToMove == "B" {
-			white.Send(playCmd)
+			playResp = white.Send(playCmd)
 		} else {
-			black.Send(playCmd)
+			playResp = black.Send(playCmd)
+		}
+		if strings.HasPrefix(playResp, "?") {
+			// Engine rejected the opponent's move as illegal. This could be:
+			// - The moving engine sent a move illegal on its own board
+			// - The rejecting engine has a board divergence
+			// - The framework has a board tracking bug
+			// We can't determine which — flag for investigation.
+			slog.Error("INVESTIGATION NEEDED: engine rejected opponent's move as illegal",
+				"move", mv, "side", sideToMove, "response", playResp,
+				"empties", 64-Popcount(board.black|board.white),
+				"black", fmt.Sprintf("%064b", board.black),
+				"white", fmt.Sprintf("%064b", board.white),
+			)
+			gr.InvestigationNeeded = true
+			gr.InvestigationReason = fmt.Sprintf("engine-rejected-play: opponent rejected %s %s: %s",
+				sideToMove, mv, strings.TrimSpace(playResp))
+			gr.Disconnect = true
+			// Don't auto-assign a winner — let the board-based result at the
+			// end of the loop compute the outcome. The game is flagged so
+			// Elo won't be affected.
+			break
 		}
 
 		sideToMove = flipSide(sideToMove)

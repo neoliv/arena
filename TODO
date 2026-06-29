@@ -1,5 +1,13 @@
 ### Prompts
 
+In illegal.txt, I don't see who's sending or receiving the GTP messages. rewrite the illegal.txt to show only something like:
+MM => B  |genmove b|
+B -> MM  |= F5|
+Here show the human readable state of the validation board after it applied the move. (using B and W for the stones colors)
+MM => W  |play b F5|
+W -> MM  |= |
+MM => W  |genmove w|
+and so on
 
 ### Redesign?
 

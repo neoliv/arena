@@ -1,0 +1,75 @@
+======================================================================
+WHITE ENGINE — last 3 board states leading to illegal B2
+======================================================================
+
+--- Event 34 ---
+  GTP >> W: genmove w (legal=8)
+  GTP << W: = F7
+  White board after this:
+    A B C D E F G H
+  1 . . B W . . W . 
+  2 . . W W . W . W 
+  3 B B W B B B B B 
+  4 W B B B B B . B 
+  5 . W W W W W W W 
+  6 . . W B W . . . 
+  7 . . . B W W . . 
+  8 . . . B B B . . 
+  MM board after same move:
+  1 . . B W . . W . 
+  2 . . W W . W . W 
+  3 W W W B B B B B 
+  4 B B B B B B . B 
+  5 . W W W W W W W 
+  6 . . W B W . . . 
+  7 . . . B W W . . 
+  8 . . . B B B . . 
+  ✗ White and MM boards DIFFER:
+      A3: W=B MM=W
+      B3: W=B MM=W
+      A4: W=W MM=B
+
+--- Event 35 ---
+  GTP >> W: play b G6
+  GTP << W: =
+  White board after this:
+    A B C D E F G H
+  1 . . B W . . W . 
+  2 . . W W . W . W 
+  3 B B W B B B B B 
+  4 W B B B B B . B 
+  5 . W W W W B W W 
+  6 . . W B W . B . 
+  7 . . . B W B . . 
+  8 . . . B B B . . 
+  MM board after same move:
+  1 . . B W . . W . 
+  2 . . W W . W . W 
+  3 W W W B B B B B 
+  4 B B B B B B . B 
+  5 . W W W W B W W 
+  6 . . W B W . B . 
+  7 . . . B W B . . 
+  8 . . . B B B . . 
+  ✗ White and MM boards DIFFER:
+      A3: W=B MM=W
+      B3: W=B MM=W
+      A4: W=W MM=B
+
+--- Event 36 ---
+  GTP >> W: genmove w (legal=11)
+  GTP << W: = B2
+  White board after this:
+    A B C D E F G H
+  1 . . B W . . W . 
+  2 . W W W . W . W 
+  3 B W W B B B B B 
+  4 W W B B B B . B 
+  5 . W W W W B W W 
+  6 . . W B W . B . 
+  7 . . . B W B . . 
+  8 . . . B B B . . 
+
+--- FINAL: White genmoves 'B2' (illegal)
+  MM legal: B1 E2 G2 G4 A5 F6 C7 G7 H7 C8 G8
+  B2 is NOT among them — correctly rejected

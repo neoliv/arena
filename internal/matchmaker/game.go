@@ -15,6 +15,8 @@ import (
 	"github.com/neoliv/arena/internal/game"
 )
 
+func InitTrace(path string) error { return nil }
+
 // ── Embedded opening book ──────────────────────────────────────────────
 
 // 48 balanced 8-ply openings extracted from Othello opening theory.

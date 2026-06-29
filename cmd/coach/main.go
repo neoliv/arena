@@ -73,6 +73,7 @@ type runningEngine struct {
 	// "nopartner": watchdog fired — no game activity within budget (infra).
 	// "shutdown": coach stopping or server restart (infra).
 	killReason string
+	killMu     sync.Mutex
 }
 
 // assignment is a single side assignment from the matchmaker.
@@ -108,6 +109,19 @@ func main() {
 		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: logLevel})))
 	}
 	slog.Info("coach starting", "pid", os.Getpid(), "log_dir", logDir)
+
+	// Clean up old engine stderr logs (older than 7 days).
+	engineLogDir := filepath.Join(logDir, "engines")
+	if entries, err := os.ReadDir(engineLogDir); err == nil {
+		cutoff := time.Now().Add(-7 * 24 * time.Hour)
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".err") {
+				if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+					os.Remove(filepath.Join(engineLogDir, e.Name()))
+				}
+			}
+		}
+	}
 
 	if *showVer {
 		fmt.Print(version.PrintVersion("coach"))
@@ -145,8 +159,7 @@ func main() {
 	if cfg.Token == "" {
 		slog.Error("NO TOKEN CONFIGURED — set token in coach.yaml or ARENA_TOKEN env var")
 	} else {
-		obs := cfg.Token[:min(4, len(cfg.Token))] + "..." + cfg.Token[max(0, len(cfg.Token)-4):]
-		slog.Info("using token", "source", tokenSource, "token", obs)
+		slog.Info("using token", "source", tokenSource)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -170,6 +183,10 @@ func main() {
 		cfg.ShareDir = filepath.Join(os.Getenv("HOME"), cfg.ShareDir[2:])
 	}
 	slog.Info("share dir", "share_dir", cfg.ShareDir)
+	if strings.Contains(cfg.ShareDir, " ") {
+		slog.Error("share_dir contains spaces — this will break command-line parsing", "share_dir", cfg.ShareDir)
+		os.Exit(1)
+	}
 
 	var mu sync.Mutex      // protects running map
 	var cfgMu sync.RWMutex // protects cfg.AIs slice
@@ -334,7 +351,7 @@ func main() {
 			if (ai.MaxInstances > 0 && instCount >= ai.MaxInstances) || usedCores+ai.Cores > totalCores(cfg) || usedMem+ai.MemoryMB > totalMem(cfg) {
 				mu.Unlock()
 				reason := ""
-				if instCount >= ai.MaxInstances {
+				if ai.MaxInstances > 0 && instCount >= ai.MaxInstances {
 					reason = fmt.Sprintf("instances at max (%d/%d)", instCount, ai.MaxInstances)
 				} else if usedCores+ai.Cores > totalCores(cfg) {
 					reason = fmt.Sprintf("cores: need %d, have %d/%d used", ai.Cores, usedCores, totalCores(cfg))
@@ -380,7 +397,10 @@ func main() {
 			go func(sid string, engineKey string) {
 				err := re.cmd.Wait()
 				if err != nil {
-					switch re.killReason {
+					re.killMu.Lock()
+					kr := re.killReason
+					re.killMu.Unlock()
+					switch kr {
 					case "timeout":
 						slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sid, "err", err)
 					case "nopartner", "shutdown":
@@ -421,7 +441,9 @@ func main() {
 
 	mu.Lock()
 	for _, re := range running {
+		re.killMu.Lock()
 		re.killReason = "shutdown"
+		re.killMu.Unlock()
 		re.cancel()
 		re.cmd.Process.Kill()
 	}
@@ -748,15 +770,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 	stdin.Write([]byte("name\n"))
 	healthCh := make(chan string, 1)
 	go func() {
-		line := make([]byte, 0, 256)
-		for {
-			var b [1]byte
-			if _, err := stdout.Read(b[:]); err != nil || b[0] == '\n' {
-				break
-			}
-			line = append(line, b[0])
+		scanner := bufio.NewScanner(stdout)
+		if scanner.Scan() {
+			healthCh <- scanner.Text()
+		} else {
+			healthCh <- ""
 		}
-		healthCh <- string(line)
 	}()
 	select {
 	case resp := <-healthCh:
@@ -789,20 +808,53 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 
 	re := &runningEngine{ai: ai, cmd: cmd, cancel: cancel, sessionID: sessionID}
 
-	// GTP-aware timing: track genmove wall-clock time and enforce
-	// the time budget. The matchmaker no longer sends game_time GTP
-	// commands — time enforcement is coach-side.
+	// GTP-aware timing: per-genmove deadline. The MM owns per-game
+	// time enforcement. The coach is the safety backstop — it kills
+	// the engine if a single genmove exceeds budget + margin without
+	// responding (hung engine).
 	var timingMu sync.Mutex
 	var genmoveStart time.Time
-	var totalThinkMs int64
-	budgetMs := int64(gameTimeSec * 1000 * 105 / 100 * 2) // 2 games, 5% margin each
-	engineTimedOut := false
-		gameStarted := false // disarmed by clear_board
+	genmoveDeadline := make(chan struct{}, 1) // closed when deadline expires
+	gameStarted := false                     // disarmed by clear_board
 
 	// gameOver is closed by the WS→stdin goroutine when the MM closes
 	// the relay (normal game end). The stdout goroutine checks this to
 	// distinguish "engine crashed" from "game finished".
 	gameOver := make(chan struct{})
+
+	// Per-genmove deadline goroutine: kills the engine if budget + margin
+	// expires with no response. Reset on each genmove command.
+	go func() {
+		margin := 5 * time.Second
+		if gameTimeSec < 5 {
+			margin = time.Duration(gameTimeSec) * time.Second
+		}
+		budget := time.Duration(gameTimeSec) * time.Second
+		var timer *time.Timer
+		for {
+			select {
+			case <-engCtx.Done():
+				if timer != nil { timer.Stop() }
+				return
+			case <-genmoveDeadline:
+				// New genmove: (re)start the timer.
+				if timer != nil { timer.Stop() }
+				timer = time.AfterFunc(budget+margin, func() {
+					re.killMu.Lock()
+					re.killReason = "timeout"
+					re.killMu.Unlock()
+					slog.Warn("engine HUNG — no response within budget + margin",
+						"session", sessionID, "budget_s", budget.Seconds(), "margin_s", margin.Seconds())
+					reportEngineError(arenaURL, token, sessionID, "timeout")
+					// Inject "= ? timeout" as the genmove response
+					// so the MM sees a proper timeout (not a crash).
+					conn.Write(context.Background(), websocket.MessageText,
+						[]byte("= ? timeout"))
+					cmd.Process.Kill()
+				})
+			}
+		}
+	}()
 
 	// stdout → WS: track genmove response timing and inject
 	// measured wall-clock time into stats lines.
@@ -828,6 +880,10 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 					searchNodes, searchDepth, searchScore = ns.Nodes, ns.Depth, ns.Score
 					adapterTimeMs = ns.TimeMs
 					searchMu.Unlock()
+				} else {
+					searchMu.Lock()
+					searchNodes, searchDepth, searchScore, adapterTimeMs = 0, 0, 0, 0
+					searchMu.Unlock()
 				}
 			}
 
@@ -844,20 +900,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 			timingMu.Lock()
 			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && len(strings.TrimPrefix(line, "= ")) > 0 {
 				lastElapsedMs = time.Since(genmoveStart).Milliseconds()
-				totalThinkMs += lastElapsedMs
 				genmoveStart = time.Time{}
-
-				if totalThinkMs > budgetMs {
-					engineTimedOut = true
-					re.killReason = "timeout"
-					timingMu.Unlock()
-					slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sessionID, "total_ms", totalThinkMs, "budget_ms", budgetMs)
-					reportEngineError(arenaURL, token, sessionID, "timeout")
-					conn.Write(context.Background(), websocket.MessageText, []byte("? timeout"))
-					time.Sleep(50 * time.Millisecond) // let ? timeout propagate before kill closes WS
-					cmd.Process.Kill()
-					return
-				}
 				// Inject timing + search-log data
 				searchMu.Lock()
 				sn, sd, ss, at := searchNodes, searchDepth, searchScore, adapterTimeMs
@@ -901,9 +944,9 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 		case <-gameOver:
 			// Normal end — MM finished the game.
 		default:
-			timingMu.Lock()
+			re.killMu.Lock()
 			kr := re.killReason
-			timingMu.Unlock()
+			re.killMu.Unlock()
 			if kr == "" {
 				slog.Warn("engine exited unexpectedly (crash)", "session", sessionID)
 				reportEngineError(arenaURL, token, sessionID, "crash")
@@ -932,8 +975,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 				timingMu.Lock()
 				genmoveStart = time.Now()
 				timingMu.Unlock()
+				// Signal the deadline goroutine to (re)start the timer.
+				select { case genmoveDeadline <- struct{}{}: default: }
 			}
-			io.WriteString(stdin, cmdStr+"\n")
+			if _, err := io.WriteString(stdin, cmdStr+"\n"); err != nil {
+				break
+			}
 		}
 	}()
 
@@ -953,13 +1000,17 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 			case <-timer.C:
 			}
 			timingMu.Lock()
-			timedOut := engineTimedOut
 			started := gameStarted
-			if !timedOut && !started {
-				re.killReason = "nopartner"
-			}
 			timingMu.Unlock()
-			if re.killReason == "nopartner" {
+			if !started {
+				re.killMu.Lock()
+				re.killReason = "nopartner"
+				re.killMu.Unlock()
+			}
+			re.killMu.Lock()
+			kr := re.killReason
+			re.killMu.Unlock()
+			if kr == "nopartner" {
 				slog.Warn("engine INFRASTRUCTURE KILL (no partner found)", "session", sessionID, "seconds", wdSec)
 				cmd.Process.Kill()
 			}
@@ -1002,12 +1053,43 @@ func totalCores(cfg config) int {
 	return 1
 }
 
+// O7: mtime-based cache for computeEngineIdentity: avoids re-hashing
+// large binary/data files when nothing has changed on disk.
+var (
+	identityCacheMu sync.Mutex
+	identityCache   = make(map[string]struct {
+		engineID string
+		manifest string
+		mtimers  map[string]time.Time
+	})
+)
+
 func computeEngineIdentity(ai aiConfig) (string, string) {
 	parts := strings.Fields(ai.RunCmd)
 	if len(parts) == 0 {
 		return "", ""
 	}
 	binPath := parts[0]
+
+	// Check mtime-based cache: if the binary path is known and all
+	// previously tracked file mtimes match, return cached identity.
+	identityCacheMu.Lock()
+	if cached, ok := identityCache[binPath]; ok {
+		match := true
+		for path, mtime := range cached.mtimers {
+			info, err := os.Stat(path)
+			if err != nil || !info.ModTime().Equal(mtime) {
+				match = false
+				break
+			}
+		}
+		if match {
+			identityCacheMu.Unlock()
+			return cached.engineID, cached.manifest
+		}
+	}
+	identityCacheMu.Unlock()
+
 	var manifest strings.Builder
 	fmt.Fprintf(&manifest, "Engine: %s %s\n", ai.Name, ai.Version)
 	if ai.Created != "" {
@@ -1020,10 +1102,12 @@ func computeEngineIdentity(ai aiConfig) (string, string) {
 	fmt.Fprintf(&manifest, "Resources: %d core(s), %d MB\n\n", ai.Cores, ai.MemoryMB)
 
 	hasher := sha256.New()
+	mtimers := make(map[string]time.Time)
 	if data, err := os.ReadFile(binPath); err == nil {
 		info, _ := os.Stat(binPath)
 		h := sha256.Sum256(data)
 		hasher.Write(h[:])
+		mtimers[binPath] = info.ModTime()
 		fmt.Fprintf(&manifest, "Binary: %s\n  Size: %s\n  Modified: %s\n  SHA256: %s\n\n",
 			binPath, niceSize(info.Size()), info.ModTime().Format("2006-01-02 15:04"), hex.EncodeToString(h[:])[:16])
 	} else {
@@ -1056,6 +1140,7 @@ func computeEngineIdentity(ai aiConfig) (string, string) {
 				info, _ := os.Stat(path)
 				h := sha256.Sum256(data)
 				hasher.Write(h[:])
+				mtimers[path] = info.ModTime()
 				fmt.Fprintf(&manifest, "Data: %s\n  Size: %s\n  Modified: %s\n  SHA256: %s\n\n",
 					path, niceSize(info.Size()), info.ModTime().Format("2006-01-02 15:04"), hex.EncodeToString(h[:])[:16])
 			}
@@ -1064,6 +1149,20 @@ func computeEngineIdentity(ai aiConfig) (string, string) {
 
 	engineID := hex.EncodeToString(hasher.Sum(nil))[:16]
 	manifest.WriteString(fmt.Sprintf("Engine ID: %s\n", engineID))
+
+	// Cache the result before returning.
+	identityCacheMu.Lock()
+	identityCache[binPath] = struct {
+		engineID string
+		manifest string
+		mtimers  map[string]time.Time
+	}{
+		engineID: engineID,
+		manifest: manifest.String(),
+		mtimers:  mtimers,
+	}
+	identityCacheMu.Unlock()
+
 	return engineID, manifest.String()
 }
 
@@ -1347,13 +1446,17 @@ func killAllRunning(mu *sync.Mutex, running map[string]*runningEngine) {
 	defer mu.Unlock()
 	n := len(running)
 	for sid, re := range running {
+		re.killMu.Lock()
 		re.killReason = "shutdown"
+		re.killMu.Unlock()
 		re.cmd.Process.Kill()
 		delete(running, sid)
 	}
 	slog.Info("killed orphaned engines after server restart", "count", n)
 }
 
+// handleShortFlags is the canonical source; duplicated across cmd/*/main.go
+// TODO: move to internal/cmdutil/
 func handleShortFlags(name string) {
 	for _, a := range os.Args[1:] {
 		if a == "-h" {

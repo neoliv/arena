@@ -3,6 +3,100 @@ rm -rf coach-engine
 # Apply arena-stats patch (JSON stats + depth + GTP default + raw weight loader)
 # Build CLI crate (cd to source dir first)
 cd /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }
+warning: unexpected `cfg` condition name: `nightly`
+ --> crates/reversi-core/src/lib.rs:3:13
+  |
+3 | #![cfg_attr(nightly, feature(hint_prefetch))]
+  |             ^^^^^^^
+  |
+  = help: expected names are: `docsrs`, `feature`, and `test` and 32 more
+  = help: consider using a Cargo feature instead
+  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+           [lints.rust]
+           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition name: `nightly`
+ --> crates/reversi-core/src/eval/eval_cache.rs:3:7
+  |
+3 | #[cfg(nightly)]
+  |       ^^^^^^^
+  |
+  = help: consider using a Cargo feature instead
+  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+           [lints.rust]
+           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+  --> crates/reversi-core/src/eval/eval_cache.rs:76:15
+   |
+76 |         #[cfg(nightly)]
+   |               ^^^^^^^
+   |
+   = help: consider using a Cargo feature instead
+   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+  --> crates/reversi-core/src/eval/eval_cache.rs:78:19
+   |
+78 |         #[cfg(not(nightly))]
+   |                   ^^^^^^^
+   |
+   = help: consider using a Cargo feature instead
+   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+  --> crates/reversi-core/src/transposition_table.rs:17:7
+   |
+17 | #[cfg(nightly)]
+   |       ^^^^^^^
+   |
+   = help: consider using a Cargo feature instead
+   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> crates/reversi-core/src/transposition_table.rs:649:15
+    |
+649 |         #[cfg(nightly)]
+    |               ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> crates/reversi-core/src/transposition_table.rs:651:19
+    |
+651 |         #[cfg(not(nightly))]
+    |                   ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `reversi-core` (lib) generated 7 warnings
 warning: unused variable: `mode`
    --> crates/cli/src/gtp.rs:631:13
     |
@@ -124,7 +218,7 @@ warning: multiple associated items are never used
 234 |     pub fn new(
     |            ^^^
 ...
-275 |     pub fn run(mut self, mut terminal: DefaultTerminal) -> std::io::Result<()> {
+275 |     pub fn run(mut self, mut terminal: DefaultTerminal) -> std::io::Res...
     |            ^^^
 ...
 321 |     fn handle_event(&mut self, event: Event) {
@@ -208,7 +302,7 @@ warning: struct `BoardArea` is never constructed
 warning: function `poll_event` is never used
   --> crates/cli/src/tui/event.rs:88:8
    |
-88 | pub fn poll_event(timeout: Duration, text_input: bool) -> std::io::Result<Option<Event>> {
+88 | pub fn poll_event(timeout: Duration, text_input: bool) -> std::io::Resul...
    |        ^^^^^^^^^^
 
 warning: function `map_key_event` is never used

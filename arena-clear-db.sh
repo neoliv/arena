@@ -1,20 +1,24 @@
 #!/bin/bash
 # arena-clear-db.sh — Clear all game/match/engine data from the arena DB.
 # Keeps api_tokens and web_sessions intact.
-# Usage: ./arena-clear-db.sh [vps-host]
+# Usage: ./arena-clear-db.sh [vps-host] [--no-restart]
 set -euo pipefail
 
 VPS="${1:-arena.arsac.org}"
 VPS_USER="${VPS_USER:-root}"
 DB="/opt/arena/arena.db"
+NO_RESTART=false
+[[ "${2:-}" == "--no-restart" ]] && NO_RESTART=true
 
 echo "=== Arena Clear DB ==="
 echo "Target: ${VPS_USER}@${VPS}"
 echo ""
 
 # Stop the server so no writes happen during cleanup
-echo "--- Stopping arena ---"
-ssh "${VPS_USER}@${VPS}" "systemctl stop arena"
+if ! $NO_RESTART; then
+    echo "--- Stopping arena ---"
+    ssh "${VPS_USER}@${VPS}" "systemctl stop arena"
+fi
 
 # Backup
 echo "--- Backing up DB ---"
@@ -45,16 +49,20 @@ ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' 'VACUUM'"
 AFTER=$(ssh "${VPS_USER}@${VPS}" "stat -c%s '$DB'")
 echo "  DB: $(numfmt --to=iec $BEFORE) → $(numfmt --to=iec $AFTER)"
 
-# Start the server
-echo "--- Starting arena ---"
-ssh "${VPS_USER}@${VPS}" "systemctl start arena"
-sleep 2
-HTTP_CODE=$(ssh "${VPS_USER}@${VPS}" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8500/" 2>/dev/null || echo "000")
-if [ "$HTTP_CODE" != "000" ]; then
-    echo "✓ Server healthy (HTTP $HTTP_CODE)"
+# Start the server (skip if called from arena-deploy.sh which handles its own restart)
+if $NO_RESTART; then
+    echo "--- Skipping restart (called with --no-restart) ---"
 else
-    echo "✗ Health check failed"
-    exit 1
+    echo "--- Starting arena ---"
+    ssh "${VPS_USER}@${VPS}" "systemctl start arena"
+    sleep 2
+    HTTP_CODE=$(ssh "${VPS_USER}@${VPS}" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8500/" 2>/dev/null || echo "000")
+    if [ "$HTTP_CODE" != "000" ]; then
+        echo "✓ Server healthy (HTTP $HTTP_CODE)"
+    else
+        echo "✗ Health check failed"
+        exit 1
+    fi
 fi
 
 echo ""

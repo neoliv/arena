@@ -8,38 +8,44 @@ warning: unused imports: `EC_CACHE_MASK`, `SCORE_MAX`, and `SCORE_MIN`
   |
   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
+warning: unused import: `std::sync::atomic::AtomicBool`
+ --> src/endgame/tests.rs:5:5
+  |
+5 | use std::sync::atomic::AtomicBool;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 warning: unused variable: `offset`
-   --> src/board.rs:494:13
+   --> src/board.rs:518:13
     |
-494 |         let offset = DIR_OFFSETS[dir];
+518 |         let offset = DIR_OFFSETS[dir];
     |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_offset`
     |
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: unused variable: `n_empties`
-   --> src/endgame/solve.rs:259:9
+   --> src/endgame/solve.rs:261:9
     |
-259 |     let n_empties = empties as usize;
+261 |     let n_empties = empties as usize;
     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_empties`
 
 warning: unused variable: `beta_orig`
-   --> src/endgame/solve.rs:279:9
+   --> src/endgame/solve.rs:285:9
     |
-279 |     let beta_orig = alpha + 1; // save NWS window before shadowing
+285 |     let beta_orig = alpha + 1; // save NWS window before shadowing
     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_beta_orig`
 
 warning: variable `skipped_count` is assigned to, but never used
-   --> src/endgame/tests.rs:247:9
+   --> src/endgame/tests.rs:248:9
     |
-247 |     let mut skipped_count = 0;
+248 |     let mut skipped_count = 0;
     |         ^^^^^^^^^^^^^^^^^
     |
     = note: consider using `_skipped_count` instead
 
 warning: value assigned to `skipped_count` is never read
-   --> src/endgame/tests.rs:252:13
+   --> src/endgame/tests.rs:253:13
     |
-252 |             skipped_count += 1;
+253 |             skipped_count += 1;
     |             ^^^^^^^^^^^^^^^^^^
     |
     = help: maybe it is overwritten before being read?
@@ -65,7 +71,7 @@ warning: function `benchmark_access` is never used
 30 | fn benchmark_access(legacy: &[i16], mmap: &[i16]) {
    |    ^^^^^^^^^^^^^^^^
 
-warning: `neursi` (lib) generated 9 warnings (run `cargo fix --lib -p neursi` to apply 4 suggestions)
+warning: `neursi` (lib) generated 10 warnings (run `cargo fix --lib -p neursi` to apply 5 suggestions)
 warning: unused import: `neursi::board::*`
   --> src/bin/es_calibrate.rs:14:5
    |
@@ -75,5 +81,5 @@ warning: unused import: `neursi::board::*`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 3.84s
+    Finished `release` profile [optimized] target(s) in 3.98s
 coach-engine/ ready: 4 files
