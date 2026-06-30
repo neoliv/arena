@@ -330,7 +330,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				lx := 34 + totalPlies*14 + 6
 				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, lx, topPad, lx, chartH+topPad)
 				midY := chartH/2 + topPad
-				fmt.Fprintf(w, `<text x="%d" y="%d" text-anchor="start" fill="#6a6" font-size="10" font-weight="600">%d/60</text>`, lx+4, midY+4, totalPlies)
+				plyLabel := fmt.Sprintf("%d/60", totalPlies)
+				if totalPlies == 60 { plyLabel = "60" }
+				fmt.Fprintf(w, `<text x="%d" y="%d" text-anchor="start" fill="#6a6" font-size="10" font-weight="600">%s</text>`, lx+4, midY+4, plyLabel)
 				// Ply 60 marker — max board capacity
 				px60 := 34 + 60*14 + 6
 				if px60 > lx {
