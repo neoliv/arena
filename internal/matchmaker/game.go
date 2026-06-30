@@ -93,7 +93,7 @@ func parseStats(lines []string, fallbackMs float64) (nodes int64, depth int, sco
 	for _, s := range lines {
 		if strings.HasPrefix(s, "# time_ms ") {
 			if fields := strings.Fields(s); len(fields) >= 2 { fmt.Sscanf(fields[1], "%f", &coachMs) }
-			continue
+			// Don't continue — the JSON stats may be in the same line.
 		}
 		if idx := strings.Index(s, "{"); idx >= 0 {
 			var ns struct { Nodes int64 `json:"nodes"`; Depth int `json:"depth"`; Score int `json:"score"` }
