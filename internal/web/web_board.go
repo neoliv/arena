@@ -114,15 +114,16 @@ const boardInteractionJS = `<script>
   // Mouseleave from viewer restores default
   viewer&&viewer.addEventListener('mouseleave',function(){if(!locked)show(defIdx);});
 
-  // Arrow keys when board container is focused
-  cont&&cont.addEventListener('keydown',function(e){
-    if(e.key==='ArrowLeft'){e.preventDefault();show(curIdx-1);}
-    else if(e.key==='ArrowRight'){e.preventDefault();show(curIdx+1);}
-  });
+  // Arrow buttons
+  var btnPrev=document.getElementById('btn-prev');
+  var btnNext=document.getElementById('btn-next');
+  btnPrev&&btnPrev.addEventListener('click',function(e){e.stopPropagation();locked=true;show(curIdx-1);});
+  btnNext&&btnNext.addEventListener('click',function(e){e.stopPropagation();locked=true;show(curIdx+1);});
 
-  // Click on board itself focuses it for arrow keys
-  cont&&cont.addEventListener('click',function(e){
-    if(!e.target.closest('[data-board-idx]'))cont.focus();
+  // Arrow keys
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowLeft'){e.preventDefault();locked=true;show(curIdx-1);}
+    else if(e.key==='ArrowRight'){e.preventDefault();locked=true;show(curIdx+1);}
   });
 })();
 </script>`

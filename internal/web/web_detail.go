@@ -329,7 +329,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				}
 				lx := 34 + totalPlies*14 + 6
 				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, lx, topPad, lx, chartH+topPad)
-				fmt.Fprintf(w, `<text x="%d" y="%d" text-anchor="middle" fill="#6a6" font-size="10">end %dpl</text>`, lx, chartH+topPad+14, totalPlies)
+				midY := chartH/2 + topPad
+				fmt.Fprintf(w, `<text x="%d" y="%d" text-anchor="start" fill="#6a6" font-size="10" font-weight="600">%dpl</text>`, lx+4, midY+4, totalPlies)
+				// Ply 60 marker — max board capacity
+				px60 := 34 + 60*14 + 6
+				if px60 > lx {
+					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#555" stroke-width="0.5" stroke-dasharray="2,6"/>`, px60, topPad, px60, chartH+topPad)
+				}
 				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">%s</text>`, chartH+68, yLabel)
 				for i, m := range moves {
 					var val float64
@@ -558,13 +564,17 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			if len(boardStates) > 0 {
 				lastIdx := len(boardStates) - 1
 				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-bottom:1.5em">`, lastIdx)
-				io.WriteString(w, `<div style="display:flex;align-items:center;justify-content:center;gap:16px">`)
-				io.WriteString(w, `<div id="board-container" tabindex="0" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px;outline:none">`)
+				io.WriteString(w, `<div style="display:flex;align-items:center;justify-content:center;gap:12px">`)
+				io.WriteString(w, `<div id="board-container" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px">`)
 				io.WriteString(w, renderBoardSVG(boardStates[lastIdx].board, boardStates[lastIdx].lastSq))
 				io.WriteString(w, `</div>`)
-				fmt.Fprintf(w, `<div id="ply-counter" style="font-size:2.5em;font-weight:700;color:var(--fg);min-width:1.5em;text-align:center">%d</div>`, len(boardStates))
+				io.WriteString(w, `<div style="display:flex;flex-direction:column;align-items:center;gap:4px">`)
+				fmt.Fprintf(w, `<div id="ply-counter" style="font-size:2.5em;font-weight:700;color:var(--fg);line-height:1">%d</div>`, len(boardStates))
+				io.WriteString(w, `<button id="btn-prev" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Previous move">◀</button>`)
+				io.WriteString(w, `<button id="btn-next" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Next move">▶</button>`)
 				io.WriteString(w, `</div>`)
-				io.WriteString(w, `<div id="board-label" style="color:var(--muted);margin-top:.3em;font-size:.9em">←→ keys when board focused · click bar/row to jump</div>`)
+				io.WriteString(w, `</div>`)
+				io.WriteString(w, `<div id="board-label" style="color:var(--muted);margin-top:.3em;font-size:.9em">click bar or row to jump · ◀▶ to navigate</div>`)
 				// Hidden board data for hover interaction
 				io.WriteString(w, `<div id="board-data" style="display:none">`)
 				for idx, bs := range boardStates {
