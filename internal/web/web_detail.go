@@ -240,7 +240,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			chartH := 320
 			topPad := 30
 			totalPlies := openingPlies + len(moves)
-			chartW := fmt.Sprintf("%d", max(600, totalPlies*14+50))
+			chartW := fmt.Sprintf("%d", max(600, totalPlies*14+120))
 			if tab == "" {
 				tab = "time"
 			}
