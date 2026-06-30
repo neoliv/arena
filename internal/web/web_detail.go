@@ -135,7 +135,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		if bTimedOut { errLabel = "black timeout"; errColor = "#22d3ee" }
 		if wTimedOut { errLabel = "white timeout"; errColor = "#d4c4a8" }
 		if errLabel != "" {
-			statusBadge = fmt.Sprintf(` <span style="color:%s;font-weight:900;font-size:.7em">[%s]</span>`, errColor, errLabel)
+			statusBadge = fmt.Sprintf(` <span style="color:%s;font-weight:900;font-size:2em">[%s]</span>`, errColor, errLabel)
 		}
 	}
 	bNameEsc := htmlEscape(bName)
