@@ -65,7 +65,7 @@ if [ ! -d "$BUILDS_DIR" ]; then
     if [ -d "$SCRIPT_DIR/builds.d" ]; then
         cp "$SCRIPT_DIR/builds.d"/*.yaml "$BUILDS_DIR/" 2>/dev/null || true
     fi
-    ADAPTERS_DIR="$HOME/dev/agent/othello-refs/coach-adapters/builds.d"
+    ADAPTERS_DIR="$SCRIPT_DIR/coach-adapters/builds.d"
     if [ -d "$ADAPTERS_DIR" ]; then
         cp "$ADAPTERS_DIR"/*.yaml "$BUILDS_DIR/" 2>/dev/null || true
         echo "   Included coach-adapters entries"
@@ -81,8 +81,9 @@ fi
 
 cd "$SCRIPT_DIR"
 
-for src_dir in "$SCRIPT_DIR/builds.d" "$HOME/dev/agent/othello-refs/coach-adapters/builds.d"; do
+for src_dir in "$SCRIPT_DIR/builds.d" "$SCRIPT_DIR/coach-adapters/builds.d"; do
     if [ -d "$src_dir" ]; then
+        echo "   Scanning: $src_dir"
         for f in "$src_dir"/*.yaml; do
             [ -f "$f" ] || continue
             dst="$BUILDS_DIR/$(basename "$f")"
