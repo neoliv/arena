@@ -1,124 +1,137 @@
-# MM Game Loop — Pass & Play Sync Logic
+# MM & Adapter GTP Logic Reference
 
-## Current code (game.go playOneGame)
+## MM Game Loop (game.go playOneGame)
 
-### Pass handling (lines 205-217)
-
-```
-if genmove_response == "PASS":
-    if legal_moves != 0:
-        → ErrIllegalPass, break           // engine passed but had legal moves
-
-    opp = other_engine
-    tracedSend(opp, "play <side> pass")   // ← TELL OPPONENT ABOUT PASS
-                                           // ❌ RESPONSE NOT CHECKED
-
-    pass_counter++
-    if pass_counter == 2: break            // double pass → game over
-
-    side = toggle
-    curPlayer = toggle
-    continue                                // next iteration
-```
-
-### Normal move play sync (lines 240-241)
+### genmove response handling
 
 ```
-// After framework applies move:
-board = board.ApplyMove(curPlayer, sq)
-...
-opp = other_engine
-tracedSend(opp, "play <side> <move>")     // ← TELL OPPONENT ABOUT MOVE
-                                           // ❌ RESPONSE NOT CHECKED
-
-side = toggle
-curPlayer = toggle
+resp = genmove(side)
+if resp starts with "?":
+    if contains "timeout" → ErrTimeout
+    elif "RESIGN" → ErrResign (from engine)
+    else → ErrResign (e.g. "? wrong color")
+if move == "PASS":
+    if legal_moves != 0 → ErrIllegalPass
+    // No play command sent — pass doesn't change board.
+    pass_counter++; if 2 → game over
+    toggle side, continue
+// Normal move:
+sq = parse(move)
+if sq illegal on framework board → ErrIllegalMove
+board.ApplyMove(sq)
+if board.IsOver() → break (natural end)
+// Tell opponent about the move:
+resp = send(opponent, "play <side> <move>")
+if resp starts with "?" → ErrInvalidResponse (opponent malfunction)
+toggle side
 ```
 
-## The Bug
+### Key MM rules
 
-Both `tracedSend` calls for play commands are **fire-and-forget** — the
-response is read and logged, but the return values are discarded.
+1. Framework board is AUTHORITATIVE. No "trust the engine."
+2. Play response IS checked (was fire-and-forget, fixed 2026-06-30).
+3. No `play <side> pass` sent — pass doesn't change board, opponent
+   infers from next genmove.
+4. Error codes: 0=None 1=illegal_move 2=timeout 3=crash 4=resign
+   5=invalid_response 6=illegal_pass 7=opening_rejected
 
-If the opponent engine rejects the play command (returns `? ...`), the MM:
-1. Ignores the rejection
-2. Toggles sides and continues
-3. The opponent engine did NOT apply the move/pass — its board diverged
-4. On the next genmove to that engine, the engine sees wrong side_to_move
-5. Engine responds `? wrong color, expected <color>` → ErrResign
+---
 
-### Why it happens late in game
+## Adapter Reference
 
-Early moves are standard openings — both engines agree on the board state.
-The first divergence typically happens when one engine processes a play
-command differently (e.g., passes differently, or interprets a borderline
-position differently). Once divergence starts, EVERY subsequent play to
-that engine is rejected, and eventually a genmove hits the wrong color.
+Each adapter handles four GTP commands: play, genmove (normal), genmove (pass),
+and the internal state transition after each.
 
-### Which engines are affected
+### Invariants every adapter MUST follow
 
-neur (Neural Reversi 6.1.0) validates color on BOTH play AND genmove
-(via validate_color in gtp.rs:784-803). Edax adapter was already fixed
-to strip color validation. neursi was also fixed.
+1. **play <color> <move>**: Apply the move for `<color>`. Do NOT validate
+   color against internal side_to_move — the engine receives its own moves
+   via genmove, not play. Play is always the opponent's move.
 
-When neur rejects a play with `? wrong color`:
-- The MM ignores it (fire-and-forget tracedSend)
-- neur's board misses a move → side_to_move stays on the wrong color
-- Next genmove: neur says `? wrong color, expected <color>`
-- MM: `strings.HasPrefix(resp, "?")` → ErrResign
+2. **play: after applying**: Just flip to the next player. Do NOT auto-pass
+   for the opponent. The MM will send genmove to the opponent, who will
+   pass if needed.
 
-## The Fix
+3. **genmove pass**: When engine has no legal moves, return PASS AND flip
+   side_to_move (call make_pass / play_move(PASS)). Without the flip,
+   the engine stays on a player who can't move, causing divergence.
 
-Two changes:
+4. **genmove normal move**: Play the move, flip to opponent. Then check:
+   can the opponent move? If not, auto-pass for them (flip back to self).
+   This keeps side_to_move in sync — the MM will send genmove to the
+   opponent, who will pass, then back to us. We're already on our turn.
 
-1. **Remove `play <side> pass` to opponent.** A pass does not change the board
-   — the opponent doesn't need to be told. It infers the turn change from the
-   next `genmove` it receives. This eliminates the pass-rejection class of
-   errors entirely.
+---
 
-2. **Check normal move play responses.** For non-pass moves, the opponent
-   MUST accept the play command (the board changes). If rejected with `?`,
-   the game stops with `ErrInvalidResponse` — the opponent engine has
-   diverged from the framework board and the game cannot continue.
-award the game to the moving player.
+### Edax (adapter.c)
 
-### Corrected pass handling (simplified)
+| Operation | Implementation | OK? |
+|-----------|---------------|-----|
+| play color check | `if expected != edax_play->player` → auto-pass if must_pass, else reject | OK² |
+| play apply | `play_user_move(edax_play, cmd+7)` → applies for current player | OK |
+| play after apply | Player flipped by play_update | OK |
+| genmove pass | `play_must_pass()` → `play_move(PASS)` → `gtp_reply("PASS")` | ✅ fixed |
+| genmove move | `play_go()` → `play_move(PASS)` if search returned pass → check opponent must_pass → auto-pass | ✅ fixed |
 
-```
-if genmove_response == "PASS":
-    if legal_moves != 0:
-        → ErrIllegalPass, break
+² The color check on play can still cause auto-pass when opponent's board
+  diverges, but the MM now checks play responses (ErrInvalidResponse).
 
-    // No play command sent — opponent infers pass from next genmove.
-    pass_counter++
-    if pass_counter == 2: break
+### neursi (gtp.rs)
 
-    side = toggle
-    curPlayer = toggle
-    continue
-```
+| Operation | Implementation | OK? |
+|-----------|---------------|-----|
+| play color check | None — GTP spec: "consecutive moves of same color are not illegal" | ✅ |
+| play apply | `compute_flip(player, opp, sq)` + manual bitboard update | ✅ |
+| play after apply | `side_to_move = side_to_move.opp()` — no auto-pass | ✅ |
+| genmove pass | `generate_legal() == 0` → `side_to_move = color.opp()` → return PASS | ✅ |
+| genmove move | Apply move → `side_to_move = color.opp()` → check opponent legal → auto-pass | ✅ fixed |
 
-### Corrected normal move play sync
+### neur / Neural Reversi (cli/src/gtp.rs + reversi-core/src/game_state.rs)
 
-```
-board = board.ApplyMove(curPlayer, sq)
+| Operation | Implementation | OK? |
+|-----------|---------------|-----|
+| play color check | `validate_color(color)` — rejects if mismatch | ⚠️ can reject |
+| play apply | `game.make_move(sq)` → applies move | OK |
+| play after apply | `make_move` flips side_to_move. Auto-pass REMOVED from make_move (was causing divergence). | ✅ fixed |
+| genmove pass | `!has_legal_moves()` → `make_pass()` → return PASS | ✅ |
+| genmove move | `game.make_move(sq)` → check opponent `!has_legal_moves()` → `make_pass()` | ✅ fixed |
 
-opp = other_engine
-resp, _, err = tracedSend(opp, "play <side> <move>")
-if err != nil:
-    → ErrCrash, break
+Key fix: Auto-pass for opponent moved from `game_state.make_move()` (shared
+by both play and genmove) to `handle_genmove()` only. This prevents the
+play handler from auto-passing, which was putting the engine one move ahead
+of the MM and causing `? wrong color` on the next genmove.
 
-if strings.HasPrefix(resp, "?"):
-    slog.Error("opponent rejected play", "resp", resp)
-    → ErrInvalidResponse, break             // opponent malfunction
+### Egaroucid (console/gtp_command.hpp)
 
-side = toggle
-curPlayer = toggle
-```
+| Operation | Implementation | OK? |
+|-----------|---------------|-----|
+| play color check | `if player != board->player` → auto-pass | ⚠️ same as Edax |
+| play apply | `move_board(&flip)` → `player ^= 1` | OK |
+| play after apply | No auto-pass | ✅ |
+| genmove pass | `get_legal() == 0` → `board.pass()` + `player ^= 1` → return PASS | ✅ fixed |
+| genmove move | `move_board()` → `player ^= 1` → check opponent `get_legal() == 0` → auto-pass | ✅ fixed |
 
-### Scoring
+### Darwersi (Arena/darwersi-gtp.c)
 
-When the opponent rejects a play, the moving player wins:
-- Opponent malfunction = ErrInvalidResponse (code 5)
-- Winner = player who just moved (their move was legal, opponent broke)
-- Score = forfeit (max(actual, 34) - 30) like other engine errors
+| Operation | Implementation | OK? |
+|-----------|---------------|-----|
+| play color check | None — just checks `DWIsPlayable(&gs, player, gp)` | ✅ |
+| play apply | `DWPlay(&gs, player, gp)` — applies for specified player | ✅ |
+| play after apply | Player flipped by DWPlay | ✅ |
+| genmove pass | `mobilityNb[player] == 0` → `printf("= PASS")` → continue | ❌ does NOT flip player! |
+| genmove move | `DWPlay(&gs, player, gp)` — applies move | OK |
+| genmove opponent check | None — no auto-pass for opponent | ⚠️ missing |
+
+Darwersi issues:
+1. **Pass path doesn't flip player.** After returning PASS, internal state
+   stays on the passing player. However, darwersi doesn't validate color
+   on genmove or play, and `mobilityNb[player]` checks the specified
+   player's mobility regardless of current turn — so this doesn't cause
+   errors in practice. Still, should be fixed for correctness.
+2. **No opponent auto-pass after own move.** If darwersi plays a move that
+   leaves the opponent with no legal moves, side_to_move stays on opponent.
+   The opponent will pass via genmove, then the MM will send genmove back
+   to darwersi. Since darwersi doesn't validate color, it works. But the
+   engine's internal turn is one step behind the game flow.
+3. **Dead code** at line 265-266: `printf("= nodes 0...")` after `continue`
+   is unreachable.

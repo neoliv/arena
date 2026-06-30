@@ -1,25 +1,15 @@
-### Prompts
+### ARENA Prompts
 
-
-
-- document the logic of the MM and adapters for handling GTP commands: play , pass, engine player to move (normal or with pass)
-- make sure the darwersi/Arena adapter is following the current adapter logic (play , pass, ...)
-
-
-
-
-
-
-### Redesign?
 
 ### Maybe
 
-- The page that are supposed to auto-refresh aer still not doiing it. My main test is the Games page. What is the current refresh rate?
+- The pages that are supposed to auto-refresh aer still not doiing it. My main test is the Games page. What is the current refresh rate?
 
 - On the game page, I see only the last 100 games. Would it be hard to have the full list? even if its 100k games? What are the solutions for this, give recommendations (no implementation yet)
 
 - Add a page to manage the match maker mode (Elo ranking, Tournament, Blitz tournament, ...) This will change the way the list of desirable games is built. This page could show the list of games that the MM will try to run in the near future.
-- outside the DB, arena should also build a file containing only games (with useful meta-data like players, time allowed, final score,... use WTHOR format and usual meta-data)
+
+- Outside the DB, arena should also build a file containing only games (with useful meta-data like players, time allowed, final score,... use WTHOR format and usual meta-data)
 
 
 
