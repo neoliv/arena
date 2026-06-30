@@ -1,17 +1,9 @@
 ### Prompts
 
-- So what is the current logic for all engines regarding the pass handling? Is it the same for all adapters?
 
-- So. why not let the engine keep its own internal state after a play or a genmove. (each is own). But when receiving a genmove 
-
-- arena game detail:
-If there is an error put it just right of the score, in big with the cyan/beige engine color that produces the error. or red if it's an infra error.
-
-- read arena log and explain: 11925 an edax resign
 
 - document the logic of the MM and adapters for handling GTP commands: play , pass, engine player to move (normal or with pass)
-
-make sure the darwersi/Arena adapter is following the current adapter logic (play , pass, ...)
+- make sure the darwersi/Arena adapter is following the current adapter logic (play , pass, ...)
 
 
 

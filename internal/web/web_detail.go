@@ -69,21 +69,21 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, pageHead+navHTML)
 
-	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth, disconnect, investigationNeeded int
+	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth, disconnect, investigationNeeded, errorCode int
 	var result, opening, bName, bVer, wName, wVer, tcJSON string
 	var bTime, wTime, gameTimeSec float64
 	var bElo, wElo, bEloBefore, wEloBefore float64
 	err := h.DB.QueryRow(
 		"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
 			"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
-			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), COALESCE(g.disconnect,0), COALESCE(g.investigation_needed,0), eb.name, eb.version, ew.name, ew.version, "+
+			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), COALESCE(g.disconnect,0), COALESCE(g.investigation_needed,0), COALESCE(g.error_code,0), eb.name, eb.version, ew.name, ew.version, "+
 			"COALESCE(m.time_control,'{}'), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.black_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.white_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0) "+
 			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id JOIN matches m ON m.id=g.match_id WHERE g.id=?",
-		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &disconnect, &investigationNeeded, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
+		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &disconnect, &investigationNeeded, &errorCode, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
 	if err != nil {
 		io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
 		return
@@ -115,15 +115,28 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	// ── Top bar ────────────────────────────────────────────────────
 	bTimedOut := gameTimeSec > 0 && bTime > gameTimeSec*1.05
 	wTimedOut := gameTimeSec > 0 && wTime > gameTimeSec*1.05
+	// ── Error badge (right of score) ──────────────────────────
+	// Color: faulty engine (loser) or red for infra/disconnect.
 	statusBadge := ""
-	if investigationNeeded != 0 {
-		statusBadge = ` <span style="color:#ff9800;font-weight:900">[INVESTIGATION NEEDED]</span>`
-	} else if disconnect != 0 {
-		statusBadge = ` <span style="color:#f44336;font-weight:900">[DISCONNECTED]</span>`
-	} else if bTimedOut {
-		statusBadge = ` <span style="color:#22d3ee;font-weight:900">[BLACK TIMEOUT]</span>`
-	} else if wTimedOut {
-		statusBadge = ` <span style="color:#d4c4a8;font-weight:900">[WHITE TIMEOUT]</span>`
+	if errorCode != 0 || disconnect != 0 || investigationNeeded != 0 {
+		errLabel := ""
+		errColor := "#f44336" // default: red (infra/disconnect)
+		if errorCode != 0 {
+			if label, ok := game.ErrorLabel[int8(errorCode)]; ok { errLabel = label }
+			// Color by losing engine
+			if result == "1-0" { errColor = "#d4c4a8" } else { errColor = "#22d3ee" }
+		} else if disconnect != 0 {
+			errLabel = "disconnected"
+		} else if investigationNeeded != 0 {
+			errLabel = "investigation needed"; errColor = "#ff9800"
+		}
+		bTimedOut = gameTimeSec > 0 && bTime > gameTimeSec*1.05
+		wTimedOut = gameTimeSec > 0 && wTime > gameTimeSec*1.05
+		if bTimedOut { errLabel = "black timeout"; errColor = "#22d3ee" }
+		if wTimedOut { errLabel = "white timeout"; errColor = "#d4c4a8" }
+		if errLabel != "" {
+			statusBadge = fmt.Sprintf(` <span style="color:%s;font-weight:900;font-size:.7em">[%s]</span>`, errColor, errLabel)
+		}
 	}
 	bNameEsc := htmlEscape(bName)
 	wNameEsc := htmlEscape(wName)
