@@ -1,0 +1,68 @@
+Fix -d/-es CLI flags not applied during search (2026-06-26)
+
+Root cause: g_mid_depth_override and g_end_depth_override were set by
+option.hpp but never read by get_level() in level.hpp. The function
+get_level_depth() that reads them existed but was never called anywhere.
+
+Also fixes timing: tim() returns milliseconds, but the GTP stats divided
+by 1000 (converting ms to seconds). Removed the /1000 division.
+
+Changes:
+1. level.hpp: Move globals before get_level(), use them to override depth/ES
+2. option.hpp: Add #include "../engine/level.hpp" (was missing, globals undeclared)
+3. gtp_command.hpp: Fix time_ms (was result.time/1000, should be result.time)
+
+diff --git a/src/engine/level.hpp b/src/engine/level.hpp
+--- a/src/engine/level.hpp
++++ b/src/engine/level.hpp
+@@ -169,9 +169,14 @@
+     @param depth                integer to store the depth
+     @param mpc_level            MPC level
+ */
++
++// Global overrides for coach calibration (--depth / --es CLI flags).
++// -1 = use level default.
++inline int g_mid_depth_override = -1;
++inline int g_end_depth_override = -1;
++
+ void get_level(int level, int n_moves, bool *is_mid_search, int *depth, uint_fast8_t *mpc_level) {
+     level = std::clamp(level, 1, 60);
+     Level level_status = level_definition[level];
+     int n_empties = 60 - n_moves;
+-    if (n_empties > level_status.complete0) {
++    if (n_empties > ((g_end_depth_override >= 0) ? g_end_depth_override : level_status.complete0)) {
+         *is_mid_search = true;
+-        *depth = level_status.mid_lookahead;
++        *depth = (g_mid_depth_override >= 0) ? g_mid_depth_override : level_status.mid_lookahead;
+         *mpc_level = level_status.mid_mpc_level;
+     } else {
+
+@@ -235,10 +240,6 @@
+     @param end_depth            integer to store endgame lookahead depth
+ */
+-// Global overrides for coach calibration (--depth / --es CLI flags).
+-// -1 = use level default.
+-inline int g_mid_depth_override = -1;
+-inline int g_end_depth_override = -1;
+-
+ void get_level_depth(int level, int *mid_depth, int *end_depth) {
+
+diff --git a/src/console/option.hpp b/src/console/option.hpp
+--- a/src/console/option.hpp
++++ b/src/console/option.hpp
+@@ -15,6 +15,7 @@
+ #include "commandline_option.hpp"
++#include "../engine/level.hpp"
+
+ Options get_options(...) {
+
+diff --git a/src/console/gtp_command.hpp b/src/console/gtp_command.hpp
+--- a/src/console/gtp_command.hpp
++++ b/src/console/gtp_command.hpp
+@@ -224,7 +224,7 @@
+-    std::cout << "# arena-stats v1: {\"nodes\":" << result.nodes << ",\"depth\":" << result.depth << ",\"score\":" << result.value << ",\"empties\":" << empties << ",\"time_ms\":" << (result.time / 1000) << ",\"timeout\":false}" << GTP_ENDL;
++    std::cout << "# arena-stats v1: {\"nodes\":" << result.nodes << ",\"depth\":" << result.depth << ",\"score\":" << result.value << ",\"empties\":" << empties << ",\"time_ms\":" << result.time << ",\"timeout\":false}" << GTP_ENDL;
+
+@@ -374,7 +374,7 @@
+-    std::cout << "# arena-stats v1: {\"nodes\":" << reg_result.nodes << ",\"depth\":" << reg_result.depth << ",\"score\":" << reg_result.value << ",\"empties\":" << reg_empties << ",\"time_ms\":" << (reg_result.time / 1000) << ",\"timeout\":false}" << GTP_ENDL;
++    std::cout << "# arena-stats v1: {\"nodes\":" << reg_result.nodes << ",\"depth\":" << reg_result.depth << ",\"score\":" << reg_result.value << ",\"empties\":" << reg_empties << ",\"time_ms\":" << reg_result.time << ",\"timeout\":false}" << GTP_ENDL;

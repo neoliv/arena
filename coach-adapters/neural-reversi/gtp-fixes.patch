@@ -1,0 +1,71 @@
+diff --git a/crates/reversi-core/src/game_state.rs b/crates/reversi-core/src/game_state.rs
+--- a/crates/reversi-core/src/game_state.rs
++++ b/crates/reversi-core/src/game_state.rs
+@@ -76,13 +76,10 @@ impl GameState {
+         self.board = self.board.make_move(sq);
+         self.side_to_move = self.side_to_move.opposite();
+
+-        // Handle automatic pass if opponent has no legal moves, but avoid
+-        // recording a pass after the game has already ended.
+-        if !self.board.has_legal_moves() && self.board.switch_players().has_legal_moves() {
+-            self.handle_pass();
+-        }
++        // Auto-pass for opponent is handled by the GTP genmove handler.
++        // Keeping make_move as a pure move application avoids double-pass
++        // in the play handler.
+
+         Ok(())
+     }
+diff --git a/crates/cli/src/gtp.rs b/crates/cli/src/gtp.rs
+--- a/crates/cli/src/gtp.rs
++++ b/crates/cli/src/gtp.rs
+@@ -578,6 +578,8 @@ impl GtpHandler {
+         if move_str == "pass" {
+             if self.game.board().has_legal_moves() {
+                 return GtpResponse::Error("pass not allowed when legal moves exist".to_string());
+             }
++            eprintln!("[trace] play-handler pass: side_to_move={:?} empties={}",
++                self.game.side_to_move(), self.game.board().get_empty_count());
+             self.game.make_pass();
+             return GtpResponse::Success("".to_string());
+         }
+@@ -614,6 +616,10 @@ impl GtpHandler {
+         }
+
+         if !self.game.board().has_legal_moves() {
++            eprintln!("[trace] genmove forced-pass: color={} side_to_move={:?} empties={}",
++                color, self.game.side_to_move(), self.game.board().get_empty_count());
++            if !self.game.board().is_game_over() {
++                self.game.make_pass();
++            }
+-            self.game.make_pass();
+             return GtpResponse::Success("pass".to_string());
+         }
+@@ -653,6 +659,14 @@ impl GtpHandler {
+             self.game.make_move(computer_move);
++            // If opponent has no legal moves after our move, auto-pass
++            // to keep side_to_move in sync. The MM will send genmove
++            // to the opponent (who passes), then to us.
++            if !self.game.board().has_legal_moves() && !self.game.board().is_game_over() {
++                eprintln!("[trace] genmove opponent-pass: move={} side_to_move={:?} empties={}",
++                    computer_move, self.game.side_to_move(), self.game.board().get_empty_count());
++                self.game.make_pass();
++            }
+             // Auto-exit after game ends (default 1 game)
+             GtpResponse::Success(format!("{computer_move}"))
+         } else {
+diff --git a/crates/cli/src/game.rs b/crates/cli/src/game.rs
+--- a/crates/cli/src/game.rs
++++ b/crates/cli/src/game.rs
+@@ -87,6 +87,12 @@ impl Game {
+     /// Panics if legal moves are available (a pass is only valid when no moves exist)
+     pub fn make_pass(&mut self) {
++        let legal = self.core.board().has_legal_moves();
++        let empties = self.core.board().get_empty_count();
++        let stm = self.core.side_to_move();
++        if legal {
++            eprintln!("[trace] PANIC: make_pass called with legal_moves=true side_to_move={:?} empties={}", stm, empties);
++        }
+         self.core
+             .make_pass()
+             .expect("Attempted to pass when legal moves exist");

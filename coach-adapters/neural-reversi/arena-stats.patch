@@ -1,0 +1,245 @@
+diff --git a/crates/cli/src/gtp.rs b/crates/cli/src/gtp.rs
+index ede2be7..06bf97d 100644
+--- a/crates/cli/src/gtp.rs
++++ b/crates/cli/src/gtp.rs
+@@ -14,6 +14,7 @@ use reversi_core::{
+     probcut::Selectivity,
+     search::{self, SearchRunOptions, options::SearchOptions, time_control::TimeControlMode},
+     square::Square,
++	types::Depth,
+ };
+ 
+ use crate::game::GameState;
+@@ -237,11 +238,15 @@ pub struct GtpEngine {
+     level: usize,
+     /// Search selectivity setting
+     selectivity: Selectivity,
++    /// Override midgame search depth (None = use level default)
++    mid_depth_override: Option<Depth>,
++    /// Override endgame solver depth (None = use level default)
++    end_depth_override: Option<Depth>,
+     /// Engine name reported to GTP clients
+     name: String,
+     /// Engine version reported to GTP clients
+     version: String,
+-    /// Time control mode for timed games
++        /// Time control mode for timed games
+     time_control: TimeControlMode,
+     /// Remaining time for Black in milliseconds
+     black_time_ms: u64,
+@@ -275,6 +280,8 @@ impl GtpEngine {
+         threads: Option<usize>,
+         eval_path: Option<&Path>,
+         eval_sm_path: Option<&Path>,
++        mid_depth: Option<usize>,
++        end_depth: Option<usize>,
+     ) -> io::Result<Self> {
+         let search_options = SearchOptions::new(hash_size)
+             .with_threads(threads)
+@@ -284,9 +291,11 @@ impl GtpEngine {
+             search: search::Search::new(&search_options),
+             level,
+             selectivity,
++            mid_depth_override: mid_depth.map(|d| d as reversi_core::types::Depth),
++            end_depth_override: end_depth.map(|d| d as reversi_core::types::Depth),
+             name: "Neural Reversi".to_string(),
+             version: env!("CARGO_PKG_VERSION").to_string(),
+-            time_control: TimeControlMode::Infinite,
++                        time_control: TimeControlMode::Infinite,
+             black_time_ms: 0,
+             white_time_ms: 0,
+             black_in_byoyomi: false,
+@@ -614,15 +623,36 @@ impl GtpEngine {
+         let options = match time_control {
+             TimeControlMode::Infinite => {
+                 let level_idx = self.level.min(MAX_LEVEL);
+-                SearchRunOptions::with_level(get_level(level_idx), self.selectivity)
++                let mut lvl = get_level(level_idx);
++                if let Some(d) = self.mid_depth_override { lvl.mid_depth = d; }
++                if let Some(d) = self.end_depth_override { lvl.end_depth = [d; 4]; }
++                SearchRunOptions::with_level(lvl, self.selectivity)
+             }
+-            mode => SearchRunOptions::with_time(mode, self.selectivity),
++            mode => {
++				let level_idx = self.level.min(MAX_LEVEL);
++				let mut lvl = get_level(level_idx);
++				if let Some(d) = self.mid_depth_override { lvl.mid_depth = d; }
++				if let Some(d) = self.end_depth_override { lvl.end_depth = [d; 4]; }
++				SearchRunOptions::with_level(lvl, self.selectivity)
++			},
+         };
++        let t0 = std::time::Instant::now();
+         let result = self.search.run(self.game.board(), &options);
++        let elapsed_ms = t0.elapsed().as_millis() as u64;
+ 
+         if let Some(computer_move) = result.best_move() {
++            let empties = self.game.board().get_empty_count() as i32;
++            println!(
++                "# arena-stats v1: {{\"nodes\":{},\"depth\":{},\"score\":{},\"time_ms\":{},\"empties\":{},\"timeout\":false}}",
++                result.n_nodes(),
++                result.depth(),
++                (result.score().unwrap_or(0.0) * 100.0) as i32,
++                elapsed_ms,
++                empties
++            );
+             self.game.make_move(computer_move);
+-            GtpResponse::Success(format!("{computer_move}"))
++            // Auto-exit after game ends (default 1 game)
++                        GtpResponse::Success(format!("{computer_move}"))
+         } else {
+             GtpResponse::Error("failed to generate move".to_string())
+         }
+diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
+index be65024..7bdf35b 100644
+--- a/crates/cli/src/main.rs
++++ b/crates/cli/src/main.rs
+@@ -49,6 +49,18 @@ struct EngineParams {
+     #[arg(long, help = "Number of search threads [default: CPU count]")]
+     threads: Option<usize>,
+ 
++    #[arg(
++        long = "mid-depth",
++        help = "Override midgame search depth (default: level-based)"
++    )]
++    mid_depth: Option<usize>,
++
++    #[arg(
++        long = "end-depth",
++        help = "Override endgame solver depth (default: level-based)"
++    )]
++    end_depth: Option<usize>,
++
+     #[arg(
+         long = "eval-file",
+         value_name = "FILE",
+@@ -159,6 +171,8 @@ fn main() {
+                 engine_params.threads,
+                 engine_params.eval_file.as_deref(),
+                 engine_params.eval_sm_file.as_deref(),
++                engine_params.mid_depth,
++                engine_params.end_depth,
+             )
+             .unwrap_or_else(|err| {
+                 eprintln!("Failed to initialize engine: {err}");
+@@ -233,21 +247,25 @@ fn main() {
+             print!("{}", include_str!("../THIRD_PARTY_LICENSES.txt"));
+         }
+         None => {
++            // Adapter: default to GTP mode
+             validate_weight_paths(
+                 args.engine_params.eval_file.as_deref(),
+                 args.engine_params.eval_sm_file.as_deref(),
+             );
+-            tui::run(
++            let mut gtp_engine = gtp::GtpEngine::new(
+                 args.engine_params.hash_size,
+                 args.engine_params.level,
+                 Selectivity::from_u8(args.engine_params.selectivity),
+                 args.engine_params.threads,
+                 args.engine_params.eval_file.as_deref(),
+                 args.engine_params.eval_sm_file.as_deref(),
+-            )
+-            .unwrap_or_else(|err| {
+-                eprintln!("Failed to initialize UI: {err}");
++                args.engine_params.mid_depth,
++                args.engine_params.end_depth,
++            ).unwrap_or_else(|err| {
++                eprintln!("Failed to initialize engine: {err}");
++                std::process::exit(1);
+             });
++            gtp_engine.run();
+         }
+     }
+ }
+diff --git a/crates/reversi-core/src/eval/network.rs b/crates/reversi-core/src/eval/network.rs
+index de3cdc6..084f61c 100644
+--- a/crates/reversi-core/src/eval/network.rs
++++ b/crates/reversi-core/src/eval/network.rs
+@@ -181,11 +181,28 @@ impl Network {
+         Ok(layer_stacks.into_boxed_slice())
+     }
+ 
+-    fn from_reader<R: Read>(reader: R) -> io::Result<Self> {
+-        let mut decoder = zstd::stream::read::Decoder::new(reader)?;
+-        let base_input = BaseInput::load(&mut decoder)?;
+-        let pa_input = PhaseAdaptiveInput::load(&mut decoder)?;
+-        let layer_stacks = Self::load_layer_stacks(&mut decoder)?;
++    /// Auto-detect: if the stream starts with zstd magic (0x28 0xB5 0x2F 0xFD), decompress.
++    /// Otherwise read raw binary directly (pre-decompressed by coach-build).
++    fn from_reader<R: Read>(mut reader: R) -> io::Result<Self> {
++        // Peek at first 4 bytes to detect zstd magic
++        let mut magic = [0u8; 4];
++        let n = reader.read(&mut magic)?;
++        // Reconstruct a reader that includes the peeked bytes
++        let full_reader = std::io::Cursor::new(magic[..n].to_vec()).chain(reader);
++        if &magic == b"\x28\xB5\x2F\xFD" {
++            // Zstd compressed — wrap in decoder
++            let decoder = zstd::stream::read::Decoder::new(full_reader)?;
++            Self::from_raw_reader(decoder)
++        } else {
++            // Raw binary (pre-decompressed)
++            Self::from_raw_reader(full_reader)
++        }
++    }
++
++    fn from_raw_reader<R: Read>(mut reader: R) -> io::Result<Self> {
++        let base_input = BaseInput::load(&mut reader)?;
++        let pa_input = PhaseAdaptiveInput::load(&mut reader)?;
++        let layer_stacks = Self::load_layer_stacks(&mut reader)?;
+         Ok(Network {
+             base_input,
+             pa_input,
+diff --git a/crates/reversi-core/src/eval/network_small.rs b/crates/reversi-core/src/eval/network_small.rs
+index be908bb..842958d 100644
+--- a/crates/reversi-core/src/eval/network_small.rs
++++ b/crates/reversi-core/src/eval/network_small.rs
+@@ -45,7 +45,7 @@ struct InputLayer {
+ }
+ 
+ impl InputLayer {
+-    fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
++    fn load<R: Read + ?Sized>(reader: &mut R) -> io::Result<Self> {
+         let mut biases = Align64([0i16; PA_OUTPUT_DIMS]);
+         let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(
+             0,
+@@ -67,7 +67,7 @@ struct OutputLayer {
+ }
+ 
+ impl OutputLayer {
+-    fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
++    fn load<R: Read + ?Sized>(reader: &mut R) -> io::Result<Self> {
+         let bias = reader.read_i32::<LittleEndian>()?;
+ 
+         let mut weights = Align64([0i16; PA_OUTPUT_DIMS]);
+@@ -106,18 +106,27 @@ impl NetworkSmall {
+         Self::from_reader(cursor)
+     }
+ 
+-    fn from_reader<R: Read>(reader: R) -> io::Result<Self> {
+-        let mut decoder = zstd::stream::read::Decoder::new(reader)?;
++    fn from_reader<R: Read>(mut reader: R) -> io::Result<Self> {
++        // Peek at magic bytes to detect zstd vs pre-decompressed raw
++        let mut magic = [0u8; 4];
++        let n = reader.read(&mut magic)?;
++        let full_reader = std::io::Cursor::new(magic[..n].to_vec()).chain(reader);
++
++        let mut source: Box<dyn Read> = if &magic == b"\x28\xB5\x2F\xFD" {
++            Box::new(zstd::stream::read::Decoder::new(full_reader)?)
++        } else {
++            Box::new(full_reader)
++        };
+ 
+         let mut input_layers = Vec::with_capacity(NUM_INPUT_LAYERS);
+         for _ in 0..NUM_INPUT_LAYERS {
+-            let input_layer = InputLayer::load(&mut decoder)?;
++            let input_layer = InputLayer::load(&mut *source)?;
+             input_layers.push(input_layer);
+         }
+ 
+         let mut output_layers = Vec::with_capacity(NUM_OUTPUT_LAYERS);
+         for _ in 0..NUM_OUTPUT_LAYERS {
+-            let output_layer = OutputLayer::load(&mut decoder)?;
++            let output_layer = OutputLayer::load(&mut *source)?;
+             output_layers.push(output_layer);
+         }
+ 

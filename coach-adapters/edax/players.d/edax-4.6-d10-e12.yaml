@@ -1,0 +1,9 @@
+name: "edax-4.6-d10-e12"
+version: "4.6"
+created: "2026-06-24"
+changelog_short: "Edax depth 10, ES 15, no book — calibration"
+changelog_full: "Edax 4.6 fixed depth 10. ES always ≤15 empties. No book."
+binary: "edax"
+args: "-d 10 -es 12 -nobook"
+cores: 1
+memory_mb: 256
