@@ -3,6 +3,8 @@ rm -rf coach-engine
 # Apply arena-stats patch (JSON stats + depth + GTP default + raw weight loader)
 # Build CLI crate (cd to source dir first)
 cd /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }
+   Compiling cli v6.1.0 (/home/oliv/dev/agent/othello-refs/neural-reversi/src/crates/cli)
+   Compiling reversi-core v6.1.0 (/home/oliv/dev/agent/othello-refs/neural-reversi/src/crates/reversi-core)
 warning: unexpected `cfg` condition name: `nightly`
  --> crates/reversi-core/src/lib.rs:3:13
   |
@@ -435,7 +437,7 @@ warning: associated items `new`, `cursor`, and `last_move` are never used
    |            ^^^^^^^^^
 
 warning: `cli` (bin "cli") generated 35 warnings (run `cargo fix --bin "cli" -p cli` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 0.07s
+    Finished `release` profile [optimized] target(s) in 11.67s
 mkdir -p coach-engine/players.d
 cp /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp || { echo "ERROR: Neural Reversi binary not found"; exit 1; }
 # Pre-decompress weight files so engine loads raw binary (no zstd overhead)

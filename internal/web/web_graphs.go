@@ -267,9 +267,15 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 	var infraCount int
 	h.DB.QueryRow(`SELECT COUNT(*) FROM games WHERE disconnect=1 AND error_code=0`).Scan(&infraCount)
 
+	// Attribute errors to the LOSING engine only (the one who committed the fault).
+	// result "1-0" = Black wins → White lost (white_id at fault).
+	// result "0-1" = White wins → Black lost (black_id at fault).
 	rows, err := h.DB.Query(`SELECT e.name, g.error_code, COUNT(*) as cnt,
 			(SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id) as total_games
-			FROM games g JOIN engines e ON (e.id = g.black_id OR e.id = g.white_id)
+			FROM games g JOIN engines e ON (
+				(g.result='1-0' AND e.id=g.white_id) OR
+				(g.result='0-1' AND e.id=g.black_id)
+			)
 			WHERE g.error_code != 0
 			GROUP BY e.name, g.error_code ORDER BY e.name, cnt DESC`)
 	if err != nil || rows == nil {
@@ -292,7 +298,10 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch up to 5 most recent game IDs for each (engine, error_code) pair.
 	recentRows, recentErr := h.DB.Query(`SELECT e.name, g.error_code, g.id
-		FROM games g JOIN engines e ON (e.id = g.black_id OR e.id = g.white_id)
+		FROM games g JOIN engines e ON (
+			(g.result='1-0' AND e.id=g.white_id) OR
+			(g.result='0-1' AND e.id=g.black_id)
+		)
 		WHERE g.error_code != 0 ORDER BY e.name, g.error_code, g.created_at DESC`)
 	if recentErr == nil && recentRows != nil {
 		defer recentRows.Close()
