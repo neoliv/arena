@@ -246,12 +246,13 @@ func (w *WantedList) Tick() {
 		_ = i
 	}
 
-	// Preserve playing/connected/assigned pairs from the old list.
-	// Pairs with SessionID set have assignments out — must survive
-	// Tick so ClaimSide can match the connections.
+	// Preserve playing/connected pairs from the old list.
+	// Only pairs with an active connection survive Tick — pairs that were
+	// merely offered (SessionID set but never connected) are regenerated
+	// fresh so they don't crowd out new candidates.
 	oldPlaying := make(map[string]*wantedPair)
 	for _, p := range w.pairs {
-		if p.Status == "playing" || p.BlackConnected || p.WhiteConnected || p.SessionID != "" {
+		if p.Status == "playing" || p.BlackConnected || p.WhiteConnected {
 			oldPlaying[p.ID] = p
 		}
 	}
@@ -571,6 +572,26 @@ func (w *WantedList) ReapStale(_ time.Duration) {
 	for k, t := range w.declines {
 		if now.Sub(t) > 20*time.Second {
 			delete(w.declines, k)
+		}
+	}
+
+	// Reset pairs with only one side connected for >30s (orphaned connection).
+	// The connected side's engine is blocked until the pair times out.
+	for _, p := range w.pairs {
+		if p.Status != "pending" {
+			continue
+		}
+		if p.BlackConnected && !p.WhiteConnected && now.Sub(p.BlackConnectedAt) > 30*time.Second {
+			slog.Info("releasing stale single-sided connection", "pair", p.ID, "side", "black", "age_s", now.Sub(p.BlackConnectedAt).Seconds())
+			p.BlackConnected = false
+			p.BlackCoachID = ""
+			p.SessionID = ""
+		}
+		if p.WhiteConnected && !p.BlackConnected && now.Sub(p.WhiteConnectedAt) > 30*time.Second {
+			slog.Info("releasing stale single-sided connection", "pair", p.ID, "side", "white", "age_s", now.Sub(p.WhiteConnectedAt).Seconds())
+			p.WhiteConnected = false
+			p.WhiteCoachID = ""
+			p.SessionID = ""
 		}
 	}
 

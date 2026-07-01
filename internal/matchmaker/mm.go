@@ -498,6 +498,35 @@ func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `{"coaches": %d, "pairs": %d}`, len(m.Wanted.coaches), len(m.Wanted.pairs))
 }
 
+// HandleDebug dumps the full state for debugging pairing issues.
+func (m *MatchMaker) HandleDebug(w http.ResponseWriter, r *http.Request) {
+	m.Wanted.mu.RLock()
+	defer m.Wanted.mu.RUnlock()
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"coaches": %d, "pairs": %d`, len(m.Wanted.coaches), len(m.Wanted.pairs))
+	// Dump coach engine keys
+	for coachID, c := range m.Wanted.coaches {
+		fmt.Fprintf(w, `, "coach_%s": {`, coachID)
+		fmt.Fprintf(w, `"engines": [`)
+		first := true
+		for key, e := range c.Engines {
+			if !first { fmt.Fprintf(w, `,`) }
+			first = false
+			fmt.Fprintf(w, `{"key": %q, "available": %v, "max_inst": %d, "inst_running": %d}`, key, e.Available, e.MaxInstances, e.InstancesRunning)
+		}
+		fmt.Fprintf(w, `]}`)
+	}
+	// Dump first 3 pairs
+	fmt.Fprintf(w, `, "first_pairs": [`)
+	for i, p := range m.Wanted.pairs {
+		if i >= 3 { break }
+		if i > 0 { fmt.Fprintf(w, `,`) }
+		fmt.Fprintf(w, `{"id": %q, "status": %q, "b_key": %q, "w_key": %q, "b_connected": %v, "w_connected": %v, "session_id": %q, "b_coach": %q, "w_coach": %q}`,
+			p.ID, p.Status, p.BlackEngine, p.WhiteEngine, p.BlackConnected, p.WhiteConnected, p.SessionID, p.BlackCoachID, p.WhiteCoachID)
+	}
+	fmt.Fprintf(w, `]}`)
+}
+
 // HandleRegister accepts engine registrations from coaches and populates
 // the in-memory WantedList.
 func (m *MatchMaker) HandleRegister(w http.ResponseWriter, r *http.Request) {

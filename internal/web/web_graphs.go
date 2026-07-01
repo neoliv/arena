@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -87,27 +88,110 @@ func (h *Handler) renderRanksTable(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "</table>")
 }
 
-// engineColor returns a deterministic color for an engine name.
-// Same name always gets the same color, across page loads and restarts.
-// Uses a 16-color palette with a simple string hash to pick.
-func engineColor(name string) string {
-	h := 0
-	for _, c := range name {
-		h = h*31 + int(c)
+// enginePrefix extracts the engine family prefix from a name.
+// Examples: "nrsi-0.1.0-d10-e12" → "nrsi", "egar-7.8.1-d6-e12" → "egar"
+func enginePrefix(name string) string {
+	for i, c := range name {
+		if c == '-' {
+			return name[:i]
+		}
 	}
-	if h < 0 {
-		h = -h
-	}
-	return chartColors16[h%16]
+	return name
 }
 
-// chartColors16 — 16 distinct chalk/pastel hues visible on light+dark bg.
-var chartColors16 = [16]string{
-	"#4caf50", "#6bd4ff", "#ffe66b", "#6bff8a",
-	"#ff8a6b", "#c46bff", "#6bffe6", "#ffb86b",
-	"#ff6b9d", "#6bb5ff", "#a0ff6b", "#ffd46b",
-	"#6bffff", "#ff6bff", "#b0b0b0", "#ff9f43",
+// prefixBaseHue returns a well-separated hue for an engine prefix.
+// Prefixes are sorted alphabetically and assigned evenly-spaced hues
+// around the color wheel so each engine family gets a distinct color.
+// Within a family, variants differ in saturation/lightness.
+func prefixBaseHue(prefix string) int {
+	// Collect unique prefixes sorted alphabetically.
+	seen := map[string]bool{}
+	var prefixes []string
+	for _, name := range allEngineNames {
+		p := enginePrefix(name)
+		if !seen[p] {
+			seen[p] = true
+			prefixes = append(prefixes, p)
+		}
+	}
+	sort.Strings(prefixes)
+	// Swap nrsi ↔ neur: nrsi gets teal (~180°), neur gets purple (~270°).
+	swapIfBothPresent := func(a, b string) {
+		ia, ib := -1, -1
+		for i, p := range prefixes {
+			if p == a { ia = i }
+			if p == b { ib = i }
+		}
+		if ia >= 0 && ib >= 0 { prefixes[ia], prefixes[ib] = prefixes[ib], prefixes[ia] }
+	}
+	swapIfBothPresent("nrsi", "neur")
+	for i, p := range prefixes {
+		if p == prefix {
+			// Evenly spaced around the hue wheel, starting at 0°.
+			return i * 360 / len(prefixes)
+		}
+	}
+	// Fallback: hash if not found (shouldn't happen).
+	h := 0
+	for _, c := range prefix {
+		h = h*31 + int(c)
+	}
+	if h < 0 { h = -h }
+	return h % 360
 }
+
+// engineColor returns a deterministic color for an engine name.
+// Engines sharing the same prefix (same family) get colors in the same hue,
+// making it easy to spot strength variants of the same engine.
+// Within a family, variants differ in saturation/lightness.
+func engineColor(name string) string {
+	prefix := enginePrefix(name)
+	baseHue := prefixBaseHue(prefix)
+
+	// Count siblings: how many engines share this prefix.
+	siblings := 0
+	for _, e := range allEngineNames {
+		if enginePrefix(e) == prefix {
+			siblings++
+		}
+	}
+
+	// Hash full name for deterministic variant within the family.
+	fh := 0
+	for _, c := range name {
+		fh = fh*31 + int(c)
+	}
+	if fh < 0 { fh = -fh }
+
+	if siblings <= 1 {
+		sat := 55 + fh%20
+		light := 45 + fh%15
+		return fmt.Sprintf("hsl(%d,%d%%,%d%%)", baseHue, sat, light)
+	}
+
+	// Find this engine's index among its siblings.
+	sibIdx := 0
+	for _, e := range allEngineNames {
+		if e == name { break }
+		if enginePrefix(e) == prefix { sibIdx++ }
+	}
+
+	// Spread variants: earlier → more saturated+darker, later → more pastel+lighter.
+	fraction := float64(sibIdx) / float64(siblings-1)
+	sat := 45 + int(fraction*35)
+	light := 50 - int(fraction*15)
+	sat += (fh % 7) - 3
+	light += ((fh / 7) % 5) - 2
+	if sat < 30 { sat = 30 }
+	if sat > 85 { sat = 85 }
+	if light < 30 { light = 30 }
+	if light > 60 { light = 60 }
+
+	return fmt.Sprintf("hsl(%d,%d%%,%d%%)", baseHue, sat, light)
+}
+
+// allEngineNames is populated before rendering to enable sibling-aware coloring.
+var allEngineNames []string
 
 func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -140,6 +224,8 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 			engineNames = append(engineNames, p.Engine)
 		}
 	}
+	// Populate global list for sibling-aware engineColor.
+	allEngineNames = engineNames
 	// Assign sequential match indices so gaps from deleted/disconnected
 	// games don't create dead space on the X axis.
 	matchSeq := make(map[int]int)
