@@ -278,14 +278,15 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 	blackSid := p.SessionID + "-b"
 	whiteSid := p.SessionID + "-w"
 
-	// Both streams are already connected (OnConnect fired for each).
-	blackStream, err := m.Relay.WaitForStream(blackSid, 1)
+	// Wait for both streams. Even though OnConnect already fired,
+	// the relay may need a moment to set up the stream channels.
+	blackStream, err := m.Relay.WaitForStream(blackSid, 10)
 	if err != nil {
 		slog.Error("match: black stream gone", "pair", p.ID, "err", err)
 		m.failPair(p, "black stream gone")
 		return
 	}
-	whiteStream, err := m.Relay.WaitForStream(whiteSid, 1)
+	whiteStream, err := m.Relay.WaitForStream(whiteSid, 10)
 	if err != nil {
 		slog.Error("match: white stream gone", "pair", p.ID, "err", err)
 		m.failPair(p, "white stream gone")

@@ -21,11 +21,22 @@ func renderBoardSVG(b game.Board, lastSq int) string {
 	blk, wht := b.Black(), b.White()
 	bCount, wCount := game.Popcount(blk), game.Popcount(wht)
 
-	svg.WriteString(`<svg viewBox="0 0 800 800" role="img" aria-label="Othello board`)
+	svg.WriteString(`<svg viewBox="-36 -24 836 860" role="img" aria-label="Othello board`)
 	fmt.Fprintf(&svg, `: Black %d, White %d" style="display:block">`, bCount, wCount)
 
 	// Board background
 	svg.WriteString(`<rect x="0" y="0" width="800" height="800" fill="#1a5c3a" rx="8"/>`)
+
+	// Column labels (A-H) — at top of board
+	for col := 0; col < 8; col++ {
+		fmt.Fprintf(&svg, `<text x="%d" y="-4" text-anchor="middle" font-family="system-ui,sans-serif" font-size="24" font-weight="700" fill="#fff">%c</text>`,
+			col*100+50, 'A'+col)
+	}
+	// Row labels (1-8) — 1 at top, 8 at bottom
+	for row := 0; row < 8; row++ {
+		fmt.Fprintf(&svg, `<text x="-4" y="%d" text-anchor="end" font-family="system-ui,sans-serif" font-size="24" font-weight="700" fill="#fff">%d</text>`,
+			row*100+64, row+1)
+	}
 
 	// 64 squares
 	for row := 0; row < 8; row++ {
@@ -60,7 +71,7 @@ func renderBoardSVG(b game.Board, lastSq int) string {
 	}
 
 	// Disc count
-	fmt.Fprintf(&svg, `<text x="400" y="780" text-anchor="middle" font-family="system-ui,sans-serif" font-size="22" fill="#22d3ee" font-weight="600">B:%d  <tspan fill="#d4c4a8">W:%d</tspan></text>`,
+	fmt.Fprintf(&svg, `<text x="400" y="835" text-anchor="middle" font-family="system-ui,sans-serif" font-size="22" fill="#22d3ee" font-weight="600">B:%d  <tspan fill="#d4c4a8">W:%d</tspan></text>`,
 		bCount, wCount)
 
 	svg.WriteString(`</svg>`)
@@ -90,6 +101,55 @@ const boardInteractionJS = `<script>
     var ply=idx+1;
     if(plyCtr)plyCtr.textContent=ply;
     if(label)label.textContent='Move '+ply+'/'+(maxIdx+1)+(locked?' (locked)':'');
+    // Highlight chart bar for current ply
+    var bars=document.querySelectorAll('rect[data-board-idx]');
+    for(var i=0;i<bars.length;i++){
+      var m=parseInt(bars[i].getAttribute('data-board-idx'))===idx;
+      bars[i].style.stroke=m?'#ff0':'none';
+      bars[i].style.strokeWidth=m?'2':'0';
+    }
+    // Move triangle marker under current bar
+    var tri=document.getElementById('ply-triangle');
+    if(tri){
+      var bar=document.querySelector('rect[data-board-idx="'+idx+'"]');
+      if(bar){
+        var oldT=tri.getAttribute('transform')||'';
+        var yM=oldT.match(/translate\([^,]+,([^)]+)\)/);
+        tri.setAttribute('transform','translate('+(parseInt(bar.getAttribute('x'))+2)+','+(yM?yM[1]:'0')+')');
+        tri.style.display='block';
+      }else{tri.style.display='none';}
+    }
+    // Update move text + stats from chart tooltip
+    var tt=document.querySelector('[data-board-idx="'+idx+'"] title');
+    if(tt){
+      var parts=tt.textContent.split(':');
+      var mp=(parts[0]||'').split(' ');
+      var mt=document.getElementById('mv-text');
+      var ms=document.getElementById('mv-score');
+      var mst=document.getElementById('mv-stats');
+      if(mt)mt.textContent=mp.length>1?mp[1]:'';
+      if(ms){
+        var bar2=document.querySelector('rect[data-board-idx="'+idx+'"]');
+        var sc=bar2?parseInt(bar2.getAttribute('data-score')):0;
+        if(!isNaN(sc)){
+          ms.textContent=(sc>0?'+':'')+sc;
+          ms.style.color=sc>0?'#4caf50':sc<0?'#f44336':'var(--muted)';
+        }
+      }
+      if(mst)mst.textContent=parts.length>1?parts[1].trim():'';
+    } else {
+      // No chart bar for this ply (opening move) — read from board data
+      var bd=document.querySelector('#board-data [data-idx="'+idx+'"]');
+      if(bd){
+        var mv=bd.getAttribute('data-move')||'';
+        var mt=document.getElementById('mv-text');
+        var ms=document.getElementById('mv-score');
+        var mst=document.getElementById('mv-stats');
+        if(mt)mt.textContent=mv;
+        if(ms){ms.textContent='';ms.style.color='var(--muted)';}
+        if(mst)mst.textContent='';
+      }
+    }
   }
 
   // Click on any element with data-board-idx (chart bars + move rows)

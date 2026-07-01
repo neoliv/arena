@@ -355,8 +355,13 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		hasW := c.Engines[wKey] != nil
 		bdk := declineKey(coachID, bKey)
 		wdk := declineKey(coachID, wKey)
-		_, bDecl := w.declines[bdk]
-		_, wDecl := w.declines[wdk]
+		tbDecl, bDecl := w.declines[bdk]
+		twDecl, wDecl := w.declines[wdk]
+		// Expire declines after 30s — at-capacity declines are transient
+		// (games finish, cores free up). Without TTL, a single decline
+		// permanently excludes that engine pair for this coach.
+		if bDecl && now.Sub(tbDecl) >= 30*time.Second { bDecl = false }
+		if wDecl && now.Sub(twDecl) >= 30*time.Second { wDecl = false }
 		tb, bOff := w.offers[bdk]
 		tw, wOff := w.offers[wdk]
 		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 2*time.Second)
@@ -415,8 +420,10 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		hasB := c.Engines[bKey] != nil
 		bdk := declineKey(coachID, bKey)
 		wdk := declineKey(coachID, wKey)
-		_, bDecl := w.declines[bdk]
-		_, wDecl := w.declines[wdk]
+		tbDecl, bDecl := w.declines[bdk]
+		twDecl, wDecl := w.declines[wdk]
+		if bDecl && now.Sub(tbDecl) >= 30*time.Second { bDecl = false }
+		if wDecl && now.Sub(twDecl) >= 30*time.Second { wDecl = false }
 		tb, bOff := w.offers[bdk]
 		tw, wOff := w.offers[wdk]
 		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 2*time.Second)

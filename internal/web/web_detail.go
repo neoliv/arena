@@ -259,7 +259,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			io.WriteString(w, `<nav class="chart-tabs" style="margin-top:0;margin-bottom:1em">`)
 			for _, t := range []struct{ key, label string }{
-				{"time", "Time"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"depth", "Depth"}, {"diff", "Diff"}, {"score", "Score"},
+				{"time", "Time"}, {"score", "Score"}, {"depth", "Depth"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"diff", "Diff"},
 			} {
 				sel := `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
 				if tab != t.key {
@@ -421,7 +421,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					tip := fmt.Sprintf("%s %s: %s%s", m.side, m.move, titleVal, unit)
 					switch metric {
 					case "time":
-						tip = fmt.Sprintf("%s %s: %.0fms, %s nodes", m.side, m.move, m.timeMs, fmtVal(float64(m.nodes)))
+						tip = fmt.Sprintf("%s %s: %.0fms %sn %.0fnps", m.side, m.move, m.timeMs, fmtVal(float64(m.nodes)), float64(m.nps))
 					case "nodes":
 						tip = fmt.Sprintf("%s %s: %s nodes, depth %d", m.side, m.move, fmtVal(float64(m.nodes)), m.depth)
 					case "nps":
@@ -433,10 +433,11 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "diff":
 						tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
-					plyLabel := fmt.Sprintf("%d:%s", openingPlies+i+1, m.move)
-					fmt.Fprintf(w, `<rect data-board-idx="%d" x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, openingPlies+i, x, barY, h, color, tip)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="%s" font-size="9" text-anchor="middle">%s</text>`, x+6, chartH+20+topPad, color, htmlEscape(plyLabel))
+					fmt.Fprintf(w, `<rect data-board-idx="%d" data-score="%+d" x="%d" y="%d" width="12" height="%d" fill="%s" rx="1"><title>%s</title></rect>`, openingPlies+i, m.score, x, barY, h, color, tip)
 				}
+				// Triangle marker below current ply bar
+				fmt.Fprintf(w, `<polygon id="ply-triangle" points="-5,0 5,0 0,6" fill="#ff0" style="display:none" transform="translate(0,%d)"/>`, chartH+topPad+8)
+				// Triangle marker below current ply bar
 				io.WriteString(w, `</svg></div>`)
 			}
 			renderChart("time", maxTime, 0, "ms", "Time per move (ms)")
@@ -586,8 +587,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, `<div id="board-container" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px">`)
 				io.WriteString(w, renderBoardSVG(boardStates[lastIdx].board, boardStates[lastIdx].lastSq))
 				io.WriteString(w, `</div>`)
-				io.WriteString(w, `<div style="display:flex;flex-direction:column;align-items:center;gap:4px">`)
-				fmt.Fprintf(w, `<div id="ply-counter" style="font-size:2.5em;font-weight:700;color:var(--fg);line-height:1">%d</div>`, len(boardStates))
+				io.WriteString(w, `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">`)
+				// Move + score line: "D5 +12" — move in white, score in green
+				fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;gap:.3em"><span id="mv-text" style="font-size:2em;font-weight:700;color:#fff"></span><span id="mv-score" style="font-size:2em;font-weight:700;color:#4caf50"></span></div>`)
+				// Ply counter + current-move
+				fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;gap:.2em"><div id="ply-counter" style="font-size:2.5em;font-weight:700;color:var(--fg);line-height:1">%d</div><span id="current-move" style="font-size:2.5em;font-weight:700;color:var(--link)"></span></div>`, len(boardStates))
+				// Simplified stats: "51ms 12kn 5.9Mnps"
+				io.WriteString(w, `<div id="mv-stats" style="color:var(--muted);font-size:.85em"></div>`)
 				io.WriteString(w, `<button id="btn-prev" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Previous move">◀</button>`)
 				io.WriteString(w, `<button id="btn-next" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Next move">▶</button>`)
 				io.WriteString(w, `</div>`)
@@ -596,7 +602,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				// Hidden board data for hover interaction
 				io.WriteString(w, `<div id="board-data" style="display:none">`)
 				for idx, bs := range boardStates {
-					fmt.Fprintf(w, `<div data-idx="%d">%s</div>`, idx, renderBoardSVG(bs.board, bs.lastSq))
+					moveLabel := ""
+				if idx < openingPlies && idx*2 < len(opening) {
+					moveLabel = opening[idx*2 : idx*2+2]
+				} else if i := idx - openingPlies; i >= 0 && i < len(moves) {
+					moveLabel = moves[i].move
+				}
+				fmt.Fprintf(w, `<div data-idx="%d" data-move="%s">%s</div>`, idx, htmlEscape(moveLabel), renderBoardSVG(bs.board, bs.lastSq))
 				}
 				io.WriteString(w, `</div></div>`)
 				io.WriteString(w, boardInteractionJS)
@@ -613,6 +625,12 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(w, `<div style="margin-top:1em;margin-bottom:.6em;color:var(--muted);font-size:1.1em;text-align:center">Moves: %d played · last ply %d · %.2fs · %s nodes</div>`,
 					totalMoves, totalPlies, totalTime, fmtVal(bStats.totalNodes+wStats.totalNodes))
 			}
+			// One-line transcript: opening + all moves in monospace
+			var transcript string
+			if opening != "" { transcript = opening }
+			for _, m := range moves { transcript += m.move }
+			fmt.Fprintf(w, `<div style="margin-top:.4em;font-family:monospace;font-size:1.1em;word-break:break-all;color:var(--fg);text-align:center">%s</div>`, htmlEscape(transcript))
+
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Dp</th><th>NPS</th><th>Score</th></tr>`)
 			for i, m := range moves {
 				side := "Black"
