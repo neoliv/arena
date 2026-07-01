@@ -79,7 +79,6 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, `<p style="color:var(--muted)">No coach-connected players — <code>coach-update.sh</code> may be needed.</p>`)
 		}
 	}
-}
 
 	type ver struct {
 		Name, Version, Created, ChangelogShort, ChangelogFull, Budget, WR string
