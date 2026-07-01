@@ -134,6 +134,34 @@ for f in "$BUILDS_DIR"/*.yaml; do
                 echo "$(sha256sum "$ff" | cut -c1-16)  $(stat -c%s "$ff" 2>/dev/null || stat -f%z "$ff")  ${ff#coach-engine/}" >> "$ENGINE_DIR/manifest.txt"
             done
             echo "   -> $ENGINE_DIR/"
+
+            # Warm up engine and probe version via GTP (no timeout pressure).
+            # This pre-builds any caches (e.g. NNUE .mmap) so the coach
+            # doesn't hit a cold-start timeout on first probe.
+            if ! $DRY_RUN; then
+                # Read binary name from first player YAML instead of guessing.
+                BIN=""
+                PROBE_ARGS=""
+                for y in "$ENGINE_DIR"/players.d/*.yaml; do
+                    [ -f "$y" ] || continue
+                    BIN_NAME=$(grep '^binary:' "$y" | sed 's/^binary: *"//;s/"$//')
+                    ARGS=$(grep '^args:' "$y" | sed 's/^args: *"//;s/"$//')
+                    ARGS=$(echo "$ARGS" | sed "s|%share_dir%|$COACH_DIR/share|g; s|%game_time%|60|g")
+                    BIN="$ENGINE_DIR/$BIN_NAME"
+                    PROBE_ARGS="$ARGS"
+                    break
+                done
+                if [ -n "$BIN" ] && [ -x "$BIN" ]; then
+                    GTP_IN="version\nquit\n"
+                    VERSION_OUT=$(cd "$ENGINE_DIR" && printf "$GTP_IN" | timeout 10 "$BIN" $PROBE_ARGS 2>/dev/null || true)
+                    GTP_VERSION=$(echo "$VERSION_OUT" | grep '^= ' | head -1 | sed 's/^= //')
+                    if [ -n "$GTP_VERSION" ]; then
+                        echo "   version: $GTP_VERSION (probed via GTP, caches warmed)"
+                    else
+                        echo "   version: (no GTP response — adapter/engine may not support version probe)"
+                    fi
+                fi
+            fi
         fi
         BUILD_COUNT=$((BUILD_COUNT + 1))
         rm -rf coach-engine
@@ -143,6 +171,25 @@ for f in "$BUILDS_DIR"/*.yaml; do
 done
 
 echo ""; echo "─── Reload ───"
+
+# 3. Copy neursi NN weight file to coach share dir
+NEURSI_WEIGHTS="$SCRIPT_DIR/../neursi/data/eval-large.bin"
+SHARE_WEIGHTS="$COACH_DIR/share/eval-large.bin"
+if [ -f "$NEURSI_WEIGHTS" ]; then
+    mkdir -p "$(dirname "$SHARE_WEIGHTS")"
+    if [ ! -f "$SHARE_WEIGHTS" ] || [ "$NEURSI_WEIGHTS" -nt "$SHARE_WEIGHTS" ]; then
+        if $DRY_RUN; then
+            echo "[DRY RUN] Would copy $NEURSI_WEIGHTS → $SHARE_WEIGHTS"
+        else
+            cp "$NEURSI_WEIGHTS" "$SHARE_WEIGHTS"
+            echo "3. NN weights copied → $SHARE_WEIGHTS"
+        fi
+    else
+        echo "3. NN weights up to date ($SHARE_WEIGHTS)"
+    fi
+else
+    echo "3. NN weights NOT FOUND at $NEURSI_WEIGHTS — skipping"
+fi
 if $COACH_UPDATED; then
     echo "Coach binary was updated — restarting service..."
     if systemctl --user is-active arena-coach >/dev/null 2>&1; then
