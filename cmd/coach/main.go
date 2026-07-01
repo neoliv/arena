@@ -222,6 +222,9 @@ func main() {
 					ai.Binary = filepath.Join(engineDir, ai.Binary)
 				}
 				ai.RunCmd = strings.TrimSpace(ai.Binary + " " + ai.Args)
+				// Substitute share_dir before probing — the engine may need
+				// weights/config files from the share directory to start.
+				ai.RunCmd = strings.Replace(ai.RunCmd, "%share_dir%", cfg.ShareDir, -1)
 
 		// Probe version from the engine binary if YAML didn't specify one.
 		// This makes the binary the single source of truth for version numbers.
