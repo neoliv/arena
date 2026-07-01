@@ -370,6 +370,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 							maxVal = 1
 						}
 						val = float64(m.score)
+						if m.side == "w" {
+							val = -val // invert: both players on same axis
+						}
 					case "depth":
 						val = float64(m.depth)
 					case "diff":

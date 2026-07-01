@@ -30,7 +30,7 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "</table>")
 
 	fmt.Fprintf(w, `<h2>Completed</h2><table><tr><th onclick="st(this.closest('table'),0,true)">ID</th><th onclick="st(this.closest('table'),1,false)">Black</th><th onclick="st(this.closest('table'),2,false)">White</th><th onclick="st(this.closest('table'),3,false)">Result</th><th onclick="st(this.closest('table'),4,true)">Score</th><th onclick="st(this.closest('table'),5,false)">Age</th><th onclick="st(this.closest('table'),6,false)">Opening</th></tr>`)
-	gRows, _ := h.DB.Query(`SELECT g.id, (SELECT name FROM engines WHERE id=g.black_id), (SELECT name FROM engines WHERE id=g.white_id), g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), COALESCE(g.created_at,0) FROM games g ORDER BY g.id DESC LIMIT 100`)
+	gRows, _ := h.DB.Query(`SELECT g.id, (SELECT name FROM engines WHERE id=g.black_id), (SELECT name FROM engines WHERE id=g.white_id), g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), COALESCE(g.created_at, m.created_at, 0) FROM games g LEFT JOIN matches m ON m.id=g.match_id ORDER BY g.id DESC LIMIT 100`)
 	if gRows != nil {
 		defer gRows.Close()
 		for gRows.Next() {
