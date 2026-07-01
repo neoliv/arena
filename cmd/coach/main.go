@@ -19,8 +19,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"os/signal"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,9 +94,9 @@ func main() {
 	coachSession = hex.EncodeToString(b)
 	configPath := flag.String("config", "coach.yaml", "Path to coach config file")
 	playersDir := flag.String("players", "players.d", "Directory containing player .yaml files")
-	showVer   := flag.Bool("version", false, "Print version and exit")
+	showVer := flag.Bool("version", false, "Print version and exit")
 	aisFilter := flag.String("ais", "", "Comma-separated list of AI names to load from coach.d/ (default: all)")
-	debug     := flag.Bool("debug", false, "Enable debug-level logging (shows capacity skips, etc.)")
+	debug := flag.Bool("debug", false, "Enable debug-level logging (shows capacity skips, etc.)")
 	handleShortFlags("coach")
 	flag.Parse()
 
@@ -226,17 +227,17 @@ func main() {
 				// weights/config files from the share directory to start.
 				ai.RunCmd = strings.Replace(ai.RunCmd, "%share_dir%", cfg.ShareDir, -1)
 
-		// Probe version from the engine binary if YAML didn't specify one.
-		// This makes the binary the single source of truth for version numbers.
-		if ai.Version == "" {
-			if v, err := probeVersion(ai); err == nil {
-				ai.Version = v
-				slog.Info("probed engine version", "name", ai.Name, "version", v)
-			} else {
-				slog.Warn("version probe failed", "name", ai.Name, "err", err)
-				continue // skip — can't register without a version
-			}
-		}
+				// Probe version from the engine binary if YAML didn't specify one.
+				// This makes the binary the single source of truth for version numbers.
+				if ai.Version == "" {
+					if v, err := probeVersion(ai); err == nil {
+						ai.Version = v
+						slog.Info("probed engine version", "name", ai.Name, "version", v)
+					} else {
+						slog.Warn("version probe failed", "name", ai.Name, "err", err)
+						continue // skip — can't register without a version
+					}
+				}
 
 				ai.EngineID, ai.EngineManifest = computeEngineIdentity(ai)
 				ais = append(ais, ai)
@@ -315,10 +316,13 @@ func main() {
 			// Arena unreachable — exponential backoff.
 			consecutiveFailures++
 			delay := time.Duration(1<<min(consecutiveFailures-1, 6)) * time.Second
-			if delay > 60*time.Second { delay = 60 * time.Second }
+			if delay > 60*time.Second {
+				delay = 60 * time.Second
+			}
 			slog.Warn("poll failed (arena unreachable?), backing off", "delay_s", delay.Seconds(), "failures", consecutiveFailures)
 			select {
-			case <-ctx.Done(): break
+			case <-ctx.Done():
+				break
 			case <-time.After(delay):
 			}
 			continue
@@ -341,6 +345,8 @@ func main() {
 		} else {
 			slog.Info("poll received assignments", "count", len(assignments))
 		}
+		// Prioritize completing pairs: launch mate of already-running engines first.
+		sortAssignmentsByMate(assignments, &mu, running)
 		for _, a := range assignments {
 			cfgMu.RLock()
 			ai := findAIByKey(cfg, a.Engine)
@@ -469,6 +475,46 @@ func main() {
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
 
+// sortAssignmentsByMate reorders assignments so that pairs whose mate is
+// already running come first. This prevents the coach from scattering engines
+// across half-filled pairs that never get a partner — each launched engine
+// gets its counterpart launched next, completing the pair and starting the game.
+// Session IDs are "pairID-b" or "pairID-w"; the pair base is everything before
+// the last "-".
+func sortAssignmentsByMate(assignments []assignment, mu *sync.Mutex, running map[string]*runningEngine) {
+	if len(assignments) <= 1 {
+		return
+	}
+	// Build set of pair bases that already have a running engine.
+	mu.Lock()
+	mates := make(map[string]bool)
+	for sid := range running {
+		if idx := strings.LastIndex(sid, "-"); idx >= 0 {
+			mates[sid[:idx]] = true
+		}
+	}
+	mu.Unlock()
+
+	// Stable sort: mate-running first, preserve original order within groups.
+	slices.SortStableFunc(assignments, func(a, b assignment) int {
+		aMate := false
+		if idx := strings.LastIndex(a.SessionID, "-"); idx >= 0 {
+			aMate = mates[a.SessionID[:idx]]
+		}
+		bMate := false
+		if idx := strings.LastIndex(b.SessionID, "-"); idx >= 0 {
+			bMate = mates[b.SessionID[:idx]]
+		}
+		if aMate && !bMate {
+			return -1
+		}
+		if !aMate && bMate {
+			return 1
+		}
+		return 0
+	})
+}
+
 func postJSON(client *http.Client, cfg config, path string, body any) (*http.Response, error) {
 	var buf bytes.Buffer
 	json.NewEncoder(&buf).Encode(body)
@@ -573,11 +619,17 @@ func registerWithMatchmaker(client *http.Client, cfg config, cfgMu *sync.RWMutex
 	for _, a := range cfg.AIs {
 		key := a.Name + ":" + a.Version
 		cores := a.Cores
-		if cores == 0 { cores = 1 }
+		if cores == 0 {
+			cores = 1
+		}
 		mem := a.MemoryMB
-		if mem == 0 { mem = 64 }
+		if mem == 0 {
+			mem = 64
+		}
 		maxInst := a.MaxInstances
-		if maxInst == 0 { maxInst = 1 }
+		if maxInst == 0 {
+			maxInst = 1
+		}
 		available := true
 		reason := ""
 		if healthErrors != nil {
@@ -711,7 +763,7 @@ func heartbeatLoop(ctx context.Context, client *http.Client, cfg config, mu *syn
 		case <-notifyChange:
 			// Batch: drain any additional events within a 1s window.
 			send()
-			drainLoop:
+		drainLoop:
 			for {
 				select {
 				case <-notifyChange:
@@ -816,7 +868,11 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 		verCh := make(chan string, 1)
 		go func() {
 			scanner := bufio.NewScanner(stdout)
-			if scanner.Scan() { verCh <- scanner.Text() } else { verCh <- "" }
+			if scanner.Scan() {
+				verCh <- scanner.Text()
+			} else {
+				verCh <- ""
+			}
 		}()
 		select {
 		case resp := <-verCh:
@@ -853,7 +909,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 	var timingMu sync.Mutex
 	var genmoveStart time.Time
 	genmoveDeadline := make(chan struct{}, 1) // closed when deadline expires
-	gameStarted := false                     // disarmed by clear_board
+	gameStarted := false                      // disarmed by clear_board
 
 	// gameOver is closed by the WS→stdin goroutine when the MM closes
 	// the relay (normal game end). The stdout goroutine checks this to
@@ -872,11 +928,15 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 		for {
 			select {
 			case <-engCtx.Done():
-				if timer != nil { timer.Stop() }
+				if timer != nil {
+					timer.Stop()
+				}
 				return
 			case <-genmoveDeadline:
 				// New genmove: (re)start the timer.
-				if timer != nil { timer.Stop() }
+				if timer != nil {
+					timer.Stop()
+				}
 				timer = time.AfterFunc(budget+margin, func() {
 					re.killMu.Lock()
 					re.killReason = "timeout"
@@ -968,12 +1028,12 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 				conn.Write(context.Background(), websocket.MessageText, []byte(injectLine))
 			}
 		}
-			// Crash detection: only when stdout closed (scanner.Scan→false).
-			// Network failures (conn.Write error→writeFailed=true) are NOT
-			// engine crashes — the engine is still running, connection broke.
-			if writeFailed {
-				return
-			}
+		// Crash detection: only when stdout closed (scanner.Scan→false).
+		// Network failures (conn.Write error→writeFailed=true) are NOT
+		// engine crashes — the engine is still running, connection broke.
+		if writeFailed {
+			return
+		}
 		// Scanner exited (EOF on stdout). Determine why.
 		// - gameOver closed: MM finished the game, relay closed → normal.
 		// - killReason set: coach killed engine (timeout/watchdog) → already reported.
@@ -1014,7 +1074,10 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 				genmoveStart = time.Now()
 				timingMu.Unlock()
 				// Signal the deadline goroutine to (re)start the timer.
-				select { case genmoveDeadline <- struct{}{}: default: }
+				select {
+				case genmoveDeadline <- struct{}{}:
+				default:
+				}
 			}
 			if _, err := io.WriteString(stdin, cmdStr+"\n"); err != nil {
 				break
@@ -1251,8 +1314,8 @@ func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[st
 
 	// Interval (20s) and cumulative (since start) per-player accumulators.
 	type playerAgg struct {
-		cpu, rss   metricAgg
-		instances  int // max instances seen in this window
+		cpu, rss  metricAgg
+		instances int // max instances seen in this window
 	}
 	intervalAcc := make(map[string]*playerAgg)
 	cumulativeAcc := make(map[string]*playerAgg)
@@ -1291,7 +1354,9 @@ func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[st
 				usedCPU += delta
 				cpuPct := delta
 				idle := cpuPct < 0.01
-				if idle { sumIdle++ }
+				if idle {
+					sumIdle++
+				}
 				rssMB := float64(pssKB) / 1024.0
 
 				// Accumulate into interval + cumulative
@@ -1320,45 +1385,54 @@ func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[st
 			for pid := range prevCPU {
 				found := false
 				for _, e := range entries {
-					if e.pid == pid { found = true; break }
+					if e.pid == pid {
+						found = true
+						break
+					}
 				}
-				if !found { delete(prevCPU, pid) }
+				if !found {
+					delete(prevCPU, pid)
+				}
 			}
 
-			if usedCPU > totalCores { usedCPU = totalCores }
+			if usedCPU > totalCores {
+				usedCPU = totalCores
+			}
 			sumUtil += usedCPU / totalCores
 			samples++
 
 		case <-sendTicker.C:
 			// Build payload from interval accumulators
-		var players []map[string]interface{}
-		for key, pa := range intervalAcc {
-			name, ver := splitPlayerKey(key)
-			// Look up declared resource allocation from engine config
-			memMB := 64 // default
-			mu.Lock()
-			for _, re := range running {
-				rKey := re.ai.Name + ":" + re.ai.Version
-				if rKey == key {
-					if re.ai.MemoryMB > 0 { memMB = re.ai.MemoryMB }
-					break
+			var players []map[string]interface{}
+			for key, pa := range intervalAcc {
+				name, ver := splitPlayerKey(key)
+				// Look up declared resource allocation from engine config
+				memMB := 64 // default
+				mu.Lock()
+				for _, re := range running {
+					rKey := re.ai.Name + ":" + re.ai.Version
+					if rKey == key {
+						if re.ai.MemoryMB > 0 {
+							memMB = re.ai.MemoryMB
+						}
+						break
+					}
 				}
+				mu.Unlock()
+				players = append(players, map[string]interface{}{
+					"name": name, "version": ver,
+					"instances": pa.instances,
+					"memory_mb": memMB,
+					"interval": map[string]interface{}{
+						"cpu_pct": metricSummary(&pa.cpu),
+						"rss_mb":  metricSummary(&pa.rss),
+					},
+					"cumulative": map[string]interface{}{
+						"cpu_pct": metricSummary(&cumulativeAcc[key].cpu),
+						"rss_mb":  metricSummary(&cumulativeAcc[key].rss),
+					},
+				})
 			}
-			mu.Unlock()
-			players = append(players, map[string]interface{}{
-				"name": name, "version": ver,
-				"instances": pa.instances,
-				"memory_mb": memMB,
-				"interval": map[string]interface{}{
-					"cpu_pct": metricSummary(&pa.cpu),
-					"rss_mb":  metricSummary(&pa.rss),
-				},
-				"cumulative": map[string]interface{}{
-					"cpu_pct": metricSummary(&cumulativeAcc[key].cpu),
-					"rss_mb":  metricSummary(&cumulativeAcc[key].rss),
-				},
-			})
-		}
 			// Reset interval accumulators
 			intervalAcc = make(map[string]*playerAgg)
 
@@ -1392,7 +1466,9 @@ func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[st
 			}(players)
 
 		case <-reportTicker.C:
-			if samples == 0 { continue }
+			if samples == 0 {
+				continue
+			}
 			avgUtil := sumUtil / float64(samples)
 			avgIdle := sumIdle / float64(samples)
 			slog.Info("core usage (real CPU)", "avg_utilization", fmt.Sprintf("%.1f%%", avgUtil*100),
@@ -1400,7 +1476,9 @@ func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[st
 				"cores_total", int(totalCores), "samples", samples, "interval", "10m")
 			for key, pa := range cumulativeAcc {
 				n := float64(pa.cpu.count)
-				if n == 0 { continue }
+				if n == 0 {
+					continue
+				}
 				cpuAvg := pa.cpu.sum / n
 				rssAvg := pa.rss.sum / n
 				cpuStd := math.Sqrt(pa.cpu.sumSq/n - cpuAvg*cpuAvg)
@@ -1416,9 +1494,15 @@ func coreSampler(ctx context.Context, cfg config, mu *sync.Mutex, running map[st
 }
 
 func addMetric(m *metricAgg, v float64) {
-	m.sum += v; m.sumSq += v * v; m.count++
-	if v < m.min { m.min = v }
-	if v > m.max { m.max = v }
+	m.sum += v
+	m.sumSq += v * v
+	m.count++
+	if v < m.min {
+		m.min = v
+	}
+	if v > m.max {
+		m.max = v
+	}
 }
 
 type metricAgg struct {
@@ -1427,16 +1511,22 @@ type metricAgg struct {
 }
 
 func metricSummary(m *metricAgg) map[string]float64 {
-	if m.count == 0 { return map[string]float64{"min": 0, "max": 0, "avg": 0, "std": 0} }
+	if m.count == 0 {
+		return map[string]float64{"min": 0, "max": 0, "avg": 0, "std": 0}
+	}
 	avg := m.sum / float64(m.count)
 	variance := m.sumSq/float64(m.count) - avg*avg
-	if variance < 0 { variance = 0 }
+	if variance < 0 {
+		variance = 0
+	}
 	return map[string]float64{"min": m.min, "max": m.max, "avg": avg, "std": math.Sqrt(variance)}
 }
 
 func splitPlayerKey(key string) (name, version string) {
 	idx := strings.LastIndex(key, ":")
-	if idx < 0 { return key, "unknown" }
+	if idx < 0 {
+		return key, "unknown"
+	}
 	return key[:idx], key[idx+1:]
 }
 
@@ -1444,12 +1534,18 @@ func splitPlayerKey(key string) (name, version string) {
 // from /proc/[pid]/stat for the process including its children.
 func readProcessCPUTicks(pid int) uint64 {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil { return 0 }
+	if err != nil {
+		return 0
+	}
 	s := string(data)
 	closeParen := strings.LastIndexByte(s, ')')
-	if closeParen < 0 { return 0 }
+	if closeParen < 0 {
+		return 0
+	}
 	parts := strings.Fields(s[closeParen+2:])
-	if len(parts) < 15 { return 0 }
+	if len(parts) < 15 {
+		return 0
+	}
 	utime, _ := strconv.ParseUint(parts[11], 10, 64)
 	stime, _ := strconv.ParseUint(parts[12], 10, 64)
 	cutime, _ := strconv.ParseUint(parts[13], 10, 64)
@@ -1463,7 +1559,9 @@ func readProcessCPUTicks(pid int) uint64 {
 // report ~152MB Pss instead of 610MB RSS.
 func readProcessPss(pid int) uint64 {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/smaps_rollup", pid))
-	if err != nil { return 0 }
+	if err != nil {
+		return 0
+	}
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.HasPrefix(line, "Pss:") {
 			f := strings.Fields(line)
@@ -1535,7 +1633,11 @@ func probeVersion(ai aiConfig) (string, error) {
 	ch := make(chan string, 1)
 	go func() {
 		scanner := bufio.NewScanner(stdout)
-		if scanner.Scan() { ch <- scanner.Text() } else { ch <- "" }
+		if scanner.Scan() {
+			ch <- scanner.Text()
+		} else {
+			ch <- ""
+		}
 	}()
 	select {
 	case resp := <-ch:

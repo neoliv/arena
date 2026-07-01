@@ -26,11 +26,12 @@ type Relay struct {
 }
 
 type relaySlot struct {
-	stream Stream
-	ready  chan struct{} // closed when stream is available
-	done   chan struct{} // closed by Cleanup
-	cancel context.CancelFunc
-	in     chan string // writable reference for cleanup on replacement
+	stream   Stream
+	ready    chan struct{} // closed when stream is available
+	done     chan struct{} // closed by Cleanup
+	cancel   context.CancelFunc
+	in       chan string // writable reference for cleanup on replacement
+	inClosed bool        // true if `in` has been closed (prevents double-close panic)
 }
 
 // NewRelay creates a new relay manager.
@@ -87,7 +88,8 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 				if !ok {
 					return
 				}
-				slog.Info("relay write", "session", sessionID, "cmd", cmd[:min(512, len(cmd))]); if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
+				slog.Info("relay write", "session", sessionID, "cmd", cmd[:min(512, len(cmd))])
+				if err := conn.Write(ctx, websocket.MessageText, []byte(cmd)); err != nil {
 					slog.Warn("relay write error", "err", err)
 					return
 				}
@@ -106,8 +108,9 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 		if slot.cancel != nil {
 			slot.cancel()
 		}
-		if oldIn != nil {
-			close(oldIn) // signal old reader goroutine to exit
+		if oldIn != nil && !slot.inClosed {
+			slot.inClosed = true
+			close(oldIn)      // signal old reader goroutine to exit
 			for range oldIn { // drain to unblock stuck senders
 			}
 		}
