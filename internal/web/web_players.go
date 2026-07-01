@@ -60,10 +60,8 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 	if h.EngineStatusFunc != nil {
 		statuses := h.EngineStatusFunc()
 		fmt.Fprintf(w, `<h2>Currently Registered <span style="font-weight:normal;color:var(--muted);font-size:.85em">(%d)</span></h2>`, len(statuses))
-			if len(statuses) > 0 {
-			} else {
-				io.WriteString(w, `<p style="color:var(--muted)">No coach-connected players — <code>coach-update.sh</code> may be needed.</p>`)
-			io.WriteString(w, `<h2>Currently Registered</h2><table><tr><th>Engine</th><th>Version</th><th>Coach</th><th>Status</th></tr>`)
+		if len(statuses) > 0 {
+			io.WriteString(w, `<table><tr><th>Engine</th><th>Version</th><th>Coach</th><th>Status</th></tr>`)
 			for _, s := range statuses {
 				badge := `<span style="color:#4caf50">● active</span>`
 				if !s.Available {
@@ -77,8 +75,11 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 					htmlEscape(s.Name), htmlEscape(s.Name), htmlEscape(s.Version), htmlEscape(s.CoachID), badge)
 			}
 			io.WriteString(w, `</table>`)
+		} else {
+			io.WriteString(w, `<p style="color:var(--muted)">No coach-connected players — <code>coach-update.sh</code> may be needed.</p>`)
 		}
 	}
+}
 
 	type ver struct {
 		Name, Version, Created, ChangelogShort, ChangelogFull, Budget, WR string
