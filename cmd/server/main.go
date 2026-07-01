@@ -154,6 +154,7 @@ func main() {
 		slog.Warn("game trace disabled", "err", err)
 	}
 	mux.HandleFunc("GET /api/matchmaker/status", mm.HandleStatus)
+	mux.HandleFunc("GET /api/matchmaker/debug", mm.HandleDebug)
 	mux.HandleFunc("POST /api/matchmaker/register", mm.HandleRegister)
 	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)
 	mux.HandleFunc("POST /api/matchmaker/complete", mm.HandleComplete)
@@ -184,7 +185,24 @@ func main() {
 	})
 
 	slog.Info("listening", "addr", *addr)
-	srv := &http.Server{Addr: *addr, Handler: handler, ReadTimeout: 15 * time.Second, ReadHeaderTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
+
+	// Periodic health heartbeat: confirms the process is alive and the event
+	// loop hasn't deadlocked. If this stops appearing, the process is stuck.
+	// If it keeps appearing but HTTP requests fail, the listener died silently
+	// (file descriptor exhaustion, accept() errors, or a blocked goroutine).
+	go func() {
+		for {
+			time.Sleep(60 * time.Second)
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			slog.Info("health heartbeat", "goroutines", runtime.NumGoroutine(),
+				"heap_mb", m.Alloc/1024/1024)
+		}
+	}()
+
+	srv := &http.Server{Addr: *addr, Handler: handler,
+		ReadTimeout: 15 * time.Second, ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
 		slog.Error("serve", "err", err)
 		os.Exit(1)
