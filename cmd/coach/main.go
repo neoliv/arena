@@ -21,7 +21,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,6 +77,14 @@ type runningEngine struct {
 }
 
 // assignment is a single side assignment from the matchmaker.
+// pairGroup holds both sides of a matchmaker pair.
+// Session IDs are "pairID-b" / "pairID-w"; the base is the shared prefix.
+type pairGroup struct {
+	base  string
+	black *assignment
+	white *assignment
+}
+
 type assignment struct {
 	SessionID   string `json:"session_id"`
 	Engine      string `json:"engine"` // "name:version"
@@ -345,113 +352,99 @@ func main() {
 		} else {
 			slog.Info("poll received assignments", "count", len(assignments))
 		}
-		// Prioritize completing pairs: launch mate of already-running engines first.
-		sortAssignmentsByMate(assignments, &mu, running)
-		for _, a := range assignments {
+		// Group assignments by pair base (session ID is "pairID-b" or "pairID-w").
+		// Only launch complete pairs — never strand one side alone, which wastes
+		// a core on an engine that will sit idle until reaped 15s later.
+		//
+		// TODO(multi-coach): when multiple coaches are active, a pair's two sides
+		// may be assigned to different coaches. The current single-coach logic
+		// requires both sides to be launchable locally. For multi-coach, the
+		// matchmaker must track which coach claimed each side and only start the
+		// game when both coaches have connected.
+		pairs := groupAssignmentsByPair(assignments)
+		for _, pair := range pairs {
+			// Check if mate is already running — launch the missing side.
+			var mateRunning bool
+			mu.Lock()
+			for sid := range running {
+				if idx := strings.LastIndex(sid, "-"); idx >= 0 && sid[:idx] == pair.base {
+					mateRunning = true
+					break
+				}
+			}
+			mu.Unlock()
+
+			if mateRunning {
+				var missing *assignment
+				if pair.black != nil {
+					mu.Lock()
+					_, exists := running[pair.black.SessionID]
+					mu.Unlock()
+					if !exists {
+						missing = pair.black
+					}
+				}
+				if missing == nil && pair.white != nil {
+					mu.Lock()
+					_, exists := running[pair.white.SessionID]
+					mu.Unlock()
+					if !exists {
+						missing = pair.white
+					}
+				}
+				if missing != nil {
+					launchOne(missing, &cfg, &cfgMu, &mu, running, healthErrors, notifyChange, ctx, logDir)
+				}
+				continue
+			}
+
+			// No mate running — only launch if BOTH sides are launchable.
+			if pair.black == nil || pair.white == nil {
+				continue
+			}
+
 			cfgMu.RLock()
-			ai := findAIByKey(cfg, a.Engine)
+			bAI := findAIByKey(cfg, pair.black.Engine)
+			wAI := findAIByKey(cfg, pair.white.Engine)
 			cfgMu.RUnlock()
-			if ai == nil {
-				slog.Warn("assignment for unknown AI", "engine", a.Engine)
+			if bAI == nil || wAI == nil {
 				continue
 			}
 
 			mu.Lock()
-			if _, exists := running[a.SessionID]; exists {
+			if _, exists := running[pair.black.SessionID]; exists {
+				mu.Unlock()
+				continue
+			}
+			if _, exists := running[pair.white.SessionID]; exists {
 				mu.Unlock()
 				continue
 			}
 			usedCores, usedMem := 0, 0
-			instCount := 0
+			bInst, wInst := 0, 0
 			for _, re := range running {
 				usedCores += re.ai.Cores
 				usedMem += re.ai.MemoryMB
-				if re.ai.Name == ai.Name && re.ai.Version == ai.Version {
-					instCount++
+				if re.ai.Name == bAI.Name && re.ai.Version == bAI.Version {
+					bInst++
+				}
+				if re.ai.Name == wAI.Name && re.ai.Version == wAI.Version {
+					wInst++
 				}
 			}
-			if (ai.MaxInstances > 0 && instCount >= ai.MaxInstances) || usedCores+ai.Cores > totalCores(cfg) || usedMem+ai.MemoryMB > totalMem(cfg) {
+			coresNeeded := bAI.Cores + wAI.Cores
+			memNeeded := bAI.MemoryMB + wAI.MemoryMB
+			bOk := bAI.MaxInstances == 0 || bInst < bAI.MaxInstances
+			wOk := wAI.MaxInstances == 0 || wInst < wAI.MaxInstances
+			if !bOk || !wOk || usedCores+coresNeeded > totalCores(cfg) || usedMem+memNeeded > totalMem(cfg) {
 				mu.Unlock()
-				reason := ""
-				if ai.MaxInstances > 0 && instCount >= ai.MaxInstances {
-					reason = fmt.Sprintf("instances at max (%d/%d)", instCount, ai.MaxInstances)
-				} else if usedCores+ai.Cores > totalCores(cfg) {
-					reason = fmt.Sprintf("cores: need %d, have %d/%d used", ai.Cores, usedCores, totalCores(cfg))
-				} else {
-					reason = fmt.Sprintf("memory: need %d MB, have %d/%d MB used", ai.MemoryMB, usedMem, totalMem(cfg))
-				}
-				slog.Warn("at capacity, skipping assignment", "ai", ai.Name, "reason", reason)
 				continue
 			}
 			mu.Unlock()
 
-			aiCopy := *ai
-			gameSecs := parseGameTime(a.TimeControl)
-			if gameSecs > 0 {
-				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%game_time%", fmt.Sprintf("%.0f", gameSecs), -1)
-				aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%share_dir%", cfg.ShareDir, -1)
-			}
-
-			re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, cfg.Token, a.SessionID, logDir, gameSecs)
-			if err != nil {
-				slog.Error("launch engine", "ai", ai.Name, "session", a.SessionID, "err", err)
-				mu.Lock()
-				healthErrors[ai.Name+":"+ai.Version] = err.Error()
-				mu.Unlock()
-				select {
-				case notifyChange <- struct{}{}:
-				default:
-				}
-				continue
-			}
-
-			mu.Lock()
-			running[a.SessionID] = re
-			mu.Unlock()
-
-			// Notify heartbeat of resource change (non-blocking).
-			select {
-			case notifyChange <- struct{}{}:
-			default:
-			}
-
-			// Wait for engine to exit (relay closes after matchmaker finishes game)
-			go func(sid string, engineKey string) {
-				err := re.cmd.Wait()
-				if err != nil {
-					re.killMu.Lock()
-					kr := re.killReason
-					re.killMu.Unlock()
-					switch kr {
-					case "timeout":
-						slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sid, "err", err)
-					case "nopartner", "shutdown":
-						slog.Warn("engine INFRASTRUCTURE KILL (no partner) — no penalty", "session", sid, "err", err)
-						// Infrastructure failures don't count against the engine.
-						mu.Lock()
-						delete(healthErrors, engineKey)
-						mu.Unlock()
-					default:
-						slog.Warn("engine exited with error", "session", sid, "err", err)
-						// Crash already reported by bridge goroutine (before relay close).
-					}
-				} else {
-					slog.Info("engine exited cleanly", "session", sid)
-					// Clear any previous health errors on clean exit.
-					mu.Lock()
-					delete(healthErrors, engineKey)
-					mu.Unlock()
-				}
-				re.cancel() // cleanup context
-				mu.Lock()
-				delete(running, sid)
-				mu.Unlock()
-				// Notify heartbeat of resource change (non-blocking).
-				select {
-				case notifyChange <- struct{}{}:
-				default:
-				}
-			}(a.SessionID, ai.Name+":"+ai.Version)
+			// Both sides launchable — launch both.
+			launchOne(pair.black, &cfg, &cfgMu, &mu, running, healthErrors, notifyChange, ctx, logDir)
+			launchOne(pair.white, &cfg, &cfgMu, &mu, running, healthErrors, notifyChange, ctx, logDir)
 		}
 
 		select {
@@ -475,44 +468,131 @@ func main() {
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
 
-// sortAssignmentsByMate reorders assignments so that pairs whose mate is
-// already running come first. This prevents the coach from scattering engines
-// across half-filled pairs that never get a partner — each launched engine
-// gets its counterpart launched next, completing the pair and starting the game.
-// Session IDs are "pairID-b" or "pairID-w"; the pair base is everything before
-// the last "-".
-func sortAssignmentsByMate(assignments []assignment, mu *sync.Mutex, running map[string]*runningEngine) {
-	if len(assignments) <= 1 {
+// groupAssignmentsByPair groups assignments by pair base.
+// Session IDs are "pairID-b" or "pairID-w"; the base is everything before
+// the last "-". Each pair gets one entry with black and/or white set.
+func groupAssignmentsByPair(assignments []assignment) []pairGroup {
+	groups := make(map[string]*pairGroup)
+	var order []string
+	for i := range assignments {
+		a := &assignments[i]
+		idx := strings.LastIndex(a.SessionID, "-")
+		if idx < 0 {
+			continue
+		}
+		base := a.SessionID[:idx]
+		pg, ok := groups[base]
+		if !ok {
+			pg = &pairGroup{base: base}
+			groups[base] = pg
+			order = append(order, base)
+		}
+		if a.Side == "black" {
+			pg.black = a
+		} else {
+			pg.white = a
+		}
+	}
+	result := make([]pairGroup, len(order))
+	for i, base := range order {
+		result[i] = *groups[base]
+	}
+	return result
+}
+
+// launchOne launches a single engine for an assignment. Extracted from the
+// main loop so it can be called for both sides of a pair.
+func launchOne(a *assignment, cfg *config, cfgMu *sync.RWMutex, mu *sync.Mutex, running map[string]*runningEngine, healthErrors map[string]string, notifyChange chan<- struct{}, ctx context.Context, logDir string) {
+	cfgMu.RLock()
+	ai := findAIByKey(*cfg, a.Engine)
+	cfgMu.RUnlock()
+	if ai == nil {
+		slog.Warn("assignment for unknown AI", "engine", a.Engine)
 		return
 	}
-	// Build set of pair bases that already have a running engine.
+
 	mu.Lock()
-	mates := make(map[string]bool)
-	for sid := range running {
-		if idx := strings.LastIndex(sid, "-"); idx >= 0 {
-			mates[sid[:idx]] = true
+	if _, exists := running[a.SessionID]; exists {
+		mu.Unlock()
+		return
+	}
+	usedCores, usedMem := 0, 0
+	instCount := 0
+	for _, re := range running {
+		usedCores += re.ai.Cores
+		usedMem += re.ai.MemoryMB
+		if re.ai.Name == ai.Name && re.ai.Version == ai.Version {
+			instCount++
 		}
+	}
+	if (ai.MaxInstances > 0 && instCount >= ai.MaxInstances) || usedCores+ai.Cores > totalCores(*cfg) || usedMem+ai.MemoryMB > totalMem(*cfg) {
+		mu.Unlock()
+		return
 	}
 	mu.Unlock()
 
-	// Stable sort: mate-running first, preserve original order within groups.
-	slices.SortStableFunc(assignments, func(a, b assignment) int {
-		aMate := false
-		if idx := strings.LastIndex(a.SessionID, "-"); idx >= 0 {
-			aMate = mates[a.SessionID[:idx]]
+	aiCopy := *ai
+	gameSecs := parseGameTime(a.TimeControl)
+	if gameSecs > 0 {
+		aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%game_time%", fmt.Sprintf("%.0f", gameSecs), -1)
+		aiCopy.RunCmd = strings.Replace(aiCopy.RunCmd, "%share_dir%", cfg.ShareDir, -1)
+	}
+
+	re, err := launchEngine(ctx, aiCopy, cfg.ArenaURL, cfg.Token, a.SessionID, logDir, gameSecs)
+	if err != nil {
+		slog.Error("launch engine", "ai", ai.Name, "session", a.SessionID, "err", err)
+		mu.Lock()
+		healthErrors[ai.Name+":"+ai.Version] = err.Error()
+		mu.Unlock()
+		select {
+		case notifyChange <- struct{}{}:
+		default:
 		}
-		bMate := false
-		if idx := strings.LastIndex(b.SessionID, "-"); idx >= 0 {
-			bMate = mates[b.SessionID[:idx]]
+		return
+	}
+
+	mu.Lock()
+	running[a.SessionID] = re
+	mu.Unlock()
+
+	select {
+	case notifyChange <- struct{}{}:
+	default:
+	}
+
+	// Wait for engine to exit (relay closes after matchmaker finishes game)
+	go func(sid string, engineKey string) {
+		err := re.cmd.Wait()
+		if err != nil {
+			re.killMu.Lock()
+			kr := re.killReason
+			re.killMu.Unlock()
+			switch kr {
+			case "timeout":
+				slog.Warn("engine TIME BUDGET EXCEEDED — game scored as loss", "session", sid, "err", err)
+			case "nopartner", "shutdown":
+				slog.Warn("engine INFRASTRUCTURE KILL (no partner) — no penalty", "session", sid, "err", err)
+				mu.Lock()
+				delete(healthErrors, engineKey)
+				mu.Unlock()
+			default:
+				slog.Warn("engine exited with error", "session", sid, "err", err)
+			}
+		} else {
+			slog.Info("engine exited cleanly", "session", sid)
+			mu.Lock()
+			delete(healthErrors, engineKey)
+			mu.Unlock()
 		}
-		if aMate && !bMate {
-			return -1
+		re.cancel()
+		mu.Lock()
+		delete(running, sid)
+		mu.Unlock()
+		select {
+		case notifyChange <- struct{}{}:
+		default:
 		}
-		if !aMate && bMate {
-			return 1
-		}
-		return 0
-	})
+	}(a.SessionID, ai.Name+":"+ai.Version)
 }
 
 func postJSON(client *http.Client, cfg config, path string, body any) (*http.Response, error) {
