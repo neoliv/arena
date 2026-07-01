@@ -76,7 +76,7 @@ func SetRollbackBanner() {
 	})
 }
 
-const htmxScript = `<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGxOGrUEVMQQBW1EE4IqOmxPxVJzZSoS0rIYgJOlhNYG8YP4iWm4kq6FDoGsEdJj" crossorigin="anonymous"></script>`
+const htmxScript = `<script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4"></script>`
 const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + htmxScript + `</head><body>`
 const pageFoot = `</body></html>`
 
