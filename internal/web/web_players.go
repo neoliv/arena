@@ -59,7 +59,10 @@ func (h *Handler) handleVersions(w http.ResponseWriter, r *http.Request) {
 	// ── Registered engines (in-memory, live from coaches) ────
 	if h.EngineStatusFunc != nil {
 		statuses := h.EngineStatusFunc()
-		if len(statuses) > 0 {
+		fmt.Fprintf(w, `<h2>Currently Registered <span style="font-weight:normal;color:var(--muted);font-size:.85em">(%d)</span></h2>`, len(statuses))
+			if len(statuses) > 0 {
+			} else {
+				io.WriteString(w, `<p style="color:var(--muted)">No coach-connected players — <code>coach-update.sh</code> may be needed.</p>`)
 			io.WriteString(w, `<h2>Currently Registered</h2><table><tr><th>Engine</th><th>Version</th><th>Coach</th><th>Status</th></tr>`)
 			for _, s := range statuses {
 				badge := `<span style="color:#4caf50">● active</span>`

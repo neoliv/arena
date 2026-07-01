@@ -47,7 +47,7 @@ type config struct {
 
 type aiConfig struct {
 	Name           string `yaml:"name"`
-	Version        string `yaml:"version"`
+	Version        string `yaml:"version,omitempty"` // probed from engine if absent
 	Created        string `yaml:"created"`
 	ChangelogShort string `yaml:"changelog_short"`
 	ChangelogFull  string `yaml:"changelog_full"`
@@ -212,7 +212,7 @@ func main() {
 					slog.Warn("parse ai config", "file", yamlPath, "err", err)
 					continue
 				}
-				if ai.Name == "" || ai.Version == "" {
+				if ai.Name == "" {
 					continue
 				}
 				if len(allowedAIs) > 0 && !allowedAIs[ai.Name] {
@@ -222,6 +222,19 @@ func main() {
 					ai.Binary = filepath.Join(engineDir, ai.Binary)
 				}
 				ai.RunCmd = strings.TrimSpace(ai.Binary + " " + ai.Args)
+
+		// Probe version from the engine binary if YAML didn't specify one.
+		// This makes the binary the single source of truth for version numbers.
+		if ai.Version == "" {
+			if v, err := probeVersion(ai); err == nil {
+				ai.Version = v
+				slog.Info("probed engine version", "name", ai.Name, "version", v)
+			} else {
+				slog.Warn("version probe failed", "name", ai.Name, "err", err)
+				continue // skip — can't register without a version
+			}
+		}
+
 				ai.EngineID, ai.EngineManifest = computeEngineIdentity(ai)
 				ais = append(ais, ai)
 			}
@@ -790,6 +803,28 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 		cmd.Process.Kill()
 		cancel()
 		return nil, fmt.Errorf("health check timeout")
+	}
+
+	// Probe engine version via GTP. If YAML has no version, use the engine's
+	// own version string (e.g. "0.1.1" from CARGO_PKG_VERSION). This makes
+	// the binary the single source of truth for version numbers.
+	if ai.Version == "" {
+		stdin.Write([]byte("version\n"))
+		verCh := make(chan string, 1)
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			if scanner.Scan() { verCh <- scanner.Text() } else { verCh <- "" }
+		}()
+		select {
+		case resp := <-verCh:
+			if strings.HasPrefix(resp, "= ") {
+				ai.Version = strings.TrimPrefix(resp, "= ")
+			}
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if ai.Version == "" {
+		ai.Version = "unknown"
 	}
 
 	relayPath := "/api/relay/" + sessionID
@@ -1469,5 +1504,44 @@ func handleShortFlags(name string) {
 			fmt.Print(version.PrintVersion(name))
 			os.Exit(0)
 		}
+	}
+}
+
+// probeVersion launches the engine, sends GTP "version", and returns the
+// response. Used at registration time to get the real version from the binary
+// when the YAML doesn't specify one.
+func probeVersion(ai aiConfig) (string, error) {
+	parts := strings.Fields(ai.RunCmd)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("empty run command")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	cmd.Dir = filepath.Dir(parts[0])
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("start: %w", err)
+	}
+	defer cmd.Wait()
+
+	stdin.Write([]byte("version\n"))
+	ch := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		if scanner.Scan() { ch <- scanner.Text() } else { ch <- "" }
+	}()
+	select {
+	case resp := <-ch:
+		if strings.HasPrefix(resp, "= ") {
+			return strings.TrimSpace(strings.TrimPrefix(resp, "= ")), nil
+		}
+		return "", fmt.Errorf("bad GTP response: %s", resp)
+	case <-ctx.Done():
+		cmd.Process.Kill()
+		return "", fmt.Errorf("timeout")
 	}
 }
