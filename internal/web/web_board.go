@@ -92,6 +92,10 @@ const boardInteractionJS = `<script>
   var curIdx=defIdx;
   var locked=false;
 
+  // Restore selected ply from URL parameter.
+  var urlPly=(new URLSearchParams(location.search)).get('ply');
+  if(urlPly){defIdx=parseInt(urlPly)-1;curIdx=defIdx;show(defIdx);}
+
   function show(idx){
     idx=Math.max(0,Math.min(maxIdx,idx));
     var d=dataEl?dataEl.querySelector('[data-idx="'+idx+'"]'):null;

@@ -15,9 +15,11 @@ type CoachMessage struct {
 	CoresUsed int            `json:"cores_used,omitempty"`
 	MemUsed   int            `json:"mem_used,omitempty"`
 	Players   []PlayerStatus `json:"players,omitempty"`
+	AckID     int            `json:"ack_id,omitempty"` // last processed launch ID
 
 	// engine event fields
 	Session string `json:"session,omitempty"`
+	Engine  string `json:"engine,omitempty"` // "name:version"
 	OK      bool   `json:"ok,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
@@ -43,6 +45,7 @@ type PlayerStatus struct {
 // MMMessage is a JSON command sent from the MM to a coach.
 type MMMessage struct {
 	Type string `json:"type"` // "launch", "kill"
+	ID   int    `json:"id"`   // monotonic sequence number
 
 	// launch fields
 	Session     string      `json:"session,omitempty"`

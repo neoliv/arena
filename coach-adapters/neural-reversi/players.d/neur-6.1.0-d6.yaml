@@ -1,5 +1,4 @@
-name: "neur-6.1.0-d6-e12"
-version: "6.1.0"
+name: "neur-d6-e12"
 created: "2026-06-24"
 changelog_short: "Neural Reversi depth 6, ES 12 — calibration"
 changelog_full: "Neural Reversi 6.1.0. Depth 6, ES ≤12. Light selectivity."

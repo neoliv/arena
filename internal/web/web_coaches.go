@@ -9,18 +9,17 @@ import (
 
 func (h *Handler) handleCoaches(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	open, closing := htmxWrap(r)
-	io.WriteString(w, open)
+	io.WriteString(w, pageHead+navHTML)
 	io.WriteString(w, `<h1>Coach Resources</h1>`)
 
 	// Read from in-memory MatchMaker state (not DB — coaches table is transient).
 	if h.CoachStatusFunc == nil {
-		io.WriteString(w, "<p>No coaches online.</p>"+closing)
+		io.WriteString(w, "<p>No coaches online.</p>"+pageFoot)
 		return
 	}
 	coachStatuses := h.CoachStatusFunc()
 	if len(coachStatuses) == 0 {
-		io.WriteString(w, "<p>No coaches online.</p>"+closing)
+		io.WriteString(w, "<p>No coaches online.</p>"+pageFoot)
 		return
 	}
 
@@ -62,5 +61,5 @@ func (h *Handler) handleCoaches(w http.ResponseWriter, r *http.Request) {
 			obsCPU,
 			lastSeen)
 	}
-	io.WriteString(w, "</table>"+`</div>`+closing)
+	io.WriteString(w, "</table>"+pageFoot)
 }

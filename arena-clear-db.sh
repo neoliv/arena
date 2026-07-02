@@ -34,8 +34,8 @@ TABLES=(
 )
 for t in "${TABLES[@]}"; do
     count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")
-    ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"DELETE FROM $t\""
-    echo "  cleared $t ($count rows)"
+    ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"DROP TABLE IF EXISTS $t\""
+    echo "  dropped $t ($count rows)"
 done
 
 TOKENS=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM api_tokens\"")

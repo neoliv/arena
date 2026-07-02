@@ -157,7 +157,9 @@ func (w *WantedList) Tick() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// 1. Load Elo data from DB (read-only, fast)
+	// 1. Build engine list from in-memory coach registrations.
+	// The DB engines table is only a game-log side effect; the source
+	// of truth for available engines is the WS-registered coaches.
 	type engineElo struct {
 		Name    string
 		Version string
@@ -166,36 +168,29 @@ func (w *WantedList) Tick() {
 		Games   int
 	}
 	var elos []engineElo
-	// Use JOIN-based query instead of correlated subqueries.
-	rows, _ := w.DB.Query(`SELECT e.name, e.version,
-		COALESCE(lr.rating_after, 1500.0),
-		COALESCE(gc.game_count, 0)
-		FROM engines e
-		LEFT JOIN (
-			SELECT engine_id, rating_after,
-				ROW_NUMBER() OVER (PARTITION BY engine_id ORDER BY id DESC) AS rn
-			FROM elo_history
-		) lr ON lr.engine_id = e.id AND lr.rn = 1
-		LEFT JOIN (
-			SELECT engine_id, COUNT(*) AS game_count
-			FROM elo_history
-			GROUP BY engine_id
-		) gc ON gc.engine_id = e.id
-		ORDER BY e.name`)
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var el engineElo
-			rows.Scan(&el.Name, &el.Version, &el.Rating, &el.Games)
-			el.TC = "30s" // default time control
-			elos = append(elos, el)
+	seen := make(map[string]bool)
+	for _, c := range w.coaches {
+		for key, e := range c.Engines {
+			if !e.Available || seen[key] {
+				continue
+			}
+			parts := strings.SplitN(key, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			elos = append(elos, engineElo{
+				Name:    parts[0],
+				Version: parts[1],
+				TC:      "30s",
+				Rating:  1500.0,
+				Games:   0,
+			})
+			seen[key] = true
 		}
 	}
-
-
 	// 2. Build priority-sorted wanted pairs
 	var newPairs []*wantedPair
-	seen := make(map[string]bool)
+	seen = make(map[string]bool)
 	for _, a := range elos {
 		for _, b := range elos {
 			if a.Name == b.Name && a.Version == b.Version {
@@ -676,4 +671,13 @@ func (w *WantedList) GetCoach(coachID string) (*CoachEntry, bool) {
 	defer w.mu.RUnlock()
 	c, ok := w.coaches[coachID]
 	return c, ok
+}
+
+// AllPairs returns all pairs (not just pending) for inflight counting.
+func (w *WantedList) AllPairs() []*wantedPair {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	out := make([]*wantedPair, len(w.pairs))
+	copy(out, w.pairs)
+	return out
 }

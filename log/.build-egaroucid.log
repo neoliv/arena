@@ -1,9 +1,13 @@
 Building Egaroucid adapter...
 rm -rf coach-engine
+# Ensure clean source state before applying patches.
 # Apply arena-stats patch (JSON stats + GTP default)
+Applying arena-stats.patch...
+# Apply depth-fix patch (respects -d / -es CLI flags)
+Applying depth-fix.patch...
 # Force rebuild via cmake (cd to source dir first)
-rm -rf /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/src/build_coach
-cd /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/src && cmake -B build_coach -DCMAKE_BUILD_TYPE=Release -DBUILD_CONSOLE=ON -DBUILD_GUI=OFF -DBUILD_ENGINE_LIB=OFF -DBUILD_SHARED_LIBS=OFF && cmake --build build_coach --target Egaroucid_for_Console.out -j$(nproc) || { echo "ERROR: Egaroucid build failed"; exit 1; }
+rm -rf /home/oliv/dev/agent/othello/ref/coach-adapters/egaroucid/../../egaroucid/src/build_coach
+cd /home/oliv/dev/agent/othello/ref/coach-adapters/egaroucid/../../egaroucid/src && cmake -B build_coach -DCMAKE_BUILD_TYPE=Release -DBUILD_CONSOLE=ON -DBUILD_GUI=OFF -DBUILD_ENGINE_LIB=OFF -DBUILD_SHARED_LIBS=OFF && cmake --build build_coach --target Egaroucid_for_Console.out -j$(nproc) || { echo "ERROR: Egaroucid build failed"; exit 1; }
 -- The CXX compiler identification is GNU 15.2.0
 -- Detecting CXX compiler ABI info
 -- Detecting CXX compiler ABI info - done
@@ -13,14 +17,14 @@ cd /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/sr
 -- Egaroucid engine variant: SIMD
 -- Configuring done (0.1s)
 -- Generating done (0.0s)
--- Build files have been written to: /home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach
-gmake[1]: Entering directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
+-- Build files have been written to: /home/oliv/dev/agent/othello/ref/egaroucid/src/build_coach
+gmake[1]: Entering directory '/home/oliv/dev/agent/othello/ref/egaroucid/src/build_coach'
 [ 50%] Building CXX object CMakeFiles/Egaroucid_for_Console.out.dir/src/Egaroucid_for_Console.cpp.o
-[100%] Linking CXX executable /home/oliv/dev/agent/othello-refs/egaroucid/src/bin/Egaroucid_for_Console.out
+[100%] Linking CXX executable /home/oliv/dev/agent/othello/ref/egaroucid/src/bin/Egaroucid_for_Console.out
 [100%] Built target Egaroucid_for_Console.out
-gmake[1]: Leaving directory '/home/oliv/dev/agent/othello-refs/egaroucid/src/build_coach'
+gmake[1]: Leaving directory '/home/oliv/dev/agent/othello/ref/egaroucid/src/build_coach'
 mkdir -p coach-engine/players.d
-cp /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/src/bin/Egaroucid_for_Console.out coach-engine/egaroucid-gtp || { echo "ERROR: Egaroucid binary not found"; exit 1; }
+cp /home/oliv/dev/agent/othello/ref/coach-adapters/egaroucid/../../egaroucid/src/bin/Egaroucid_for_Console.out coach-engine/egaroucid-gtp || { echo "ERROR: Egaroucid binary not found"; exit 1; }
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
-cp -r /home/oliv/dev/agent/othello-refs/coach-adapters/egaroucid/../../egaroucid/src/bin/resources coach-engine/ 2>/dev/null || true
+cp -r /home/oliv/dev/agent/othello/ref/coach-adapters/egaroucid/../../egaroucid/src/bin/resources coach-engine/ 2>/dev/null || true
 coach-engine/ ready: 42 files

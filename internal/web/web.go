@@ -77,7 +77,7 @@ func SetRollbackBanner() {
 }
 
 const htmxScript = `<script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4"></script>`
-const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + htmxScript + `</head><body>`
+const pageHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena</title>` + sharedCSS + htmxScript + searchJS + `</head><body>`
 const pageFoot = `</body></html>`
 
 // htmxWrap wraps auto-refresh content. When the request came from HTMX
@@ -86,7 +86,7 @@ const pageFoot = `</body></html>`
 func htmxWrap(r *http.Request) (open, closing string) {
 	path := r.URL.Path
 	if r.URL.RawQuery != "" { path += "?" + r.URL.RawQuery }
-	open = `<div hx-get="` + path + `" hx-trigger="every 30s" hx-swap="outerHTML">` + searchJS + filterBox
+	open = `<div hx-get="` + path + `" hx-trigger="every 30s" hx-swap="outerHTML">` + filterBox
 	closing = `</div>`
 	if r.Header.Get("HX-Request") != "true" {
 		open = pageHead + navHTML + open

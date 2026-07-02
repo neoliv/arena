@@ -1,104 +1,12 @@
 Building Neural Reversi adapter...
 rm -rf coach-engine
+# Ensure clean source state before applying patches.
 # Apply arena-stats patch (JSON stats + depth + GTP default + raw weight loader)
+Applying arena-stats.patch...
 # Build CLI crate (cd to source dir first)
-cd /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }
-   Compiling cli v6.1.0 (/home/oliv/dev/agent/othello-refs/neural-reversi/src/crates/cli)
-   Compiling reversi-core v6.1.0 (/home/oliv/dev/agent/othello-refs/neural-reversi/src/crates/reversi-core)
-warning: unexpected `cfg` condition name: `nightly`
- --> crates/reversi-core/src/lib.rs:3:13
-  |
-3 | #![cfg_attr(nightly, feature(hint_prefetch))]
-  |             ^^^^^^^
-  |
-  = help: expected names are: `docsrs`, `feature`, and `test` and 32 more
-  = help: consider using a Cargo feature instead
-  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
-           [lints.rust]
-           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
-  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
-  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
-  = note: `#[warn(unexpected_cfgs)]` on by default
-
-warning: unexpected `cfg` condition name: `nightly`
- --> crates/reversi-core/src/eval/eval_cache.rs:3:7
-  |
-3 | #[cfg(nightly)]
-  |       ^^^^^^^
-  |
-  = help: consider using a Cargo feature instead
-  = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
-           [lints.rust]
-           unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
-  = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
-  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
-
-warning: unexpected `cfg` condition name: `nightly`
-  --> crates/reversi-core/src/eval/eval_cache.rs:76:15
-   |
-76 |         #[cfg(nightly)]
-   |               ^^^^^^^
-   |
-   = help: consider using a Cargo feature instead
-   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
-            [lints.rust]
-            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
-   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
-   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
-
-warning: unexpected `cfg` condition name: `nightly`
-  --> crates/reversi-core/src/eval/eval_cache.rs:78:19
-   |
-78 |         #[cfg(not(nightly))]
-   |                   ^^^^^^^
-   |
-   = help: consider using a Cargo feature instead
-   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
-            [lints.rust]
-            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
-   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
-   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
-
-warning: unexpected `cfg` condition name: `nightly`
-  --> crates/reversi-core/src/transposition_table.rs:17:7
-   |
-17 | #[cfg(nightly)]
-   |       ^^^^^^^
-   |
-   = help: consider using a Cargo feature instead
-   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
-            [lints.rust]
-            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
-   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
-   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
-
-warning: unexpected `cfg` condition name: `nightly`
-   --> crates/reversi-core/src/transposition_table.rs:649:15
-    |
-649 |         #[cfg(nightly)]
-    |               ^^^^^^^
-    |
-    = help: consider using a Cargo feature instead
-    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
-             [lints.rust]
-             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
-    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
-    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
-
-warning: unexpected `cfg` condition name: `nightly`
-   --> crates/reversi-core/src/transposition_table.rs:651:19
-    |
-651 |         #[cfg(not(nightly))]
-    |                   ^^^^^^^
-    |
-    = help: consider using a Cargo feature instead
-    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
-             [lints.rust]
-             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
-    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
-    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
-
-warning: `reversi-core` (lib) generated 7 warnings
+cd /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }
+   Compiling cli v6.1.0 (/home/oliv/dev/agent/othello/ref/neural-reversi/src/crates/cli)
+   Compiling reversi-core v6.1.0 (/home/oliv/dev/agent/othello/ref/neural-reversi/src/crates/reversi-core)
 warning: unused variable: `mode`
    --> crates/cli/src/gtp.rs:631:13
     |
@@ -113,10 +21,10 @@ warning: associated items `from_board`, `from_moves`, `last_move`, `score`, and 
  25 | impl GameState {
     | -------------- associated items in this implementation
 ...
- 37 |     pub fn from_board(board: Board, side_to_move: Disc) -> Self {
+ 37 |     pub fn from_board(board: Board, side_to_move: Disc) ...
     |            ^^^^^^^^^^
 ...
- 46 |     pub fn from_moves(moves: &[Square]) -> Result<Self, String> {
+ 46 |     pub fn from_moves(moves: &[Square]) -> Result<Self, ...
     |            ^^^^^^^^^^
 ...
 175 |     pub fn last_move(&self) -> Option<Square> {
@@ -147,7 +55,7 @@ warning: associated items `is_ai_turn`, `as_str`, `all`, `to_index`, and `from_i
    |
 37 | impl GameMode {
    | ------------- associated items in this implementation
-38 |     /// Returns whether the AI should play for the given side.
+38 |     /// Returns whether the AI should play for ...
 39 |     pub fn is_ai_turn(&self, side: Disc) -> bool {
    |            ^^^^^^^^^^
 ...
@@ -220,7 +128,7 @@ warning: multiple associated items are never used
 234 |     pub fn new(
     |            ^^^
 ...
-275 |     pub fn run(mut self, mut terminal: DefaultTerminal) -> std::io::Res...
+275 |     pub fn run(mut self, mut terminal: DefaultTerminal) ...
     |            ^^^
 ...
 321 |     fn handle_event(&mut self, event: Event) {
@@ -229,7 +137,7 @@ warning: multiple associated items are never used
 334 |     fn handle_normal_event(&mut self, event: Event) {
     |        ^^^^^^^^^^^^^^^^^^^
 ...
-389 |     fn handle_hints_loading_event(&mut self, event: Event) {
+389 |     fn handle_hints_loading_event(&mut self, event: Even...
     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
 406 |     fn handle_hints_event(&mut self, event: Event) {
@@ -304,7 +212,7 @@ warning: struct `BoardArea` is never constructed
 warning: function `poll_event` is never used
   --> crates/cli/src/tui/event.rs:88:8
    |
-88 | pub fn poll_event(timeout: Duration, text_input: bool) -> std::io::Resul...
+88 | pub fn poll_event(timeout: Duration, text_input: bool) ->...
    |        ^^^^^^^^^^
 
 warning: function `map_key_event` is never used
@@ -322,13 +230,13 @@ warning: function `map_key_event_text_input` is never used
 warning: function `map_mouse_event` is never used
    --> crates/cli/src/tui/event.rs:189:4
     |
-189 | fn map_mouse_event(mouse: crossterm::event::MouseEvent) -> Option<Event> {
+189 | fn map_mouse_event(mouse: crossterm::event::MouseEvent) ...
     |    ^^^^^^^^^^^^^^^
 
 warning: function `parse_move_string` is never used
  --> crates/cli/src/tui/parse.rs:8:8
   |
-8 | pub fn parse_move_string(input: &str) -> Result<Vec<Square>, String> {
+8 | pub fn parse_move_string(input: &str) -> Result<Vec<Square...
   |        ^^^^^^^^^^^^^^^^^
 
 warning: function `parse_hex_u64` is never used
@@ -352,7 +260,7 @@ warning: function `render_title` is never used
 warning: function `render_content` is never used
   --> crates/cli/src/tui/render.rs:66:4
    |
-66 | fn render_content(frame: &mut Frame, area: Rect, app: &App) {
+66 | fn render_content(frame: &mut Frame, area: Rect, app: &Ap...
    |    ^^^^^^^^^^^^^^
 
 warning: function `render_board` is never used
@@ -364,13 +272,13 @@ warning: function `render_board` is never used
 warning: function `render_info_panel` is never used
   --> crates/cli/src/tui/render.rs:95:4
    |
-95 | fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
+95 | fn render_info_panel(frame: &mut Frame, area: Rect, app: ...
    |    ^^^^^^^^^^^^^^^^^
 
 warning: function `render_help_bar` is never used
    --> crates/cli/src/tui/render.rs:282:4
     |
-282 | fn render_help_bar(frame: &mut Frame, area: Rect, app: &App) {
+282 | fn render_help_bar(frame: &mut Frame, area: Rect, app: &...
     |    ^^^^^^^^^^^^^^^
 
 warning: function `render_hints_loading_popup` is never used
@@ -406,7 +314,7 @@ warning: function `render_quit_dialog` is never used
 warning: function `centered_rect` is never used
    --> crates/cli/src/tui/render.rs:545:4
     |
-545 | fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+545 | fn centered_rect(percent_x: u16, percent_y: u16, area: R...
     |    ^^^^^^^^^^^^^
 
 warning: function `render_board_edit_dialog` is never used
@@ -418,7 +326,7 @@ warning: function `render_board_edit_dialog` is never used
 warning: function `render_side_selector` is never used
    --> crates/cli/src/tui/render.rs:694:4
     |
-694 | fn render_side_selector(lines: &mut Vec<Line<'_>>, side: Disc) {
+694 | fn render_side_selector(lines: &mut Vec<Line<'_>>, side:...
     |    ^^^^^^^^^^^^^^^^^^^^
 
 warning: associated items `new`, `cursor`, and `last_move` are never used
@@ -427,23 +335,23 @@ warning: associated items `new`, `cursor`, and `last_move` are never used
 26 | impl<'a> BoardWidget<'a> {
    | ------------------------ associated items in this implementation
 27 |     /// Creates a new board widget.
-28 |     pub fn new(board: &'a Board, side_to_move: Disc) -> Self {
+28 |     pub fn new(board: &'a Board, side_to_move: Disc) -> S...
    |            ^^^
 ...
-39 |     pub fn cursor(mut self, row: usize, col: usize) -> Self {
+39 |     pub fn cursor(mut self, row: usize, col: usize) -> Se...
    |            ^^^^^^
 ...
 45 |     pub fn last_move(mut self, sq: Option<Square>) -> Self {
    |            ^^^^^^^^^
 
 warning: `cli` (bin "cli") generated 35 warnings (run `cargo fix --bin "cli" -p cli` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 11.67s
+    Finished `release` profile [optimized] target(s) in 11.64s
 mkdir -p coach-engine/players.d
-cp /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp || { echo "ERROR: Neural Reversi binary not found"; exit 1; }
+cp /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp || { echo "ERROR: Neural Reversi binary not found"; exit 1; }
 # Pre-decompress weight files so engine loads raw binary (no zstd overhead)
-Decompressing /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst -> coach-engine/eval-e6bbc4f6.bin...
-/home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst: 609599984 bytes 
-Decompressing /home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/eval_sm-e6bbc4f6.zst -> coach-engine/eval_sm-e6bbc4f6.bin...
-/home/oliv/dev/agent/othello-refs/coach-adapters/neural-reversi/../../neural-reversi/src/eval_sm-e6bbc4f6.zst: 228436344 bytes 
+Decompressing /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst -> coach-engine/eval-e6bbc4f6.bin...
+/home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst: 609599984 bytes 
+Decompressing /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval_sm-e6bbc4f6.zst -> coach-engine/eval_sm-e6bbc4f6.bin...
+/home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval_sm-e6bbc4f6.zst: 228436344 bytes 
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
 coach-engine/ ready: 6 files

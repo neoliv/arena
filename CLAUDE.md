@@ -184,3 +184,27 @@ unvisited links.
 - `README.md` — Arena overview, coach setup, identity model
 - `../neursi/docs/gtp-protocol.md` — GTP spec with arena extensions
 - `../neursi/docs/arena-design.md` — Architecture, API table, DB schema
+
+### Web: shared CSS is mandatory
+All arena pages MUST use the `sharedCSS` constant from `internal/web/web.go`.
+Never write inline `<style>` blocks — they will be missing dark mode and
+will diverge from the rest of the site. The shared CSS uses CSS custom
+properties (`var(--bg)`, `var(--fg)`, etc.) so all colors automatically
+adapt to `prefers-color-scheme`. When adding a new page, use `pageHead`
+and `pageFoot` constants for the HTML wrapper.
+
+
+**CDN resolution rule:** Always use specific versions with `jsdelivr.net`.
+`unpkg.com` returns 301 redirects; `jsdelivr` returns 200 directly. Bare
+version specifiers (`vega@5`) may return 400 — always pin to a tested version
+(`vega@5.27.0`). Prefer `cdn.jsdelivr.net/npm/<pkg>@<version>` over
+`unpkg.com/<pkg>@<version>`.
+
+## Distributed Match Play: Coach & Match Maker
+
+The Arena supports distributed match play across contributor machines:
+
+### Coach (`arena/cmd/coach/main.go`)
+
+Go binary that runs on each contributor machine. One coach per host, managing
+many concurrent AI instances.

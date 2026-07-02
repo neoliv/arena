@@ -636,7 +636,10 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 		for {
 			_, msg, err := conn.Read(context.Background())
 			if err != nil {
-				break
+				io.WriteString(stdin, "quit\n")
+				time.Sleep(500 * time.Millisecond)
+				cmd.Process.Signal(os.Kill)
+				return
 			}
 			cmdStr := string(msg)
 			if strings.HasPrefix(cmdStr, "clear_board") {

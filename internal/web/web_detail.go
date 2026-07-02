@@ -69,21 +69,21 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, pageHead+navHTML)
 
-	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth, disconnect, investigationNeeded, errorCode int
+	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth, disconnect, errorCode int
 	var result, opening, bName, bVer, wName, wVer, tcJSON string
 	var bTime, wTime, gameTimeSec float64
 	var bElo, wElo, bEloBefore, wEloBefore float64
 	err := h.DB.QueryRow(
 		"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
 			"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
-			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), COALESCE(g.disconnect,0), COALESCE(g.investigation_needed,0), COALESCE(g.error_code,0), eb.name, eb.version, ew.name, ew.version, "+
+			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), COALESCE(g.disconnect,0), COALESCE(g.error_code,0), eb.name, eb.version, ew.name, ew.version, "+
 			"COALESCE(m.time_control,'{}'), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.black_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.white_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0) "+
 			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id JOIN matches m ON m.id=g.match_id WHERE g.id=?",
-		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &disconnect, &investigationNeeded, &errorCode, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
+		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &disconnect, &errorCode, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
 	if err != nil {
 		io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
 		return
@@ -118,7 +118,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	// ── Error badge (right of score) ──────────────────────────
 	// Color: faulty engine (loser) or red for infra/disconnect.
 	statusBadge := ""
-	if errorCode != 0 || disconnect != 0 || investigationNeeded != 0 {
+	if errorCode != 0 || disconnect != 0  {
 		errLabel := ""
 		errColor := "#f44336" // default: red (infra/disconnect)
 		if errorCode != 0 {
@@ -127,8 +127,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			if result == "1-0" { errColor = "#d4c4a8" } else { errColor = "#22d3ee" }
 		} else if disconnect != 0 {
 			errLabel = "disconnected"
-		} else if investigationNeeded != 0 {
-			errLabel = "investigation needed"; errColor = "#ff9800"
 		}
 		bTimedOut = gameTimeSec > 0 && bTime > gameTimeSec*1.05
 		wTimedOut = gameTimeSec > 0 && wTime > gameTimeSec*1.05
@@ -261,11 +259,12 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			for _, t := range []struct{ key, label string }{
 				{"time", "Time"}, {"score", "Score"}, {"depth", "Depth"}, {"nodes", "Nodes"}, {"nps", "NpS"}, {"diff", "Diff"},
 			} {
-				sel := `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
+				sel := `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;cursor:pointer;border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"`
 				if tab != t.key {
-					sel = `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:var(--fg);background:rgba(56,136,85,0.06)"`
+					sel = `class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;cursor:pointer;border:1px solid var(--nav-hl);color:var(--fg);background:rgba(56,136,85,0.06)"`
 				}
-				fmt.Fprintf(w, `<a href="?tab=%s" %s>%s</a>`, t.key, sel, t.label)
+				// Preserve selected ply when switching tabs.
+				fmt.Fprintf(w, `<a %s onclick="var p=document.getElementById('ply-counter');var ply=p?p.textContent:'';location.href='?tab=%s'+(ply?'&ply='+ply:'')">%s</a>`, sel, t.key, t.label)
 			}
 			io.WriteString(w, `</nav>`)
 

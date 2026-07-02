@@ -9,16 +9,27 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
 	"nhooyr.io/websocket"
 )
 
-// runWSLoop connects to the arena via WebSocket, registers engines, sends
-// heartbeats, and executes launch/kill commands from the MM. Replaces the
-// old poll-based main loop.
+type connRef struct{ v atomic.Value } // stores *websocket.Conn
+
+func (c *connRef) get() *websocket.Conn {
+	if v := c.v.Load(); v != nil {
+		return v.(*websocket.Conn)
+	}
+	return nil
+}
+func (c *connRef) set(conn *websocket.Conn) { c.v.Store(conn) }
+
 func runWSLoop(ctx context.Context, cfg *config, cfgMu *sync.RWMutex, running map[string]*runningEngine, healthErrors map[string]string, logDir string) {
+	var cr connRef
+	var lastAckID int
+
 	connect := func() (*websocket.Conn, error) {
 		wsURL := strings.Replace(cfg.ArenaURL, "https://", "wss://", 1) + "/api/coach/ws"
 		conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
@@ -26,11 +37,38 @@ func runWSLoop(ctx context.Context, cfg *config, cfgMu *sync.RWMutex, running ma
 		})
 		return conn, err
 	}
-	sendMsg := func(conn *websocket.Conn, msg coach.CoachMessage) {
+	sendMsg := func(msg coach.CoachMessage) {
+		conn := cr.get()
+		if conn == nil {
+			return
+		}
 		data, _ := json.Marshal(msg)
 		conn.Write(ctx, websocket.MessageText, data)
 	}
-	register := func(conn *websocket.Conn) {
+
+	// sendHeartbeat sends current coach state immediately.
+	sendHeartbeat := func() {
+		var players []coach.PlayerStatus
+		instCounts := make(map[string]int)
+		for _, re := range running {
+			instCounts[re.ai.Name+":"+re.ai.Version]++
+		}
+		for key, count := range instCounts {
+			parts := strings.SplitN(key, ":", 2)
+			players = append(players, coach.PlayerStatus{Name: parts[0], Version: parts[1], Instances: count})
+		}
+		sendMsg(coach.CoachMessage{Type: "heartbeat", Players: players, AckID: lastAckID})
+	}
+	// heartbeatNeeded triggers an immediate heartbeat after state changes.
+	heartbeatNeeded := make(chan struct{}, 1)
+	notifyHeartbeat := func() {
+		select {
+		case heartbeatNeeded <- struct{}{}:
+		default:
+		}
+	}
+
+	register := func() {
 		cfgMu.RLock()
 		infos := make([]coach.EngineInfo, len(cfg.AIs))
 		for i, ai := range cfg.AIs {
@@ -39,11 +77,11 @@ func runWSLoop(ctx context.Context, cfg *config, cfgMu *sync.RWMutex, running ma
 				MaxInstances: ai.MaxInstances, RunCmd: ai.RunCmd, EngineID: ai.EngineID,
 			}
 		}
-		sendMsg(conn, coach.CoachMessage{
-			Type: "register", CoachID: cfg.CoachID, Cores: totalCores(*cfg), MemMB: totalMem(*cfg),
-			Engines: infos,
-		})
 		cfgMu.RUnlock()
+		sendMsg(coach.CoachMessage{
+			Type: "register", CoachID: cfg.CoachID, Cores: totalCores(*cfg), MemMB: totalMem(*cfg),
+			Engines: infos, AckID: lastAckID,
+		})
 	}
 
 	var conn *websocket.Conn
@@ -61,11 +99,11 @@ func runWSLoop(ctx context.Context, cfg *config, cfgMu *sync.RWMutex, running ma
 		}
 		break
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "shutdown")
-	register(conn)
+	cr.set(conn)
+	register()
 	slog.Info("registered with arena via ws", "engines", len(cfg.AIs))
 
-	// Heartbeat every 10s
+	// Heartbeat goroutine: sends on state change, or every 10s as fallback.
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -73,48 +111,57 @@ func runWSLoop(ctx context.Context, cfg *config, cfgMu *sync.RWMutex, running ma
 			select {
 			case <-ctx.Done():
 				return
+			case <-heartbeatNeeded:
+				sendHeartbeat()
 			case <-ticker.C:
-				var players []coach.PlayerStatus
-				instCounts := make(map[string]int)
-				for _, re := range running {
-					instCounts[re.ai.Name+":"+re.ai.Version]++
-				}
-				for key, count := range instCounts {
-					parts := strings.SplitN(key, ":", 2)
-					players = append(players, coach.PlayerStatus{Name: parts[0], Version: parts[1], Instances: count})
-				}
-				sendMsg(conn, coach.CoachMessage{Type: "heartbeat", Players: players})
+				sendHeartbeat()
 			}
 		}
 	}()
 
-	// Main command loop
+	go coreSampler(ctx, *cfg, &sync.Mutex{}, running)
+
+	reconnect := func() {
+		killAllRunning(&sync.Mutex{}, running)
+		for {
+			old := cr.get()
+			if old != nil {
+				old.Close(websocket.StatusNormalClosure, "reconnect")
+			}
+			var err error
+			conn, err = connect()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+				}
+				continue
+			}
+			cr.set(conn)
+			register()
+			return
+		}
+	}
+
 	for {
 		_, msgBytes, err := conn.Read(ctx)
 		if err != nil {
 			slog.Warn("ws disconnected, reconnecting", "err", err)
-			var killMu sync.Mutex
-			killAllRunning(&killMu, running)
-			for {
-				conn.Close(websocket.StatusNormalClosure, "reconnect")
-				var err2 error
-				conn, err2 = connect()
-				if err2 != nil {
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(5 * time.Second):
-					}
-					continue
-				}
-				register(conn)
-				break
+			reconnect()
+			conn = cr.get()
+			if conn == nil {
+				return
 			}
 			continue
 		}
 		var mmMsg coach.MMMessage
 		if err := json.Unmarshal(msgBytes, &mmMsg); err != nil {
 			continue
+		}
+		// Track last processed command ID for heartbeat ack.
+		if mmMsg.ID > lastAckID {
+			lastAckID = mmMsg.ID
 		}
 
 		switch mmMsg.Type {
@@ -137,31 +184,32 @@ func runWSLoop(ctx context.Context, cfg *config, cfgMu *sync.RWMutex, running ma
 				continue
 			}
 			running[mmMsg.Session] = re
+			notifyHeartbeat() // state changed
 
-			go func(sid string, engineKey string) {
+			engineKey := ai.Name + ":" + ai.Version
+			go func(sid string, eKey string) {
 				err := re.cmd.Wait()
 				re.killMu.Lock()
 				kr := re.killReason
 				re.killMu.Unlock()
-				if err != nil {
-					switch kr {
-					case "timeout":
-						slog.Warn("engine timeout", "session", sid)
-						sendMsg(conn, coach.CoachMessage{Type: "engine_timeout", Session: sid})
-					case "nopartner", "shutdown":
-						slog.Warn("engine killed (no partner)", "session", sid)
-						sendMsg(conn, coach.CoachMessage{Type: "engine_exited", Session: sid, OK: true})
-					default:
-						slog.Warn("engine crash", "session", sid, "err", err)
-						sendMsg(conn, coach.CoachMessage{Type: "engine_crash", Session: sid, Error: err.Error()})
-					}
-				} else {
+				switch {
+				case kr == "timeout":
+					slog.Warn("engine timeout", "session", sid)
+					sendMsg(coach.CoachMessage{Type: "engine_timeout", Session: sid, Engine: eKey})
+				case kr == "nopartner" || kr == "shutdown":
+					slog.Warn("engine killed (infra)", "session", sid)
+					sendMsg(coach.CoachMessage{Type: "engine_exited", Session: sid, OK: true, Engine: eKey})
+				case err != nil:
+					slog.Warn("engine crash", "session", sid, "err", err)
+					sendMsg(coach.CoachMessage{Type: "engine_crash", Session: sid, Error: err.Error(), Engine: eKey})
+				default:
 					slog.Info("engine exited cleanly", "session", sid)
-					sendMsg(conn, coach.CoachMessage{Type: "engine_exited", Session: sid, OK: true})
+					sendMsg(coach.CoachMessage{Type: "engine_exited", Session: sid, OK: true, Engine: eKey})
 				}
 				re.cancel()
 				delete(running, sid)
-			}(mmMsg.Session, ai.Name+":"+ai.Version)
+				notifyHeartbeat() // state changed
+			}(mmMsg.Session, engineKey)
 
 		case "kill":
 			if re, ok := running[mmMsg.Session]; ok {

@@ -50,10 +50,11 @@ type MatchMaker struct {
 	nextAssignID int64
 
 	// WebSocket coach connections (push-based protocol).
-	coachConnsMu         sync.Mutex
-	coachConns           map[string]*coachConn
-	coachAllocated       map[string]int // coachID → cores currently allocated
-	coachEngineInstances map[string]int // "coachID:engineKey" → running instances
+	coachConnsMu    sync.Mutex
+	coachConns      map[string]*coachConn
+	coachHeartbeats map[string]coach.CoachMessage // coachID → last heartbeat
+	coachNextID     map[string]int                // coachID → next launch ID to send
+	coachAckedID    map[string]int                // coachID → last heartbeat's ack_id
 }
 
 // GameResult carries completed game data for storage.
@@ -72,9 +73,10 @@ func New(database *db.DB, relay *coach.Relay) *MatchMaker {
 		wakeup:      make(chan struct{}, 1),
 		quit:        make(chan struct{}),
 		assignments:    make(map[int64]*MatchAssignment),
-		coachConns:           make(map[string]*coachConn),
-		coachAllocated:       make(map[string]int),
-		coachEngineInstances: make(map[string]int),
+		coachConns:      make(map[string]*coachConn),
+		coachHeartbeats: make(map[string]coach.CoachMessage),
+		coachNextID:     make(map[string]int),
+		coachAckedID:    make(map[string]int),
 	}
 	// When a coach dials the relay, check if both sides of a pair are ready.
 	relay.OnConnect = func(sessionID string) {

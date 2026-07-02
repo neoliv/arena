@@ -1,5 +1,5 @@
 make: 'coach-build' is up to date.
-   Compiling neursi v0.1.0 (/home/oliv/dev/agent/neursi/engine)
+   Compiling neursi v0.1.1 (/home/oliv/dev/agent/neursi/engine)
 warning: unused imports: `EC_CACHE_MASK`, `SCORE_MAX`, and `SCORE_MIN`
  --> src/endgame/tests.rs:3:22
   |
@@ -8,11 +8,25 @@ warning: unused imports: `EC_CACHE_MASK`, `SCORE_MAX`, and `SCORE_MIN`
   |
   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
-warning: unused import: `std::sync::atomic::AtomicBool`
- --> src/endgame/tests.rs:5:5
+warning: unused imports: `NO_MOVE_KNOWN`, `load_obf_file as load_ffo_file`, `parse_obf`, and `square_from_name`
+ --> src/endgame/tests.rs:5:46
   |
-5 | use std::sync::atomic::AtomicBool;
+5 | use crate::obf::{ObfPosition as FfoPosition, parse_obf, load_obf_file as load_ffo_file,
+  |                                              ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6 |     NO_MOVE_KNOWN, square_from_name};
+  |     ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::atomic::AtomicBool`
+ --> src/endgame/tests.rs:7:5
+  |
+7 | use std::sync::atomic::AtomicBool;
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `HostCalib` and `host_calib_path`
+   --> src/time_mgr.rs:118:38
+    |
+118 | ...{EsCalibTable, HostCalib, host_calib_path};
+    |                   ^^^^^^^^^  ^^^^^^^^^^^^^^^
 
 warning: unused variable: `offset`
    --> src/board.rs:518:13
@@ -22,39 +36,57 @@ warning: unused variable: `offset`
     |
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
+warning: unused variable: `y`
+  --> src/calibrate.rs:31:13
+   |
+31 |         let y: i32 = parts[0].parse().ok()?;
+   |             ^ help: if this is intentional, prefix it with an underscore: `_y`
+
+warning: unused variable: `m`
+  --> src/calibrate.rs:32:13
+   |
+32 |         let m: u32 = parts[1].parse().ok()?;
+   |             ^ help: if this is intentional, prefix it with an underscore: `_m`
+
+warning: unused variable: `d`
+  --> src/calibrate.rs:33:13
+   |
+33 |         let d: u32 = parts[2].parse().ok()?;
+   |             ^ help: if this is intentional, prefix it with an underscore: `_d`
+
+warning: unused variable: `days_since`
+  --> src/calibrate.rs:35:13
+   |
+35 |         let days_since = |y: i32, m: u32, d: u32| -> i64 {
+   |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_days_since`
+
 warning: unused variable: `n_empties`
-   --> src/endgame/solve.rs:261:9
+   --> src/endgame/solve.rs:270:9
     |
-261 |     let n_empties = empties as usize;
+270 |     let n_empties = empties as usize;
     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_empties`
 
-warning: unused variable: `beta_orig`
-   --> src/endgame/solve.rs:285:9
-    |
-285 |     let beta_orig = alpha + 1; // save NWS window before shadowing
-    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_beta_orig`
-
 warning: variable `skipped_count` is assigned to, but never used
-   --> src/endgame/tests.rs:248:9
+   --> src/endgame/tests.rs:106:9
     |
-248 |     let mut skipped_count = 0;
+106 |     let mut skipped_count = 0;
     |         ^^^^^^^^^^^^^^^^^
     |
     = note: consider using `_skipped_count` instead
 
 warning: value assigned to `skipped_count` is never read
-   --> src/endgame/tests.rs:253:13
+   --> src/endgame/tests.rs:111:13
     |
-253 |             skipped_count += 1;
+111 |             skipped_count += 1;
     |             ^^^^^^^^^^^^^^^^^^
     |
     = help: maybe it is overwritten before being read?
     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
 
 warning: function `count_last_flip` is never used
-  --> src/endgame/solve.rs:22:4
+  --> src/endgame/solve.rs:30:4
    |
-22 | fn count_last_flip(sq: u32, player: u64, opponent: u64) -> u32 {
+30 | fn count_last_flip(sq: u32, player: u64, opponent: u64) -> u32 {
    |    ^^^^^^^^^^^^^^^
    |
    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
@@ -62,7 +94,7 @@ warning: function `count_last_flip` is never used
 warning: function `verify_byte_equivalence` is never used
  --> src/nnue_verify.rs:9:4
   |
-9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWeightsMmap) ...
+9 | fn verify_byte_equivalence(legacy: &NnueWeights, mmap: &NnueWe...
   |    ^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `benchmark_access` is never used
@@ -71,7 +103,7 @@ warning: function `benchmark_access` is never used
 30 | fn benchmark_access(legacy: &[i16], mmap: &[i16]) {
    |    ^^^^^^^^^^^^^^^^
 
-warning: `neursi` (lib) generated 10 warnings (run `cargo fix --lib -p neursi` to apply 5 suggestions)
+warning: `neursi` (lib) generated 15 warnings (run `cargo fix --lib -p neursi` to apply 10 suggestions)
 warning: unused import: `neursi::board::*`
   --> src/bin/es_calibrate.rs:14:5
    |
@@ -81,5 +113,5 @@ warning: unused import: `neursi::board::*`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 3.98s
-coach-engine/ ready: 4 files
+    Finished `release` profile [optimized] target(s) in 5.61s
+coach-engine/ ready: 5 files

@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/neoliv/arena/internal/coach"
 	"nhooyr.io/websocket"
 )
 
-// coachConn represents an active WebSocket connection from a coach.
 type coachConn struct {
 	conn    *websocket.Conn
 	coachID string
@@ -22,7 +20,6 @@ type coachConn struct {
 func (c *coachConn) sendJSON(msg coach.MMMessage) {
 	data, err := json.Marshal(msg)
 	if err != nil {
-		slog.Warn("marshal mm msg", "err", err)
 		return
 	}
 	select {
@@ -32,7 +29,6 @@ func (c *coachConn) sendJSON(msg coach.MMMessage) {
 	}
 }
 
-// HandleCoachWS handles a persistent coach WebSocket connection.
 func (m *MatchMaker) HandleCoachWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"arena.arsac.org", "localhost"},
@@ -42,11 +38,7 @@ func (m *MatchMaker) HandleCoachWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cc := &coachConn{
-		conn: conn,
-		send: make(chan []byte, 32),
-	}
-
+	cc := &coachConn{conn: conn, send: make(chan []byte, 32)}
 	go func() {
 		for data := range cc.send {
 			cc.mu.Lock()
@@ -74,13 +66,9 @@ func (m *MatchMaker) HandleCoachWS(w http.ResponseWriter, r *http.Request) {
 
 	m.coachConnsMu.Lock()
 	delete(m.coachConns, cc.coachID)
-	delete(m.coachAllocated, cc.coachID)
-	// Clean up engine instances for this coach
-	for k := range m.coachEngineInstances {
-		if strings.HasPrefix(k, cc.coachID+":") {
-			delete(m.coachEngineInstances, k)
-		}
-	}
+	delete(m.coachHeartbeats, cc.coachID)
+	delete(m.coachNextID, cc.coachID)
+	delete(m.coachAckedID, cc.coachID)
 	m.coachConnsMu.Unlock()
 
 	if cc.coachID != "" {
@@ -96,7 +84,6 @@ func (m *MatchMaker) handleCoachMessage(cc *coachConn, msg coach.CoachMessage) {
 			return
 		}
 		cc.coachID = msg.CoachID
-
 		engines := make([]EngineEntry, len(msg.Engines))
 		for i, e := range msg.Engines {
 			engines[i] = EngineEntry{
@@ -109,10 +96,13 @@ func (m *MatchMaker) handleCoachMessage(cc *coachConn, msg coach.CoachMessage) {
 
 		m.coachConnsMu.Lock()
 		m.coachConns[msg.CoachID] = cc
-		m.coachAllocated[msg.CoachID] = 0
+		// Coach sends its last AckID on reconnect. MM continues from there.
+		m.coachNextID[msg.CoachID] = msg.AckID + 1
+		m.coachAckedID[msg.CoachID] = msg.AckID
 		m.coachConnsMu.Unlock()
 
-		slog.Info("coach registered via ws", "coach", msg.CoachID, "engines", len(engines))
+		slog.Info("coach registered via ws", "coach", msg.CoachID, "engines", len(engines),
+			"next_id", msg.AckID+1)
 		go func() {
 			m.Wanted.Tick()
 			m.tryLaunch()
@@ -122,69 +112,62 @@ func (m *MatchMaker) handleCoachMessage(cc *coachConn, msg coach.CoachMessage) {
 		if cc.coachID == "" {
 			return
 		}
+		m.coachConnsMu.Lock()
+		m.coachHeartbeats[cc.coachID] = msg
+		m.coachAckedID[cc.coachID] = msg.AckID
+		m.coachConnsMu.Unlock()
+
 		aiUpdates := make(map[string]int)
 		for _, p := range msg.Players {
 			aiUpdates[p.Name+":"+p.Version] = p.Instances
 		}
 		m.Wanted.Heartbeat(cc.coachID, 0, 0)
 		m.Wanted.UpdateInstances(cc.coachID, aiUpdates)
+		// Only trigger launch if the heartbeat confirms we have room.
+		// During warmup, hbRunning=0 but inflight covers in-flight launches.
+		hbRunning := 0
+		for _, p := range msg.Players { hbRunning += p.Instances }
+		next := m.coachNextID[cc.coachID]
+		inflight := next - (msg.AckID + 1)
+		if inflight < 0 { inflight = 0 }
+		if hbRunning+inflight < 8 {
+			m.tryLaunch()
+		}
 
 	case "engine_exited":
 		slog.Info("engine exited", "session", msg.Session, "ok", msg.OK)
 		m.Wanted.ReleaseSide(msg.Session)
-		m.coachConnsMu.Lock()
-		if cc.coachID != "" {
-			if m.coachAllocated[cc.coachID] > 0 { m.coachAllocated[cc.coachID]-- }
-			// Decrement engine instance. We don't know which engine, so just
-			// scan and decrement any positive count for this coach.
-			for k := range m.coachEngineInstances {
-				if strings.HasPrefix(k, cc.coachID+":") && m.coachEngineInstances[k] > 0 {
-					m.coachEngineInstances[k]--
-					break
-				}
-			}
-		}
-		m.coachConnsMu.Unlock()
+		// Engine exiting always frees capacity — adjust hbRunning
+		// optimistically so tryLaunch sees the freed slot immediately.
+		m.adjustHeartbeatForExit(cc.coachID, msg.Engine)
 		m.tryLaunch()
 
 	case "engine_timeout":
 		slog.Warn("engine timeout", "session", msg.Session)
-		if m.ErrorStore != nil { m.ErrorStore.Report(msg.Session, "timeout") }
-		m.Wanted.ReleaseSide(msg.Session)
-		m.coachConnsMu.Lock()
-		if cc.coachID != "" {
-			if m.coachAllocated[cc.coachID] > 0 { m.coachAllocated[cc.coachID]-- }
-			for k := range m.coachEngineInstances {
-				if strings.HasPrefix(k, cc.coachID+":") && m.coachEngineInstances[k] > 0 {
-					m.coachEngineInstances[k]--; break
-				}
-			}
+		if m.ErrorStore != nil {
+			m.ErrorStore.Report(msg.Session, "timeout")
 		}
-		m.coachConnsMu.Unlock()
+		m.Wanted.ReleaseSide(msg.Session)
+		m.adjustHeartbeatForExit(cc.coachID, msg.Engine)
 		m.tryLaunch()
 
 	case "engine_crash":
 		slog.Warn("engine crash", "session", msg.Session)
-		if m.ErrorStore != nil { m.ErrorStore.Report(msg.Session, "crash") }
-		m.Wanted.ReleaseSide(msg.Session)
-		m.coachConnsMu.Lock()
-		if cc.coachID != "" {
-			if m.coachAllocated[cc.coachID] > 0 { m.coachAllocated[cc.coachID]-- }
-			for k := range m.coachEngineInstances {
-				if strings.HasPrefix(k, cc.coachID+":") && m.coachEngineInstances[k] > 0 {
-					m.coachEngineInstances[k]--; break
-				}
-			}
+		if m.ErrorStore != nil {
+			m.ErrorStore.Report(msg.Session, "crash")
 		}
-		m.coachConnsMu.Unlock()
+		m.Wanted.ReleaseSide(msg.Session)
+		m.adjustHeartbeatForExit(cc.coachID, msg.Engine)
 		m.tryLaunch()
 	}
 }
 
-// tryLaunch scans pending pairs and assigns them to connected coaches,
-// respecting per-coach capacity limits.
 func (m *MatchMaker) tryLaunch() {
 	pairs := m.Wanted.PendingPairs()
+	if len(pairs) == 0 {
+		return
+	}
+	var skipped, launched, noRoom, noCoach int
 	for _, p := range pairs {
 		if p.Status != "pending" {
 			continue
@@ -192,32 +175,22 @@ func (m *MatchMaker) tryLaunch() {
 		m.coachConnsMu.Lock()
 		bCoach, bOk := m.findCoachForEngine(p.BlackEngine, p.BlackCoachID)
 		wCoach, wOk := m.findCoachForEngine(p.WhiteEngine, p.WhiteCoachID)
-
-		// Capacity + MaxInstances check.
-		bCores := engineCores(m.Wanted, bCoach, p.BlackEngine)
-		wCores := engineCores(m.Wanted, wCoach, p.WhiteEngine)
-		bKey := bCoach + ":" + p.BlackEngine
-		wKey := wCoach + ":" + p.WhiteEngine
-		bMax := maxInstances(m.Wanted, bCoach, p.BlackEngine)
-		wMax := maxInstances(m.Wanted, wCoach, p.WhiteEngine)
-		bInstOk := bOk && (bMax == 0 || m.coachEngineInstances[bKey] < bMax)
-		wInstOk := wOk && (wMax == 0 || m.coachEngineInstances[wKey] < wMax)
-		bRoom := bOk && (m.coachAllocated[bCoach]+bCores <= coachCores(m.Wanted, bCoach))
-		wRoom := wOk && (m.coachAllocated[wCoach]+wCores <= coachCores(m.Wanted, wCoach))
-		if !bInstOk || !wInstOk || !bRoom || !wRoom {
+		bRoom := bOk && m.coachHasRoom(bCoach, p.BlackEngine)
+		wRoom := wOk && m.coachHasRoom(wCoach, p.WhiteEngine)
+		if !bOk || !wOk {
+			noCoach++
 			m.coachConnsMu.Unlock()
 			continue
 		}
-
-		// Reserve cores and instances before unlocking
-		if bOk {
-			m.coachAllocated[bCoach] += bCores
-			m.coachEngineInstances[bKey]++
+		if !bRoom || !wRoom {
+			noRoom++
+			m.coachConnsMu.Unlock()
+			continue
 		}
-		if wOk {
-			m.coachAllocated[wCoach] += wCores
-			m.coachEngineInstances[wKey]++
-		}
+		bID := m.coachNextID[bCoach]
+		m.coachNextID[bCoach]++
+		wID := m.coachNextID[wCoach]
+		m.coachNextID[wCoach]++
 		m.coachConnsMu.Unlock()
 
 		p.Status = "assigned"
@@ -227,58 +200,49 @@ func (m *MatchMaker) tryLaunch() {
 			p.SessionID = p.ID
 		}
 		m.sendToCoach(bCoach, coach.MMMessage{
-			Type: "launch", Session: p.SessionID + "-b",
+			ID: bID, Type: "launch", Session: p.SessionID + "-b",
 			Engine: p.BlackEngine, Side: "black",
 			TimeControl: coach.TimeControl{Seconds: parseTCSeconds(p.TimeControl)},
 			Opening:     p.OpeningLine,
 		})
 		m.sendToCoach(wCoach, coach.MMMessage{
-			Type: "launch", Session: p.SessionID + "-w",
+			ID: wID, Type: "launch", Session: p.SessionID + "-w",
 			Engine: p.WhiteEngine, Side: "white",
 			TimeControl: coach.TimeControl{Seconds: parseTCSeconds(p.TimeControl)},
 			Opening:     p.OpeningLine,
 		})
-		slog.Info("launched pair", "pair", p.ID, "b", p.BlackEngine, "w", p.WhiteEngine,
-			"b_coach", bCoach, "w_coach", wCoach)
+		launched++
+		slog.Info("launched pair", "pair", p.ID, "b", p.BlackEngine, "w", p.WhiteEngine)
+	}
+	if skipped > 0 || launched > 0 {
+		slog.Info("tryLaunch done", "pending", len(pairs), "launched", launched,
+			"skipped", skipped, "no_coach", noCoach, "no_room", noRoom)
+	} else {
+		skipped = len(pairs) - launched
 	}
 }
 
-// engineCores returns the cores needed for a given engine on a coach.
-func engineCores(w *WantedList, coachID, engineKey string) int {
-	if coachID == "" {
-		return 1
-	}
-	c, ok := w.GetCoach(coachID)
-	if !ok {
-		return 1
-	}
-	e, ok := c.Engines[engineKey]
-	if !ok || e.Cores <= 0 {
-		return 1
-	}
-	return e.Cores
-}
+func (m *MatchMaker) coachHasRoom(coachID, engineKey string) bool {
+	hb, _ := m.coachHeartbeats[coachID]
+	acked := m.coachAckedID[coachID]
+	next := m.coachNextID[coachID]
 
-// maxInstances returns MaxInstances for an engine on a coach (default 1).
-func maxInstances(w *WantedList, coachID, engineKey string) int {
-	if coachID == "" { return 1 }
-	c, ok := w.GetCoach(coachID)
-	if !ok { return 1 }
-	e, ok := c.Engines[engineKey]
-	if !ok || e.MaxInstances <= 0 { return 1 }
-	return e.MaxInstances
-}
-
-// coachCores returns the total cores available on a coach.
-func coachCores(w *WantedList, coachID string) int {
-	if coachID == "" {
-		return 999
+	hbRunning := 0
+	for _, p := range hb.Players {
+		hbRunning += p.Instances
 	}
-	c, ok := w.GetCoach(coachID)
-	if !ok || c.CoresTotal <= 0 {
-		return 8 // default
+	inflight := next - (acked + 1)
+	if inflight < 0 {
+		inflight = 0
 	}
-	return c.CoresTotal
+	coresTotal := 8
+	if c, ok := m.Wanted.GetCoach(coachID); ok {
+		coresTotal = c.CoresTotal
+	}
+	// hbRunning + inflight must leave room for a full pair (2 engines).
+	// The +1 gives one slot of buffer — an exit frees 1 slot but we can
+	// still launch a pair (2 engines) without being blocked by inflight.
+	return hbRunning+inflight+1 < coresTotal
 }
 
 func (m *MatchMaker) findCoachForEngine(engineKey, preferred string) (string, bool) {
@@ -308,12 +272,28 @@ func (m *MatchMaker) sendToCoach(coachID string, msg coach.MMMessage) {
 }
 
 func parseTCSeconds(tcJSON string) float64 {
-	var tc struct {
-		Seconds float64 `json:"seconds"`
-	}
+	var tc struct{ Seconds float64 `json:"seconds"` }
 	json.Unmarshal([]byte(tcJSON), &tc)
 	if tc.Seconds <= 0 {
 		return 30
 	}
 	return tc.Seconds
+}
+
+// adjustHeartbeatForExit decrements the instance count for an engine
+// in the cached heartbeat so tryLaunch sees freed capacity immediately.
+func (m *MatchMaker) adjustHeartbeatForExit(coachID, engineKey string) {
+	m.coachConnsMu.Lock()
+	defer m.coachConnsMu.Unlock()
+	hb, ok := m.coachHeartbeats[coachID]
+	if !ok || engineKey == "" {
+		return
+	}
+	for i, p := range hb.Players {
+		if p.Name+":"+p.Version == engineKey && p.Instances > 0 {
+			hb.Players[i].Instances--
+			m.coachHeartbeats[coachID] = hb
+			return
+		}
+	}
 }
