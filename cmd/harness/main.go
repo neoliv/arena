@@ -84,9 +84,9 @@ func main() {
 		defer f.Close()
 	}
 
-	b := startEngine("B", "/home/oliv/dev/agent/neursi/engine/target/release/neursi",
+	b := startEngine("B", "/home/oliv/dev/agent/othello/neursi/engine/target/release/neursi",
 		"--weights", "/tmp/sprt-cand-weights.bin.mmap", "--require-nn", "--log-state")
-	w := startEngine("W", "/home/oliv/dev/agent/neursi/engine/target/release/neursi",
+	w := startEngine("W", "/home/oliv/dev/agent/othello/neursi/engine/target/release/neursi",
 		"--weights", "/tmp/sprt-cand-weights.bin.mmap", "--require-nn", "--log-state")
 	defer b.cmd.Process.Kill()
 	defer w.cmd.Process.Kill()

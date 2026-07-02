@@ -48,6 +48,12 @@ type MatchMaker struct {
 	assignMu    sync.Mutex
 	assignments map[int64]*MatchAssignment
 	nextAssignID int64
+
+	// WebSocket coach connections (push-based protocol).
+	coachConnsMu         sync.Mutex
+	coachConns           map[string]*coachConn
+	coachAllocated       map[string]int // coachID → cores currently allocated
+	coachEngineInstances map[string]int // "coachID:engineKey" → running instances
 }
 
 // GameResult carries completed game data for storage.
@@ -65,7 +71,10 @@ func New(database *db.DB, relay *coach.Relay) *MatchMaker {
 		storeCh:     storeCh,
 		wakeup:      make(chan struct{}, 1),
 		quit:        make(chan struct{}),
-		assignments: make(map[int64]*MatchAssignment),
+		assignments:    make(map[int64]*MatchAssignment),
+		coachConns:           make(map[string]*coachConn),
+		coachAllocated:       make(map[string]int),
+		coachEngineInstances: make(map[string]int),
 	}
 	// When a coach dials the relay, check if both sides of a pair are ready.
 	relay.OnConnect = func(sessionID string) {
@@ -122,8 +131,8 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 		if g.Disconnect {
 			disc = 1
 		}
-		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect, error_code)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect, error_code, created_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())`,
 			matchID, i+1, blackID, whiteID, g.Result, g.FinalScore, g.OpeningLine,
 			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc, g.ErrorCode)
 		if err != nil || gres == nil {
@@ -224,6 +233,7 @@ func (m *MatchMaker) tickLoop() {
 		case <-ticker.C:
 		}
 		m.Wanted.Tick()
+		m.tryLaunch()
 
 		// Reap lone connections (one side connected, opponent no-show).
 		// Clean up the relay session for the connected side so the coach

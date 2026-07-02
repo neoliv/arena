@@ -8,8 +8,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 if echo "$SCRIPT_DIR" | grep -q "neursi/arena"; then
     echo "ERROR: coach-update.sh is in the old neursi/arena location."
-    echo "The arena is now at agent/arena. Fix with:"
-    echo "  ln -sf ~/dev/agent/arena/coach-update.sh ~/bin/coach-update"
+    echo "The arena is now at agent/othello/arena. Fix with:"
+    echo "  ln -sf ~/dev/agent/othello/arena/coach-update.sh ~/bin/coach-update"
     exit 1
 fi
 COACH_DIR="${COACH_DIR:-$HOME/coach}"

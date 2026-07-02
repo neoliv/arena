@@ -507,7 +507,7 @@ func (w *WantedList) ClaimSide(sessionID string) (startMatch bool, pair *wantedP
 		if p.SessionID != pairID && p.ID != pairID {
 			continue
 		}
-		if p.Status != "pending" {
+		if p.Status != "pending" && p.Status != "assigned" {
 			return false, nil
 		}
 		now := time.Now()
@@ -628,4 +628,52 @@ func (w *WantedList) ReapStale(_ time.Duration) {
 			delete(w.coaches, coachID)
 		}
 	}
+}
+
+// PendingPairs returns a copy of all pending pairs for tryLaunch scanning.
+func (w *WantedList) PendingPairs() []*wantedPair {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	var out []*wantedPair
+	for _, p := range w.pairs {
+		if p.Status == "pending" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// CoachHasEngine returns true if the coach has the given engine registered.
+func (w *WantedList) CoachHasEngine(coachID, engineKey string) bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	c, ok := w.coaches[coachID]
+	if !ok {
+		return false
+	}
+	e, ok := c.Engines[engineKey]
+	return ok && e.Available
+}
+
+// UpdateInstances updates the running instance count for each engine on a coach.
+func (w *WantedList) UpdateInstances(coachID string, aiUpdates map[string]int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	c, ok := w.coaches[coachID]
+	if !ok {
+		return
+	}
+	for key, count := range aiUpdates {
+		if e, ok := c.Engines[key]; ok {
+			e.InstancesRunning = count
+		}
+	}
+}
+
+// GetCoach returns the coach entry for the given ID.
+func (w *WantedList) GetCoach(coachID string) (*CoachEntry, bool) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	c, ok := w.coaches[coachID]
+	return c, ok
 }

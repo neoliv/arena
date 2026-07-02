@@ -19,10 +19,58 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Stats</h1>`+filterBox+`
 		<nav class="chart-tabs" style="margin-bottom:1.5em">
-		<a href="?tab=elo" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab==""||tab=="elo"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab==""||tab=="elo"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Elo</a>
-		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="games"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="games"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Games</a>
-		<a href="?tab=errors" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="errors"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="errors"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Errors</a>
-		<a href="?tab=unspent" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func()string{if tab=="unspent"{return"#fff"}else{return"var(--fg)"}}()+`;background:`+func()string{if tab=="unspent"{return"var(--nav-hl)"}else{return"rgba(56,136,85,0.06)"}}()+`">Unspent</a>
+		<a href="?tab=elo" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
+		if tab == "" || tab == "elo" {
+			return "#fff"
+		} else {
+			return "var(--fg)"
+		}
+	}()+`;background:`+func() string {
+		if tab == "" || tab == "elo" {
+			return "var(--nav-hl)"
+		} else {
+			return "rgba(56,136,85,0.06)"
+		}
+	}()+`">Elo</a>
+		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
+		if tab == "games" {
+			return "#fff"
+		} else {
+			return "var(--fg)"
+		}
+	}()+`;background:`+func() string {
+		if tab == "games" {
+			return "var(--nav-hl)"
+		} else {
+			return "rgba(56,136,85,0.06)"
+		}
+	}()+`">Games</a>
+		<a href="?tab=errors" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
+		if tab == "errors" {
+			return "#fff"
+		} else {
+			return "var(--fg)"
+		}
+	}()+`;background:`+func() string {
+		if tab == "errors" {
+			return "var(--nav-hl)"
+		} else {
+			return "rgba(56,136,85,0.06)"
+		}
+	}()+`">Errors</a>
+		<a href="?tab=unspent" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
+		if tab == "unspent" {
+			return "#fff"
+		} else {
+			return "var(--fg)"
+		}
+	}()+`;background:`+func() string {
+		if tab == "unspent" {
+			return "var(--nav-hl)"
+		} else {
+			return "rgba(56,136,85,0.06)"
+		}
+	}()+`">Unspent</a>
 		</nav>`)
 
 	switch tab {
@@ -119,10 +167,16 @@ func prefixBaseHue(prefix string) int {
 	swapIfBothPresent := func(a, b string) {
 		ia, ib := -1, -1
 		for i, p := range prefixes {
-			if p == a { ia = i }
-			if p == b { ib = i }
+			if p == a {
+				ia = i
+			}
+			if p == b {
+				ib = i
+			}
 		}
-		if ia >= 0 && ib >= 0 { prefixes[ia], prefixes[ib] = prefixes[ib], prefixes[ia] }
+		if ia >= 0 && ib >= 0 {
+			prefixes[ia], prefixes[ib] = prefixes[ib], prefixes[ia]
+		}
 	}
 	swapIfBothPresent("nrsi", "neur")
 	for i, p := range prefixes {
@@ -136,7 +190,9 @@ func prefixBaseHue(prefix string) int {
 	for _, c := range prefix {
 		h = h*31 + int(c)
 	}
-	if h < 0 { h = -h }
+	if h < 0 {
+		h = -h
+	}
 	return h % 360
 }
 
@@ -161,31 +217,45 @@ func engineColor(name string) string {
 	for _, c := range name {
 		fh = fh*31 + int(c)
 	}
-	if fh < 0 { fh = -fh }
+	if fh < 0 {
+		fh = -fh
+	}
 
 	if siblings <= 1 {
-		sat := 55 + fh%20
-		light := 45 + fh%15
+		sat := 30 + fh%20
+		light := 58 + fh%17
 		return fmt.Sprintf("hsl(%d,%d%%,%d%%)", baseHue, sat, light)
 	}
 
 	// Find this engine's index among its siblings.
 	sibIdx := 0
 	for _, e := range allEngineNames {
-		if e == name { break }
-		if enginePrefix(e) == prefix { sibIdx++ }
+		if e == name {
+			break
+		}
+		if enginePrefix(e) == prefix {
+			sibIdx++
+		}
 	}
 
 	// Spread variants: earlier → more saturated+darker, later → more pastel+lighter.
 	fraction := float64(sibIdx) / float64(siblings-1)
-	sat := 45 + int(fraction*35)
-	light := 50 - int(fraction*15)
+	sat := 25 + int(fraction*25)
+	light := 70 - int(fraction*12)
 	sat += (fh % 7) - 3
 	light += ((fh / 7) % 5) - 2
-	if sat < 30 { sat = 30 }
-	if sat > 85 { sat = 85 }
-	if light < 30 { light = 30 }
-	if light > 60 { light = 60 }
+	if sat < 20 {
+		sat = 20
+	}
+	if sat > 60 {
+		sat = 60
+	}
+	if light < 50 {
+		light = 50
+	}
+	if light > 78 {
+		light = 78
+	}
 
 	return fmt.Sprintf("hsl(%d,%d%%,%d%%)", baseHue, sat, light)
 }
@@ -267,13 +337,21 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 
 	// X-axis: sequential match count (no gaps from deleted matches).
 	// All engines share the same time axis.
-	type ep struct{ x, y float64 }
+	type ep struct {
+		x, y float64
+		seq  int
+	}
 	engineData := make([][]ep, len(engineNames))
+	maxSeq := 0
 	for _, p := range points {
 		idx := engineIdx[p.Engine]
-		x := float64(matchSeq[p.MatchID]-minMatch) / matchRange * graphw
+		seq := matchSeq[p.MatchID]
+		x := float64(seq-minMatch) / matchRange * graphw
 		y := graphh - (p.Elo-minElo)/(maxElo-minElo)*graphh
-		engineData[idx] = append(engineData[idx], ep{x: x, y: y})
+		engineData[idx] = append(engineData[idx], ep{x: x, y: y, seq: seq})
+		if seq > maxSeq {
+			maxSeq = seq
+		}
 	}
 
 	// Hover-highlight JS: legend ↔ curve cross-highlighting
@@ -317,7 +395,11 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<text x="%.0f" y="%.0f" text-anchor="middle" fill="var(--fg)" font-size="12">Elo</text>`, float64(graphw)/2, float64(-25))
 	fmt.Fprintf(w, `<text x="%.0f" y="%.0f" text-anchor="middle" fill="var(--muted)" font-size="10">Time →</text>`, graphw/2, graphh+30)
 
-	// Data lines with endpoint labels
+	// Data lines with endpoint labels — stagger vertically to avoid overlap.
+	// Retired engines (last game >100 matches ago) keep their curve but
+	// get no right-side label — they still appear in the legend below.
+	//
+	// First pass: draw all curves.
 	for i, data := range engineData {
 		if len(data) < 2 {
 			continue
@@ -327,21 +409,57 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 			pts += fmt.Sprintf("%.1f,%.1f ", pt.x, pt.y)
 		}
 		col := engineColor(engineNames[i])
-		// Group curve + label in filter-item so both are hidden by the search filter.
-		fmt.Fprintf(w, `<g class="filter-item"><title>%s</title><polyline class="elo-curve" fill="none" stroke="%s" stroke-width="2" points="%s" style="cursor:pointer"/>`, engineNames[i], col, strings.TrimSpace(pts))
-		// Label at the right edge of the chart area (graphw), vertically at last data point.
-		// Using the right edge prevents labels from overlapping in the middle of curves.
+		fmt.Fprintf(w, `<g class="filter-item"><title>%s</title><polyline class="elo-curve" fill="none" stroke="%s" stroke-width="2" points="%s" style="cursor:pointer"/></g>`,
+			engineNames[i], col, strings.TrimSpace(pts))
+	}
+	// Second pass: labels only for active (non-retired) engines, staggered.
+	type labelInfo struct {
+		idx  int
+		y    float64
+		col  string
+		name string
+	}
+	var activeLabels []labelInfo
+	for i, data := range engineData {
+		if len(data) < 2 {
+			continue
+		}
+		if data[len(data)-1].seq < maxSeq-100 {
+			continue
+		} // retired
+		activeLabels = append(activeLabels, labelInfo{idx: i, y: data[len(data)-1].y,
+			col: engineColor(engineNames[i]), name: engineNames[i]})
+	}
+	sort.Slice(activeLabels, func(a, b int) bool { return activeLabels[a].y < activeLabels[b].y })
+	const labelH = 13.0
+	for i := 1; i < len(activeLabels); i++ {
+		if activeLabels[i].y < activeLabels[i-1].y+labelH {
+			activeLabels[i].y = activeLabels[i-1].y + labelH
+		}
+	}
+	for i := range activeLabels {
+		if activeLabels[i].y < float64(top) {
+			activeLabels[i].y = float64(top)
+		}
+		if activeLabels[i].y > graphh {
+			activeLabels[i].y = graphh
+		}
+	}
+	for _, lb := range activeLabels {
+		data := engineData[lb.idx]
 		last := data[len(data)-1]
-		fmt.Fprintf(w, `<text class="elo-label" x="%.1f" y="%.1f" dx="4" dy="3" fill="%s" font-size="10" text-anchor="start">%s</text></g>`,
-			graphw, last.y, col, engineNames[i])
+		fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="0.8" stroke-dasharray="2,2"/>`,
+			last.x, last.y, graphw, lb.y, lb.col)
+		fmt.Fprintf(w, `<text class="elo-label" x="%.1f" y="%.1f" dx="4" dy="3" fill="%s" font-size="10" text-anchor="start">%s</text>`,
+			graphw, lb.y, lb.col, lb.name)
 	}
 	io.WriteString(w, `</g></svg>`)
 
-	// Legend with hover interaction
-	io.WriteString(w, `<div style="margin-top:1em">`)
+	// Legend with hover interaction — flex-wrap keeps names within chart width.
+	io.WriteString(w, `<div style="margin-top:1em;display:flex;flex-wrap:wrap;max-width:960px">`)
 	for _, e := range engineNames {
 		col := engineColor(e)
-		fmt.Fprintf(w, `<span class="filter-item elo-legend-item" style="color:%s;margin-right:1.2em;white-space:nowrap;cursor:pointer;transition:all .15s">● %s</span>`, col, e)
+		fmt.Fprintf(w, `<span class="filter-item elo-legend-item" style="color:%s;margin-right:1.2em;margin-bottom:.3em;white-space:nowrap;cursor:pointer;transition:all .15s">● %s</span>`, col, e)
 	}
 	io.WriteString(w, `</div>`)
 }
@@ -370,10 +488,10 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type errBar struct {
-		engine        string
-		ecode         int8
-		count, games  int
-		recentIDs     []int
+		engine       string
+		ecode        int8
+		count, games int
+		recentIDs    []int
 	}
 	var bars []errBar
 	for rows.Next() {
@@ -393,7 +511,9 @@ func (h *Handler) renderErrorChart(w http.ResponseWriter, r *http.Request) {
 		defer recentRows.Close()
 		recentMap := map[string][]int{} // key: "engine|ecode"
 		for recentRows.Next() {
-			var engName string; var ecode int8; var gid int
+			var engName string
+			var ecode int8
+			var gid int
 			recentRows.Scan(&engName, &ecode, &gid)
 			key := engName + "|" + strconv.Itoa(int(ecode))
 			if len(recentMap[key]) < 5 {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -34,15 +35,42 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 	if gRows != nil {
 		defer gRows.Close()
 		for gRows.Next() {
-			var id, s int; var blk, wht, r, o string; var created int64
-			gRows.Scan(&id, &blk, &wht, &r, &s, &o, &created)
-			age := ""
-			if created > 0 {
-				age = niceDuration(time.Unix(created, 0))
-			}
+			var id, s int
+			var blk, wht, r, o string
+			var createdAny interface{}
+			gRows.Scan(&id, &blk, &wht, &r, &s, &o, &createdAny)
+			age := parseAge(createdAny)
 			fmt.Fprintf(w, `<tr class="filter-row"><td><a href="/games/%d">%d</a></td><td>%s</td><td>%s</td><td>%s</td><td>%+d</td><td>%s</td><td>%s</td></tr>`,
 				id, id, htmlEscape(blk), htmlEscape(wht), htmlEscape(r), s, htmlEscape(age), htmlEscape(o))
 		}
 	}
 	io.WriteString(w, "</table>"+closing)
+}
+
+// parseAge converts a created_at value (int64, float64, or text datetime)
+// into a human-readable duration string.
+func parseAge(v interface{}) string {
+	switch val := v.(type) {
+	case int64:
+		if val > 0 {
+			return niceDuration(time.Unix(val, 0))
+		}
+	case float64:
+		if val > 0 {
+			return niceDuration(time.Unix(int64(val), 0))
+		}
+	case string:
+		if val == "" {
+			return ""
+		}
+		// Try Unix timestamp string first (new format from migration)
+		if unix, err := strconv.ParseInt(val, 10, 64); err == nil && unix > 0 {
+			return niceDuration(time.Unix(unix, 0))
+		}
+		// Fall back to ISO datetime string (old format)
+		if t, err := time.Parse("2006-01-02 15:04:05", val); err == nil {
+			return niceDuration(t)
+		}
+	}
+	return ""
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/neoliv/arena/internal/db"
+	"nhooyr.io/websocket"
 )
 
 // Handler manages coach REST endpoints: register, heartbeat.
@@ -29,6 +30,11 @@ type Handler struct {
 	// Replaces the old DB coach_ais.instances_running update.
 	// Returns true if the session ID changed (coach restarted).
 	OnHeartbeat func(coachID string, sessionID string, aiUpdates map[string]int) (sessionChanged bool)
+
+	// WebSocket callbacks (push-based coach protocol).
+	OnWSConnect    func(conn *websocket.Conn)
+	OnWSDisconnect func(conn *websocket.Conn)
+	OnCoachMessage func(conn *websocket.Conn, msg CoachMessage)
 }
 
 type registerReq struct {
@@ -328,4 +334,48 @@ func (h *Handler) HandleEngineError(w http.ResponseWriter, r *http.Request) {
 		slog.Info("coach reported engine error", "session", req.SessionID, "error_type", req.ErrorType)
 	}
 	jsonOK(w, map[string]any{"ok": true})
+}
+
+// ServeWS handles the persistent coach WebSocket connection.
+// Replaces the old polling-based model: coaches connect once and receive
+// commands (launch/kill) pushed by the MM, rather than polling for assignments.
+func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAuthOrOpen(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"arena.arsac.org", "localhost"},
+	})
+	if err != nil {
+		slog.Error("coach ws accept", "err", err)
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+
+	slog.Info("coach ws connected")
+	if h.OnWSConnect != nil {
+		h.OnWSConnect(conn)
+	}
+
+	// Read loop — block until connection drops.
+	ctx := r.Context()
+	for {
+		_, msg, err := conn.Read(ctx)
+		if err != nil {
+			slog.Info("coach ws disconnected", "err", err)
+			if h.OnWSDisconnect != nil {
+				h.OnWSDisconnect(conn)
+			}
+			return
+		}
+		var cm CoachMessage
+		if err := json.Unmarshal(msg, &cm); err != nil {
+			slog.Warn("coach ws bad JSON", "msg", string(msg)[:min(256, len(string(msg)))])
+			continue
+		}
+		if h.OnCoachMessage != nil {
+			h.OnCoachMessage(conn, cm)
+		}
+	}
 }

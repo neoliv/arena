@@ -13,7 +13,7 @@ if [ "$OS" = "Darwin" ] && [ "$1" != "--force" ]; then
     echo "║  This script installs a Linux systemd service. On macOS:    ║"
     echo "║                                                              ║"
     echo "║  1. Build the coach binary:                                 ║"
-    echo "║       cd ~/dev/agent/arena                                  ║"
+    echo "║       cd ~/dev/agent/othello/arena                                  ║"
     echo "║       go build -o $COACH_DIR/bin/coach ./cmd/coach          ║"
     echo "║                                                              ║"
     echo "║  2. Build engines: run ~/bin/coach-update.sh (after creating   ║"
@@ -39,7 +39,7 @@ mkdir -p "$COACH_DIR"/{bin,engines,players.d}
 
 # 2. Build stable coach
 echo "2. Building stable coach binary..."
-cd ~/dev/agent/arena
+cd ~/dev/agent/othello/arena
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$COACH_DIR/bin/coach" ./cmd/coach
 echo "   -> $COACH_DIR/bin/coach"
 
@@ -48,7 +48,7 @@ echo "3. Building engines..."
 bash "$COACH_DIR/bin/coach-build-engines" 2>/dev/null || {
     # Inline build if script doesn't exist yet
     echo "   Building neursi..."
-    cd ~/dev/agent/neursi/engine
+    cd ~/dev/agent/othello/neursi/engine
     cargo build --release 2>&1 | tail -1
     NEURSI_HASH=$(sha256sum target/release/neursi | cut -c1-16)
     NEURSI_DIR="$COACH_DIR/engines/$NEURSI_HASH"
@@ -85,14 +85,14 @@ bash "$COACH_DIR/bin/coach-build-engines" 2>/dev/null || {
 
 # 4. Install player configs (pointing to engine_id directories)
 echo "4. Installing player configs..."
-for f in ~/dev/agent/arena/players.d/*.yaml; do
+for f in ~/dev/agent/othello/arena/players.d/*.yaml; do
     [ -f "$f" ] || continue
     cp "$f" "$COACH_DIR/players.d/$(basename $f)"
     echo "   -> $COACH_DIR/players.d/$(basename $f)"
 done
 # If no players.d/ exists yet, create from coach.d/
 if [ -z "$(ls -A "$COACH_DIR/players.d/" 2>/dev/null)" ]; then
-    echo "   No player configs found. Create them in ~/dev/agent/arena/players.d/"
+    echo "   No player configs found. Create them in ~/dev/agent/othello/arena/players.d/"
     echo "   (see coach-setup.sh for examples)"
 fi
 
@@ -149,14 +149,14 @@ $RELOAD_ONLY && { echo "=== Reload config ==="; reload; exit 0; }
 echo "=== Arena Coach Update ==="
 # 1. Coach binary
 echo "1. Coach binary..."
-cd ~/dev/agent/arena
+cd ~/dev/agent/othello/arena
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$COACH_DIR/bin/coach.new" ./cmd/coach
 $DRY_RUN && rm "$COACH_DIR/bin/coach.new" || mv "$COACH_DIR/bin/coach.new" "$COACH_DIR/bin/coach"
 echo "   done"
 
 # 2. Build neursi to engine_id directory
-echo "2. neursi engine (from ~/dev/agent/neursi/engine)..."
-cd ~/dev/agent/neursi/engine
+echo "2. neursi engine (from ~/dev/agent/othello/neursi/engine)..."
+cd ~/dev/agent/othello/neursi/engine
 cargo build --release 2>&1 | tail -1
 HASH=$(sha256sum target/release/neursi | cut -c1-16)
 DIR="$COACH_DIR/engines/$HASH"

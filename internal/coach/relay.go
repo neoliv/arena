@@ -26,12 +26,10 @@ type Relay struct {
 }
 
 type relaySlot struct {
-	stream   Stream
-	ready    chan struct{} // closed when stream is available
-	done     chan struct{} // closed by Cleanup
-	cancel   context.CancelFunc
-	in       chan string // writable reference for cleanup on replacement
-	inClosed bool        // true if `in` has been closed (prevents double-close panic)
+	stream Stream
+	ready  chan struct{} // closed when stream is available
+	done   chan struct{} // closed by Cleanup
+	cancel context.CancelFunc
 }
 
 // NewRelay creates a new relay manager.
@@ -104,19 +102,15 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	slot, exists := r.sessions[sessionID]
 	if exists {
-		oldIn := slot.in // save before overwriting
+		// Cancel the old context to signal reader/writer goroutines to exit.
+		// The reader goroutine's defer close(in) handles channel cleanup.
+		// Do NOT close oldIn here — the reader may have already closed it,
+		// causing a "close of closed channel" panic.
 		if slot.cancel != nil {
 			slot.cancel()
 		}
-		if oldIn != nil && !slot.inClosed {
-			slot.inClosed = true
-			close(oldIn)      // signal old reader goroutine to exit
-			for range oldIn { // drain to unblock stuck senders
-			}
-		}
 		slot.stream = stream
 		slot.cancel = cancel
-		slot.in = in
 		if slot.ready != nil {
 			select {
 			case <-slot.ready:
@@ -126,7 +120,7 @@ func (r *Relay) HandleRelay(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	} else {
-		slot = &relaySlot{stream: stream, in: in, ready: make(chan struct{}), done: make(chan struct{}), cancel: cancel}
+		slot = &relaySlot{stream: stream, ready: make(chan struct{}), done: make(chan struct{}), cancel: cancel}
 		close(slot.ready)
 		r.sessions[sessionID] = slot
 	}

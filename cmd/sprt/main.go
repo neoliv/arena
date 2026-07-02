@@ -15,7 +15,7 @@
 //
 //	sprt --candidate "./neursi --weights new.bin" \
 //	     --reference "./neursi --weights prev.bin" \
-//	     --tc 1 --output /home/oliv/dev/agent/neursi/training/sprt/
+//	     --tc 1 --output /home/oliv/dev/agent/othello/neursi/training/sprt/
 package main
 
 import (

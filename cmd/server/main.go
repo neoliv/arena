@@ -158,6 +158,7 @@ func main() {
 	mux.HandleFunc("POST /api/matchmaker/register", mm.HandleRegister)
 	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)
 	mux.HandleFunc("POST /api/matchmaker/complete", mm.HandleComplete)
+	mux.HandleFunc("GET /api/coach/ws", mm.HandleCoachWS) // push-based coach protocol
 
 	// Per-player resource stats (coach reports real CPU/RAM every ~20s).
 	resourceStore := coach.NewPlayerResourceStore()
