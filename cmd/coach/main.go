@@ -98,7 +98,7 @@ func main() {
 	if !*debug {
 		logLevel = slog.LevelInfo
 	}
-	logDir := filepath.Join(os.Getenv("HOME"), "dev", "agent", "othello", "arena", "log")
+	logDir := filepath.Join(os.Getenv("HOME"), "coach", "log")
 	os.MkdirAll(logDir, 0755)
 	if lf, err := os.Create(filepath.Join(logDir, "coach.log")); err == nil {
 		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, lf), &slog.HandlerOptions{Level: logLevel})))
@@ -106,7 +106,7 @@ func main() {
 	slog.Info("coach starting", "pid", os.Getpid(), "log_dir", logDir)
 
 	// Clean up old engine stderr logs (older than 7 days).
-	engineLogDir := filepath.Join(logDir, "engines")
+	engineLogDir := filepath.Join(os.Getenv("HOME"), "coach", "log")
 	if entries, err := os.ReadDir(engineLogDir); err == nil {
 		cutoff := time.Now().Add(-7 * 24 * time.Hour)
 		for _, e := range entries {
@@ -382,7 +382,7 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 	cmd := exec.CommandContext(engCtx, parts[0], parts[1:]...)
 	cmd.Dir = filepath.Dir(parts[0])
 
-	engineLogDir := filepath.Join(logDir, "engines")
+	engineLogDir := filepath.Join(os.Getenv("HOME"), "coach", "log")
 	os.MkdirAll(engineLogDir, 0755)
 	errLog, _ := os.Create(filepath.Join(engineLogDir, sessionID+".err"))
 	stderrWriters := io.MultiWriter(os.Stderr)

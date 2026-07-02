@@ -6,12 +6,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
-if echo "$SCRIPT_DIR" | grep -q "neursi/arena"; then
-    echo "ERROR: coach-update.sh is in the old neursi/arena location."
-    echo "The arena is now at agent/othello/arena. Fix with:"
-    echo "  ln -sf ~/dev/agent/othello/arena/coach-update.sh ~/bin/coach-update"
-    exit 1
-fi
+# OTHELLO_HOME is the root of the othello project tree (arena/, neursi/, ref/).
+# Auto-detect from script location: coach-update.sh is at othello/arena/coach-update.sh.
+OTHELLO_HOME="${OTHELLO_HOME:-$(dirname "$SCRIPT_DIR")}"
+export OTHELLO_HOME
 COACH_DIR="${COACH_DIR:-$HOME/coach}"
 BUILDS_DIR="${BUILDS_DIR:-$COACH_DIR/builds.d}"
 DRY_RUN=false
@@ -173,7 +171,7 @@ done
 echo ""; echo "─── Reload ───"
 
 # 3. Copy neursi NN weight file to coach share dir
-NEURSI_WEIGHTS="$SCRIPT_DIR/../neursi/data/eval-large.bin"
+NEURSI_WEIGHTS="$OTHELLO_HOME/neursi/data/eval-large.bin"
 SHARE_WEIGHTS="$COACH_DIR/share/eval-large.bin"
 if [ -f "$NEURSI_WEIGHTS" ]; then
     mkdir -p "$(dirname "$SHARE_WEIGHTS")"

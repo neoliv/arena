@@ -1,6 +1,6 @@
 # Edax GTP adapter build for arena coach.
 # Compiles Edax as a library and links our GTP adapter with JSON stats.
-EDAX_SRC := $(CURDIR)/../../edax/src
+EDAX_SRC := $(OTHELLO_HOME)/ref/edax/src
 DATA_URL := https://github.com/abulmo/edax-reversi/releases/download/v4.6
 TARBALL  := $(EDAX_SRC)/data/edax-release.tar.gz
 

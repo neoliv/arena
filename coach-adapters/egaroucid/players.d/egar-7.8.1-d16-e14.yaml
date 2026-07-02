@@ -1,0 +1,7 @@
+name: "egar-7.8.1-d16-e14"
+created: "2026-07-02"
+changelog_short: "Egaroucid depth 16, ES 14, no book"
+binary: "egaroucid-gtp"
+args: "-d 16 -es 14 -nobook"
+cores: 1
+memory_mb: 1536

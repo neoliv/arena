@@ -1,8 +1,0 @@
-name: "egar-d14-e12"
-created: "2026-06-24"
-changelog_short: "Egaroucid depth 14, ES 12, no book — calibration"
-changelog_full: "Egaroucid 7.8.1. Depth 14, ES ≤12. No book. MPC enabled."
-binary: "egaroucid-gtp"
-args: "-d 14 -es 12 -nobook"
-cores: 1
-memory_mb: 1536

@@ -1,0 +1,7 @@
+name: "edax-4.6-d16-e14"
+created: "2026-07-02"
+changelog_short: "Edax depth 16, ES 14, no book"
+binary: "edax"
+args: "-d 16 -es 14 -nobook"
+cores: 1
+memory_mb: 256

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,7 +23,7 @@ func (h *Handler) handleGames(w http.ResponseWriter, r *http.Request) {
 			tcDisplay = fmt.Sprintf("%s / %s", elapsed, tcDisplay)
 			startedDisplay := niceDuration(a.InProgressAt)
 			fmt.Fprintf(w, `<tr class="filter-row"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`,
-				a.ID, htmlEscape(a.BlackEngine), htmlEscape(a.WhiteEngine), htmlEscape(tcDisplay), a.NumGames, htmlEscape(startedDisplay))
+				a.ID, htmlEscape(engineDisplayName(a.BlackEngine)), htmlEscape(engineDisplayName(a.WhiteEngine)), htmlEscape(tcDisplay), a.NumGames, htmlEscape(startedDisplay))
 		}
 	}
 	if h.ActiveAssignmentsFunc == nil || len(h.ActiveAssignmentsFunc()) == 0 {
@@ -73,4 +74,13 @@ func parseAge(v interface{}) string {
 		}
 	}
 	return "-"
+}
+
+// engineDisplayName strips the ":version" suffix from an engine key.
+// Keys are "name:version" — the name already contains the version info.
+func engineDisplayName(key string) string {
+	if idx := strings.LastIndex(key, ":"); idx > 0 {
+		return key[:idx]
+	}
+	return key
 }

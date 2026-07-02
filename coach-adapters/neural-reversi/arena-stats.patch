@@ -243,3 +243,22 @@ index be908bb..842958d 100644
              output_layers.push(output_layer);
          }
  
+diff --git a/crates/reversi-core/src/game_state.rs b/crates/reversi-core/src/game_state.rs
+index 7e588ef..b34263e 100644
+--- a/crates/reversi-core/src/game_state.rs
++++ b/crates/reversi-core/src/game_state.rs
+@@ -76,11 +76,9 @@ impl GameState {
+         self.board = self.board.make_move(sq);
+         self.side_to_move = self.side_to_move.opposite();
+ 
+-        // Handle automatic pass if opponent has no legal moves, but avoid
+-        // recording a pass after the game has already ended.
+-        if !self.board.has_legal_moves() && self.board.switch_players().has_legal_moves() {
+-            self.handle_pass();
+-        }
++        // Auto-pass for opponent is handled by the GTP genmove handler.
++        // Keeping make_move as a pure move application avoids double-pass
++        // in the play handler.
+ 
+         Ok(())
+     }

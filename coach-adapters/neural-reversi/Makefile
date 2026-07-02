@@ -1,20 +1,17 @@
 # Neural Reversi GTP adapter build for arena coach.
 # Applies patch: JSON stats + depth overrides + GTP default + raw weight loading.
 # Pre-decompresses zstd weights to avoid per-game decompression overhead.
-NEURAL_SRC := $(CURDIR)/../../neural-reversi/src
+NEURAL_SRC := $(OTHELLO_HOME)/ref/neural-reversi/src
 
 .PHONY: coach-build
 coach-build:
 	@echo "Building Neural Reversi adapter..."
 	rm -rf coach-engine
+	@git -C $(NEURAL_SRC) checkout -- . 2>/dev/null || true
 	# Apply patches (arena-stats + GTP fixes) to pristine source
 	@if ! grep -q 'from_raw_reader' $(NEURAL_SRC)/crates/reversi-core/src/eval/network.rs 2>/dev/null; then \
 		echo "Applying arena-stats.patch..."; \
-		patch -p1 -d $(NEURAL_SRC) < $(CURDIR)/arena-stats.patch; \
-	fi
-	@if ! grep -q 'Auto-pass for opponent' $(NEURAL_SRC)/crates/reversi-core/src/game_state.rs 2>/dev/null; then \
-		echo "Applying gtp-fixes.patch..."; \
-		patch -p1 -d $(NEURAL_SRC) < $(CURDIR)/gtp-fixes.patch; \
+		git -C $(NEURAL_SRC) apply $(CURDIR)/arena-stats.patch; \
 	fi
 	# Build CLI crate (cd to source dir first)
 	cd $(NEURAL_SRC) && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }

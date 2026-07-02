@@ -1,8 +1,0 @@
-name: "edax-4.6-d6-e12"
-created: "2026-06-24"
-changelog_short: "Edax depth 6, ES 15, no book — calibration"
-changelog_full: "Edax 4.6 fixed depth 6. ES always ≤15 empties. No book."
-binary: "edax"
-args: "-d 6 -es 12 -nobook"
-cores: 1
-memory_mb: 256

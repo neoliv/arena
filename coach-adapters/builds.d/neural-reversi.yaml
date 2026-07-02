@@ -1,1 +1,1 @@
-source: "/home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi"
+source: "${OTHELLO_HOME}/arena/coach-adapters/neural-reversi"

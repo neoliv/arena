@@ -1,1 +1,1 @@
-source: "/home/oliv/dev/agent/othello/ref/coach-adapters/egaroucid"
+source: "${OTHELLO_HOME}/arena/coach-adapters/egaroucid"

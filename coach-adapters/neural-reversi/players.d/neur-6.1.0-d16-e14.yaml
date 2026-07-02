@@ -1,0 +1,7 @@
+name: "neur-6.1.0-d16-e14"
+created: "2026-07-02"
+changelog_short: "Neural Reversi depth 16, ES 14"
+binary: "neural-reversi-gtp"
+args: "--mid-depth 16 --end-depth 14 --eval-file eval-e6bbc4f6.bin --eval-sm-file eval_sm-e6bbc4f6.bin"
+cores: 1
+memory_mb: 1792

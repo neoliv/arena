@@ -1,89 +1,125 @@
+diff --git a/src/console/commandline_option_definition.hpp b/src/console/commandline_option_definition.hpp
+index a8e8c05..ba90cc0 100644
+--- a/src/console/commandline_option_definition.hpp
++++ b/src/console/commandline_option_definition.hpp
+@@ -12,7 +12,7 @@
+ #include <string>
+ #include <vector>
+ 
+-#define N_COMMANDLINE_OPTIONS_BASE 34
++#define N_COMMANDLINE_OPTIONS_BASE 36
+ 
+ #ifdef INCLUDE_GGS
+     #define N_COMMANDLINE_OPTIONS (N_COMMANDLINE_OPTIONS_BASE + 6)
+@@ -56,6 +56,8 @@
+ #define ID_LOGDIR 30
+ #define ID_SELF_PLAY_RANDOM_BOARD 31
+ #define ID_GENERATE_RANDOM_BOARD 32
++#define ID_DEPTH 34
++#define ID_ES    35
+ #define ID_DEPTH_PROB_RANGE 33
+ 
+ #ifdef INCLUDE_GGS
+@@ -113,6 +115,8 @@ const Commandline_option_info commandline_option_data[N_COMMANDLINE_OPTIONS] = {
+     {ID_LOGDIR,             {"-logdir"},                                        1, "<dir>",             "Save search log to file in <dir> (-logfile is prioritized)"},
+     {ID_SELF_PLAY_RANDOM_BOARD, {"-sfr", "-selfplayrandomboard"},               4, "<n> <black_score_min> <black_score_max> <n_moves>", "Self play <n> games from random boards generated in score range [<black_score_min>, <black_score_max>] at <n_moves> moves"},
+     {ID_GENERATE_RANDOM_BOARD, {"-grb", "-genrandboard"},                       4, "<n> <black_score_min> <black_score_max> <n_moves>", "Generate <n> random boards in score range [<black_score_min>, <black_score_max>] at <n_moves> moves and output transcripts"},
++    {ID_DEPTH,             {"-d", "-depth"},                                  1, "<depth>",                                   "Search depth (midgame lookahead, 0=level default)"},
++    {ID_ES,               {"-es", "-endsearch"},                            1, "<empties>",                                 "Endgame solver threshold (empties, 0=level default)"},
+     {ID_DEPTH_PROB_RANGE,   {"-dpr", "-depthprobrange"},                        4, "<m> <M> <depth> <prob>", "Set search depth/probability for move range [m, M] (prob: 74, 88, 93, 98, 99, 99.9, 100). Can be used multiple times without overlap. Outside specified ranges, -level is used"},
+ #ifdef INCLUDE_GGS
+     {ID_GGS,                {"-ggs"},                                           2, "<username> <password>", "Use GGS (Generic Game Server) mode"},
 diff --git a/src/console/gtp_command.hpp b/src/console/gtp_command.hpp
-index ba1e6e4..3646f9b 100644
+index ba1e6e4..8253d02 100644
 --- a/src/console/gtp_command.hpp
 +++ b/src/console/gtp_command.hpp
-@@ -215,19 +215,18 @@ void gtp_genmove(int id, std::string arg, Board_info *board, State *state, Optio
+@@ -212,6 +212,8 @@ void gtp_genmove(int id, std::string arg, Board_info *board, State *state, Optio
+         board->player ^= 1;
+     }
+     if (board->board.get_legal() == 0ULL) {
++        board->board.pass();
++        board->player ^= 1;
          std::cout << gtp_head(id) << " PASS" << GTP_ENDL;
          return;
      }
--    int policy = ai_with_settings(board->board, options, true, options->show_log).policy;
-+    Search_result result = ai_with_settings(board->board, options, true, options->show_log);
-+    int policy = result.policy;
-     Flip flip;
+@@ -220,6 +222,10 @@ void gtp_genmove(int id, std::string arg, Board_info *board, State *state, Optio
      calc_flip(&flip, &board->board, policy);
      board->board.move_board(&flip);
      board->player ^= 1;
++    if (board->board.get_legal() == 0ULL) {
++        board->board.pass();
++        board->player ^= 1;
++    }
      board->boards.emplace_back(board->board.copy());
      board->players.emplace_back(board->player);
--    //if (board->board.get_legal() == 0ULL) {
--    //    board->board.pass();
--    //    board->player ^= 1;
--    //}
-+    int empties = HW2 - board->board.n_discs();
-+    std::cout << "# arena-stats v1: {\"nodes\":" << result.nodes << ",\"depth\":" << result.depth << ",\"score\":" << result.value << ",\"empties\":" << empties << ",\"time_ms\":" << (result.time / 1000) << ",\"timeout\":false}" << GTP_ENDL;
-     std::cout << gtp_head(id) << " " << gtp_idx_to_coord(policy) << GTP_ENDL;
--}
-+    }
- 
- void gtp_rules_game_id(int id) {
-     std::cout << gtp_head(id) << " " << GTP_RULE_ID << GTP_ENDL;
-@@ -372,9 +371,12 @@ void gtp_reg_genmove(int id, std::string arg, Board_info *board, State *state, O
-         std::cout << gtp_head(id) << " PASS" << GTP_ENDL;
-         return;
-     }
--    int policy = ai_with_settings(board->board, options, true, options->show_log).policy;
-+    Search_result reg_result = ai_with_settings(board->board, options, true, options->show_log);
-+    int policy = reg_result.policy;
-+    int reg_empties = HW2 - board->board.n_discs();
-+    std::cout << "# arena-stats v1: {\"nodes\":" << reg_result.nodes << ",\"depth\":" << reg_result.depth << ",\"score\":" << reg_result.value << ",\"empties\":" << reg_empties << ",\"time_ms\":" << (reg_result.time / 1000) << ",\"timeout\":false}" << GTP_ENDL;
-     std::cout << gtp_head(id) << " " << gtp_idx_to_coord(policy) << GTP_ENDL;
--}
-+    }
- 
- void gtp_list_games(int id) {
-     std::cout << gtp_head(id) << " " << GTP_RULE_ID << GTP_ENDL;
+     //if (board->board.get_legal() == 0ULL) {
 diff --git a/src/console/option.hpp b/src/console/option.hpp
-index b2e70d9..3c8bd16 100644
+index b2e70d9..1177ea9 100644
 --- a/src/console/option.hpp
 +++ b/src/console/option.hpp
-@@ -41,7 +41,9 @@ struct Options {
-     std::string eval_file;
-     bool nobook;
-     int mode;
--    bool gtp;
-+    int depth_override;
-+    int es_override;
-+        bool gtp;
-     bool quiet;
-     int time_allocated_seconds; // -1 (TIME_NOT_ALLOCATED): not allocated
-     bool ponder;
-@@ -157,6 +159,20 @@ Options get_options(std::vector<Commandline_option> commandline_options, std::st
-             std::cerr << "[ERROR] level argument out of range" << std::endl;
-         }
+@@ -15,6 +15,7 @@
+ #include <iostream>
+ #include "./../engine/engine_all.hpp"
+ #include "commandline_option.hpp"
++#include "../engine/level.hpp"
+ #include "console_common.hpp"
+ #include "util.hpp"
+ 
+@@ -159,6 +160,16 @@ Options get_options(std::vector<Commandline_option> commandline_options, std::st
      }
-+    res.depth_override = -1;
-+    if (find_commandline_option(commandline_options, ID_DEPTH)) {
-+        std::vector<std::string> arg = get_commandline_option_arg(commandline_options, ID_DEPTH);
-+        try { res.depth_override = std::stoi(arg[0]); } catch (...) {}
-+    }
-+    res.es_override = -1;
-+    if (find_commandline_option(commandline_options, ID_ES)) {
-+        std::vector<std::string> arg = get_commandline_option_arg(commandline_options, ID_ES);
-+        try { res.es_override = std::stoi(arg[0]); } catch (...) {}
-+    }
-+    // Apply overrides to globals
-+    g_mid_depth_override = res.depth_override;
-+    g_end_depth_override = res.es_override;
-+
      res.use_depth_prob_ranges = false;
      res.depth_prob_ranges.clear();
++    // Depth override
++    if (find_commandline_option(commandline_options, ID_DEPTH)) {
++        std::vector<std::string> arg = get_commandline_option_arg(commandline_options, ID_DEPTH);
++        g_mid_depth_override = std::stoi(arg[0]);
++    }
++    // Endgame solver threshold
++    if (find_commandline_option(commandline_options, ID_ES)) {
++        std::vector<std::string> arg = get_commandline_option_arg(commandline_options, ID_ES);
++        g_end_depth_override = std::stoi(arg[0]);
++    }
      if (find_commandline_option(commandline_options, ID_DEPTH_PROB_RANGE)) {
-@@ -272,7 +288,7 @@ Options get_options(std::vector<Commandline_option> commandline_options, std::st
+         std::vector<std::vector<std::string>> range_args_list = get_commandline_option_args(commandline_options, ID_DEPTH_PROB_RANGE);
+         for (const std::vector<std::string> &range_args: range_args_list) {
+@@ -272,7 +283,7 @@ Options get_options(std::vector<Commandline_option> commandline_options, std::st
              std::cerr << "[ERROR] mode argument out of range" << std::endl;
          }
      }
 -    res.gtp = find_commandline_option(commandline_options, ID_GTP);
-+    res.gtp = true; // Adapter: always GTP mode by default
++    res.gtp = true; // default: GTP mode (overridden by --no-gtp)
      res.quiet = find_commandline_option(commandline_options, ID_QUIET);
      res.time_allocated_seconds = TIME_NOT_ALLOCATED;
      if (find_commandline_option(commandline_options, ID_TIME_ALLOCATE)) {
+diff --git a/src/engine/level.hpp b/src/engine/level.hpp
+index 55bbd70..b62404c 100644
+--- a/src/engine/level.hpp
++++ b/src/engine/level.hpp
+@@ -169,13 +169,16 @@ constexpr Level level_definition[N_LEVEL] = {
+     @param depth                integer to store the depth
+     @param mpc_level            MPC level
+ */
++inline int g_mid_depth_override = -1;
++inline int g_end_depth_override = -1;
++
+ void get_level(int level, int n_moves, bool *is_mid_search, int *depth, uint_fast8_t *mpc_level) {
+     level = std::clamp(level, 1, 60);
+     Level level_status = level_definition[level];
+     int n_empties = 60 - n_moves;
+-    if (n_empties > level_status.complete0) {
++    if (n_empties > ((g_end_depth_override >= 0) ? g_end_depth_override : level_status.complete0)) {
+         *is_mid_search = true;
+-        *depth = level_status.mid_lookahead;
++        *depth = (g_mid_depth_override >= 0) ? g_mid_depth_override : level_status.mid_lookahead;
+         *mpc_level = level_status.mid_mpc_level;
+     } else {
+         *is_mid_search = false;
+@@ -252,7 +255,7 @@ bool get_level_midsearch(int level, int n_moves) {
+     level = std::clamp(level, 1, 60);
+     Level level_status = level_definition[level];
+     int n_empties = 60 - n_moves;
+-    if (n_empties > level_status.complete0) {
++    if (n_empties > ((g_end_depth_override >= 0) ? g_end_depth_override : level_status.complete0)) {
+         return true;
+     } else {
+         return false;

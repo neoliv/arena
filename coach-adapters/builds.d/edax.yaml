@@ -1,2 +1,2 @@
 # Edax engine — wrapped by coach-adapters/edax/Makefile
-source: "/home/oliv/dev/agent/othello/ref/coach-adapters/edax"
+source: "${OTHELLO_HOME}/arena/coach-adapters/edax"
