@@ -32,6 +32,20 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 			return "rgba(56,136,85,0.06)"
 		}
 	}()+`">Elo</a>
+		<a href="?tab=errors" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;`+func() string {
+		var n int
+		h.DB.QueryRow("SELECT COUNT(*) FROM games WHERE error_code != 0").Scan(&n)
+		if n > 0 && tab != "errors" {
+			return "border:1px solid rgba(244,67,54,0.6);color:var(--fg);background:rgba(244,67,54,0.2)"
+		}
+		if tab == "errors" {
+			if n > 0 {
+				return "border:1px solid rgba(244,67,54,0.8);color:#fff;background:rgba(244,67,54,0.5)"
+			}
+			return "border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"
+		}
+		return "border:1px solid var(--nav-hl);color:var(--fg);background:rgba(56,136,85,0.06)"
+	}()+`">Errors</a>
 		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
 		if tab == "games" {
 			return "#fff"
@@ -44,20 +58,7 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 		} else {
 			return "rgba(56,136,85,0.06)"
 		}
-	}()+`">Games</a>
-		<a href="?tab=errors" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
-		if tab == "errors" {
-			return "#fff"
-		} else {
-			return "var(--fg)"
-		}
-	}()+`;background:`+func() string {
-		if tab == "errors" {
-			return "var(--nav-hl)"
-		} else {
-			return "rgba(56,136,85,0.06)"
-		}
-	}()+`">Errors</a>
+	}()+`">Played</a>
 		<a href="?tab=unspent" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
 		if tab == "unspent" {
 			return "#fff"

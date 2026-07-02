@@ -23,7 +23,7 @@ nav a:visited,nav a:link{color:#e8e6e3}
 nav a:hover{background:var(--nav-hl);color:#fff;border-color:var(--nav-hl)}
 nav a.logout:hover{background:#c33;border-color:#c33;color:#fff}
 nav a.active,.chart-tabs a.active,nav a.active:visited{background:var(--nav-hl);color:#fff !important}
-	.chart-tab{transition:all .15s}.chart-tab:hover{background:var(--nav-hl)!important;color:#fff!important}
+	.chart-tab{transition:all .15s}.chart-tab:hover{background:var(--nav-hl)!important;color:#fff!important}.chart-tab-errors:hover{background:rgba(244,67,54,0.4)!important;border-color:rgba(244,67,54,0.8)!important;color:#fff!important}.chart-tab-errors{transition:all .15s}
 table{border-collapse:collapse;width:100%;margin-bottom:2em}
 th,td{text-align:left;padding:.4em .6em;border-bottom:1px solid var(--border)}
 th{font-weight:600;background:var(--th-bg);cursor:pointer;user-select:none;position:relative;padding-right:18px}th:hover{background:var(--hover)}td{white-space:nowrap}.sort-ind{position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:1.2em;font-weight:900;color:var(--fg)}
