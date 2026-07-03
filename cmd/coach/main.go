@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -389,9 +390,6 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 
 	// All engines use # arena-stats v1: JSON on stdout.
 	var searchMu sync.Mutex
-	var searchNodes int64
-	var searchDepth int
-	var searchScore int
 	var adapterTimeMs int64
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
@@ -533,7 +531,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 			raw := scanner.Bytes()
 			line := string(raw)
 
-			// Parse engine JSON stats
+			// Parse engine JSON stats and forward with time_ms correction.
+			// All engines emit # arena-stats v1: — no legacy fallback needed.
 			if strings.HasPrefix(line, "# arena-stats v1: ") {
 				var ns struct {
 					Nodes  int64 `json:"nodes"`
@@ -541,59 +540,48 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 					Score  int   `json:"score"`
 					TimeMs int64 `json:"time_ms"`
 				}
-				if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "# arena-stats v1: ")), &ns); err == nil {
+				jsonStr := strings.TrimPrefix(line, "# arena-stats v1: ")
+				if err := json.Unmarshal([]byte(jsonStr), &ns); err == nil {
 					searchMu.Lock()
-					searchNodes, searchDepth, searchScore = ns.Nodes, ns.Depth, ns.Score
 					adapterTimeMs = ns.TimeMs
 					searchMu.Unlock()
 				} else {
 					searchMu.Lock()
-					searchNodes, searchDepth, searchScore, adapterTimeMs = 0, 0, 0, 0
+					adapterTimeMs = 0
 					searchMu.Unlock()
 				}
-			}
-
-			// Inject measured wall-clock time into stats lines
-			if strings.HasPrefix(line, "#") {
+				// Only rewrite time_ms if coach disagrees significantly (>100ms diff).
 				timingMu.Lock()
 				ms := lastElapsedMs
 				timingMu.Unlock()
-				raw = []byte(fmt.Sprintf("# time_ms %d %s", ms, strings.TrimPrefix(line, "# ")))
+				if adapterTimeMs > 0 {
+					diff := ms - adapterTimeMs
+					if diff < 0 { diff = -diff }
+					if diff > 100 {
+						slog.Warn("adapter time differs from coach", "session", sessionID, "adapter_ms", adapterTimeMs, "coach_ms", ms)
+						// Fix the time_ms in the JSON.
+						re := regexp.MustCompile(`"time_ms":\d+`)
+						jsonStr = re.ReplaceAllString(jsonStr, fmt.Sprintf(`"time_ms":%d`, ms))
+						line = "# arena-stats v1: " + jsonStr
+					}
+				}
+				raw = []byte(line)
 			}
 
-			// Check for genmove response (= ...) and track timing
-			var injectLine string
+			// Check for genmove response (= ...) and track timing.
 			timingMu.Lock()
 			if !genmoveStart.IsZero() && strings.HasPrefix(line, "= ") && len(strings.TrimPrefix(line, "= ")) > 0 {
 				lastElapsedMs = time.Since(genmoveStart).Milliseconds()
 				genmoveStart = time.Time{}
-				// Inject timing + search-log data
 				searchMu.Lock()
-				sn, sd, ss, at := searchNodes, searchDepth, searchScore, adapterTimeMs
-				searchNodes, searchDepth, searchScore, adapterTimeMs = 0, 0, 0, 0
+				adapterTimeMs = 0
 				searchMu.Unlock()
-				timeMs := lastElapsedMs
-				if at > 0 {
-					diff := lastElapsedMs - at
-					if diff < 0 {
-						diff = -diff
-					}
-					if diff > 100 {
-						slog.Warn("adapter time differs from coach", "session", sessionID, "adapter_ms", at, "coach_ms", lastElapsedMs)
-					} else {
-						timeMs = at
-					}
-				}
-				injectLine = fmt.Sprintf(`# time_ms %d {"nodes":%d,"depth":%d,"score":%d,"timeout":false}`, timeMs, sn, sd, ss)
 			}
 			timingMu.Unlock()
 
 			if err := conn.Write(context.Background(), websocket.MessageText, raw); err != nil {
 				writeFailed = true
 				break
-			}
-			if injectLine != "" {
-				conn.Write(context.Background(), websocket.MessageText, []byte(injectLine))
 			}
 		}
 		// Crash detection: only when stdout closed (scanner.Scan→false).
