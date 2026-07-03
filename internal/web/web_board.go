@@ -19,10 +19,8 @@ type boardState struct {
 func renderBoardSVG(b game.Board, lastSq int) string {
 	var svg strings.Builder
 	blk, wht := b.Black(), b.White()
-	bCount, wCount := game.Popcount(blk), game.Popcount(wht)
 
-	svg.WriteString(`<svg viewBox="-36 -24 836 860" role="img" aria-label="Othello board`)
-	fmt.Fprintf(&svg, `: Black %d, White %d" style="display:block">`, bCount, wCount)
+	svg.WriteString(`<svg viewBox="-36 -24 836 860" role="img" aria-label="Othello board" style="display:block">`)
 
 	// Board background
 	svg.WriteString(`<rect x="0" y="0" width="800" height="800" fill="#1a5c3a" rx="8"/>`)
@@ -70,10 +68,6 @@ func renderBoardSVG(b game.Board, lastSq int) string {
 			col*100, row*100)
 	}
 
-	// Disc count
-	fmt.Fprintf(&svg, `<text x="400" y="835" text-anchor="middle" font-family="system-ui,sans-serif" font-size="22" fill="#22d3ee" font-weight="600">B:%d  <tspan fill="#d4c4a8">W:%d</tspan></text>`,
-		bCount, wCount)
-
 	svg.WriteString(`</svg>`)
 	return svg.String()
 }
@@ -102,6 +96,13 @@ const boardInteractionJS = `<script>
     if(!d)return;
     cont.innerHTML=d.innerHTML;
     curIdx=idx;
+    // Update stone tally
+    var st=document.getElementById('stone-tally');
+    if(st){
+      var bc=parseInt(d.getAttribute('data-black'))||0;
+      var wc=parseInt(d.getAttribute('data-white'))||0;
+      st.innerHTML='<span style="color:#22d3ee">B:'+bc+'</span> <span style="color:#d4c4a8">W:'+wc+'</span>';
+    }
     var ply=idx+1;
     if(plyCtr)plyCtr.textContent=ply;
     if(label)label.textContent='Move '+ply+'/'+(maxIdx+1)+(locked?' (locked)':'');

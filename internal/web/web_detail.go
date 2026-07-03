@@ -142,9 +142,13 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	// Line 1: game number (left, bold) + score (center, larger)
 	fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
 		<div style="flex:2"><span style="font-size:1.6em;font-weight:800"># %s</span></div>
-		<div style="flex:1;text-align:center"><span style="font-size:2em;font-weight:900">%d-%d</span>%s</div>
+		<div style="flex:1;text-align:center"><span style="font-size:2em;font-weight:900">%d-%d</span></div>
 		<div style="flex:2"></div></div>`,
-		id, bScore, wScore, statusBadge)
+		id, bScore, wScore)
+	// Error badge on its own line below the score
+	if statusBadge != "" {
+		io.WriteString(w, fmt.Sprintf(`<div style="text-align:center;margin-bottom:.3em">%s</div>`, statusBadge))
+	}
 	// Line 2: player info (black right, white left)
 	fmt.Fprintf(w, `<div style="display:flex;justify-content:center;gap:3em;margin-bottom:.3em">
 		<div style="text-align:right;font-size:1.05em"><span style="color:#22d3ee">%s</span> <span style="color:#e8e6e3">%.0f</span> <span style="color:%s">%+d</span></div>
@@ -659,6 +663,11 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				lastIdx := len(boardStates) - 1
 				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-bottom:1.5em">`, lastIdx)
 				io.WriteString(w, `<div style="display:flex;align-items:center;justify-content:center;gap:12px">`)
+				// Stone tally — left of board, same font as move/score
+				io.WriteString(w, `<div id="stone-tally" style="font-size:2em;font-weight:700;min-width:80px;text-align:right">`)
+				fmt.Fprintf(w, `<span style="color:#22d3ee">B:%d</span> <span style="color:#d4c4a8">W:%d</span>`,
+					game.Popcount(boardStates[lastIdx].board.Black()), game.Popcount(boardStates[lastIdx].board.White()))
+				io.WriteString(w, `</div>`)
 				io.WriteString(w, `<div id="board-container" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px">`)
 				io.WriteString(w, renderBoardSVG(boardStates[lastIdx].board, boardStates[lastIdx].lastSq))
 				io.WriteString(w, `</div>`)
@@ -683,7 +692,10 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				} else if i := idx - openingPlies; i >= 0 && i < len(moves) {
 					moveLabel = moves[i].move
 				}
-				fmt.Fprintf(w, `<div data-idx="%d" data-move="%s">%s</div>`, idx, htmlEscape(moveLabel), renderBoardSVG(bs.board, bs.lastSq))
+				fmt.Fprintf(w, `<div data-idx="%d" data-move="%s" data-black="%d" data-white="%d">%s</div>`,
+					idx, htmlEscape(moveLabel),
+					game.Popcount(bs.board.Black()), game.Popcount(bs.board.White()),
+					renderBoardSVG(bs.board, bs.lastSq))
 				}
 				io.WriteString(w, `</div></div>`)
 				io.WriteString(w, boardInteractionJS)
