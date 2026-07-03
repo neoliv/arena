@@ -1173,7 +1173,6 @@ func probeVersion(ai aiConfig) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start: %w", err)
 	}
-	defer cmd.Wait()
 
 	stdin.Write([]byte("version\n"))
 	ch := make(chan string, 1)
@@ -1187,12 +1186,16 @@ func probeVersion(ai aiConfig) (string, error) {
 	}()
 	select {
 	case resp := <-ch:
+		// Got response — kill immediately, don't wait for 5s timeout.
+		cmd.Process.Kill()
+		cmd.Wait()
 		if strings.HasPrefix(resp, "= ") {
 			return strings.TrimSpace(strings.TrimPrefix(resp, "= ")), nil
 		}
 		return "", fmt.Errorf("bad GTP response: %s", resp)
 	case <-ctx.Done():
 		cmd.Process.Kill()
+		cmd.Wait()
 		return "", fmt.Errorf("timeout")
 	}
 }
