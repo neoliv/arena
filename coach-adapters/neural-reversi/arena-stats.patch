@@ -1,5 +1,5 @@
 diff --git a/crates/cli/src/gtp.rs b/crates/cli/src/gtp.rs
-index ede2be7..f8565c5 100644
+index ede2be7..5179f0e 100644
 --- a/crates/cli/src/gtp.rs
 +++ b/crates/cli/src/gtp.rs
 @@ -14,6 +14,7 @@ use reversi_core::{
@@ -80,7 +80,7 @@ index ede2be7..f8565c5 100644
          }
  
          if !self.game.board().has_legal_moves() {
-@@ -614,15 +636,36 @@ impl GtpEngine {
+@@ -614,15 +636,54 @@ impl GtpEngine {
          let options = match time_control {
              TimeControlMode::Infinite => {
                  let level_idx = self.level.min(MAX_LEVEL);
@@ -105,14 +105,32 @@ index ede2be7..f8565c5 100644
  
          if let Some(computer_move) = result.best_move() {
 +            let empties = self.game.board().get_empty_count() as i32;
-+            println!(
-+                "# arena-stats v1: {{\"nodes\":{},\"depth\":{},\"score\":{},\"time_ms\":{},\"empties\":{},\"timeout\":false}}",
-+                result.n_nodes(),
-+                result.depth(),
-+                (result.score().unwrap_or(0.0) * 100.0) as i32,
-+                elapsed_ms,
-+                empties
-+            );
++            // Build flags: only end_search/score_exact — NR doesn't expose
++            // timeout state or aspiration_fail through SearchResult.
++            let mut flags = String::new();
++            if result.is_endgame() {
++                flags.push_str("end_search score_exact");
++            }
++            if flags.is_empty() {
++                println!(
++                    "# arena-stats v1: {{\"nodes\":{},\"depth\":{},\"score\":{},\"time_ms\":{},\"empties\":{}}}",
++                    result.n_nodes(),
++                    result.depth(),
++                    (result.score().unwrap_or(0.0) * 100.0) as i32,
++                    elapsed_ms,
++                    empties
++                );
++            } else {
++                println!(
++                    "# arena-stats v1: {{\"nodes\":{},\"depth\":{},\"score\":{},\"time_ms\":{},\"empties\":{},\"flags\":\"{}\"}}",
++                    result.n_nodes(),
++                    result.depth(),
++                    (result.score().unwrap_or(0.0) * 100.0) as i32,
++                    elapsed_ms,
++                    empties,
++                    flags
++                );
++            }
              self.game.make_move(computer_move);
 -            GtpResponse::Success(format!("{computer_move}"))
 +            // Auto-exit after game ends (default 1 game)
