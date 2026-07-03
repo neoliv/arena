@@ -322,6 +322,12 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					z := chartH/2 + topPad
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
 				}
+				if metric == "score" {
+					// Zero line for score chart (center = Black up, White down)
+					z := chartH/2 + topPad
+					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
+					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="10">0</text>`, z+4)
+				}
 				if metric == "score" && maxValR > 0 {
 					niceStepR := maxValR / 4
 					if niceStepR >= 100 {
@@ -468,10 +474,8 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
 					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced %dpl</text>`, 34+openW/2, chartH+topPad-6, openingPlies)
 				}
-				// Y-axis: 0 to maxFlags
+				// Y-axis: grid lines only — flags are names, no numeric scale.
 				for f := 0; f <= maxFlags; f++ {
-					y := chartH - f*chartH/maxFlags + topPad
-					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="11">%d</text>`, y, f)
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-f*chartH/maxFlags, chartH-f*chartH/maxFlags)
 				}
 				for pl := 10; pl <= totalPlies; pl += 10 {
