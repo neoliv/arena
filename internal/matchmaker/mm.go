@@ -148,7 +148,7 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 		for mn, mv := range g.Moves {
 			m.DB.Exec(`INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score)
 				VALUES (?,?,?,?,?,?,?,?)`,
-				gameID, mn+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score)
+				gameID, mn+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score, mv.Flags)
 		}
 
 		if g.Result == "1-0" {

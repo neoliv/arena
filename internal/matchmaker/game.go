@@ -61,7 +61,7 @@ func loadOpenings() []string {
 	return openingsCache
 }
 
-type gameMove struct { Side, Move string; Nodes int64; Depth int; TimeMs float64; Score int }
+type gameMove struct { Side, Move string; Nodes int64; Depth int; TimeMs float64; Score int; Flags string }
 type gameResult struct {
 	Gid int64; Black, White, Result string; FinalScore int; OpeningLine string
 	BlackTimeS, WhiteTimeS float64; BlackNodes, WhiteNodes int64
@@ -101,7 +101,7 @@ func tracedSend(gid int64, side string, stream coach.Stream, cmd string, timeout
 	return resp, comments, err
 }
 
-func parseStats(lines []string, fallbackMs float64) (nodes int64, depth int, score int, coachMs float64) {
+func parseStats(lines []string, fallbackMs float64) (nodes int64, depth int, score int, coachMs float64, flags string) {
 	coachMs = fallbackMs
 	for _, s := range lines {
 		if strings.HasPrefix(s, "# time_ms ") {
@@ -109,8 +109,8 @@ func parseStats(lines []string, fallbackMs float64) (nodes int64, depth int, sco
 			// Don't continue — the JSON stats may be in the same line.
 		}
 		if idx := strings.Index(s, "{"); idx >= 0 {
-			var ns struct { Nodes int64 `json:"nodes"`; Depth int `json:"depth"`; Score int `json:"score"` }
-			if json.Unmarshal([]byte(s[idx:]), &ns) == nil { nodes, depth, score = ns.Nodes, ns.Depth, ns.Score }
+			var ns struct { Nodes int64 `json:"nodes"`; Depth int `json:"depth"`; Score int `json:"score"`; Flags string `json:"flags"` }
+			if json.Unmarshal([]byte(s[idx:]), &ns) == nil { nodes, depth, score, flags = ns.Nodes, ns.Depth, ns.Score, ns.Flags }
 		}
 	}
 	return
@@ -256,8 +256,8 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 				break
 			}
 
-		nodes, depth, score, coachMs := parseStats(stats, elapsed*1000)
-		gr.Moves = append(gr.Moves, gameMove{Side: side, Move: mv, Nodes: nodes, Depth: depth, TimeMs: coachMs, Score: score})
+		nodes, depth, score, coachMs, flags := parseStats(stats, elapsed*1000)
+		gr.Moves = append(gr.Moves, gameMove{Side: side, Move: mv, Nodes: nodes, Depth: depth, TimeMs: coachMs, Score: score, Flags: flags})
 
 		if side == "b" { side, curPlayer, oppPlayer = "w", board.White(), board.Black() } else { side, curPlayer, oppPlayer = "b", board.Black(), board.White() }
 		if len(gr.Moves) > 90 { break }
