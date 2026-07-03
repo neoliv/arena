@@ -294,10 +294,6 @@ func postJSON(client *http.Client, cfg config, path string, body any) (*http.Res
 	return client.Do(req)
 }
 
-// reportEngineError sends an engine error classification to the arena.
-// Fire-and-forget with a short timeout — if it fails, the matchmaker
-// will treat the failure as infrastructure (engine blameless), which is
-// the safe default.
 func reportEngineError(arenaURL, token, sessionID, errorType string) {
 	body := map[string]string{
 		"session_id": sessionID,
@@ -518,11 +514,8 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 					re.killMu.Unlock()
 					slog.Warn("engine HUNG — no response within budget + margin",
 						"session", sessionID, "budget_s", budget.Seconds(), "margin_s", margin.Seconds())
-					reportEngineError(arenaURL, token, sessionID, "timeout")
-					// Inject "= ? timeout" as the genmove response
-					// so the MM sees a proper timeout (not a crash).
-					conn.Write(context.Background(), websocket.MessageText,
-						[]byte("= ? timeout"))
+					// Coach reports timeout via WS event (wsloop.go exit handler).
+					// No injection into relay — the MM gets the verdict directly.
 					cmd.Process.Kill()
 				})
 			}
@@ -609,22 +602,6 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 		if writeFailed {
 			return
 		}
-		// Scanner exited (EOF on stdout). Determine why.
-		// - gameOver closed: MM finished the game, relay closed → normal.
-		// - killReason set: coach killed engine (timeout/watchdog) → already reported.
-		// - otherwise: engine exited on its own → crash. Report BEFORE conn.Close().
-		select {
-		case <-gameOver:
-			// Normal end — MM finished the game.
-		default:
-			re.killMu.Lock()
-			kr := re.killReason
-			re.killMu.Unlock()
-			if kr == "" {
-				slog.Warn("engine exited unexpectedly (crash)", "session", sessionID)
-				reportEngineError(arenaURL, token, sessionID, "crash")
-			}
-		}
 	}()
 
 	// WS → stdin: detect genmove commands to start the clock.
@@ -638,6 +615,9 @@ func launchEngine(ctx context.Context, ai aiConfig, arenaURL, token, sessionID, 
 			if err != nil {
 				io.WriteString(stdin, "quit\n")
 				time.Sleep(500 * time.Millisecond)
+				re.killMu.Lock()
+				re.killReason = "shutdown"
+				re.killMu.Unlock()
 				cmd.Process.Signal(os.Kill)
 				return
 			}

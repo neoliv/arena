@@ -1,10 +1,9 @@
 Building Neural Reversi adapter...
 rm -rf coach-engine
-# Ensure clean source state before applying patches.
-# Apply arena-stats patch (JSON stats + depth + GTP default + raw weight loader)
+# Apply patches (arena-stats + GTP fixes) to pristine source
 Applying arena-stats.patch...
 # Build CLI crate (cd to source dir first)
-cd /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }
+cd /home/oliv/dev/agent/othello/ref/neural-reversi/src && RUSTFLAGS="-C target-cpu=native" cargo build --release -p cli || { echo "ERROR: Neural Reversi build failed"; exit 1; }
    Compiling cli v6.1.0 (/home/oliv/dev/agent/othello/ref/neural-reversi/src/crates/cli)
    Compiling reversi-core v6.1.0 (/home/oliv/dev/agent/othello/ref/neural-reversi/src/crates/reversi-core)
 warning: unused variable: `mode`
@@ -21,19 +20,19 @@ warning: associated items `from_board`, `from_moves`, `last_move`, `score`, and 
  25 | impl GameState {
     | -------------- associated items in this implementation
 ...
- 37 |     pub fn from_board(board: Board, side_to_move: Disc) ...
+ 37 |     pub fn from_board(board: Board, side_...
     |            ^^^^^^^^^^
 ...
- 46 |     pub fn from_moves(moves: &[Square]) -> Result<Self, ...
+ 46 |     pub fn from_moves(moves: &[Square]) -...
     |            ^^^^^^^^^^
 ...
-175 |     pub fn last_move(&self) -> Option<Square> {
+175 |     pub fn last_move(&self) -> Option<Squ...
     |            ^^^^^^^^^
 ...
 180 |     pub fn score(&self) -> (u32, u32) {
     |            ^^^^^
 ...
-185 |     pub fn move_history(&self) -> Vec<Square> {
+185 |     pub fn move_history(&self) -> Vec<Squ...
     |            ^^^^^^^^^^^^
     |
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
@@ -55,8 +54,8 @@ warning: associated items `is_ai_turn`, `as_str`, `all`, `to_index`, and `from_i
    |
 37 | impl GameMode {
    | ------------- associated items in this implementation
-38 |     /// Returns whether the AI should play for ...
-39 |     pub fn is_ai_turn(&self, side: Disc) -> bool {
+38 |     /// Returns whether the AI should play...
+39 |     pub fn is_ai_turn(&self, side: Disc) -...
    |            ^^^^^^^^^^
 ...
 49 |     pub fn as_str(&self) -> &'static str {
@@ -82,7 +81,7 @@ warning: associated items `next`, `prev`, `as_str`, and `all` are never used
     |
 100 | impl BoardEditTab {
     | ----------------- associated items in this implementation
-101 |     /// Returns the next tab in order, wrapping around.
+101 |     /// Returns the next tab in order, wr...
 102 |     pub fn next(self) -> Self {
     |            ^^^^
 ...
@@ -92,7 +91,7 @@ warning: associated items `next`, `prev`, `as_str`, and `all` are never used
 120 |     pub fn as_str(&self) -> &'static str {
     |            ^^^^^^
 ...
-129 |     pub const fn all() -> [BoardEditTab; 3] {
+129 |     pub const fn all() -> [BoardEditTab; ...
     |                  ^^^
 
 warning: enum `UiMode` is never used
@@ -104,7 +103,7 @@ warning: enum `UiMode` is never used
 warning: type alias `SearchChannelItem` is never used
    --> crates/cli/src/tui/app.rs:159:6
     |
-159 | type SearchChannelItem = (search::Search, SearchResult);
+159 | type SearchChannelItem = (search::Search,...
     |      ^^^^^^^^^^^^^^^^^
 
 warning: function `spawn_search_worker` is never used
@@ -128,34 +127,34 @@ warning: multiple associated items are never used
 234 |     pub fn new(
     |            ^^^
 ...
-275 |     pub fn run(mut self, mut terminal: DefaultTerminal) ...
+275 |     pub fn run(mut self, mut terminal: De...
     |            ^^^
 ...
-321 |     fn handle_event(&mut self, event: Event) {
+321 |     fn handle_event(&mut self, event: Eve...
     |        ^^^^^^^^^^^^
 ...
-334 |     fn handle_normal_event(&mut self, event: Event) {
+334 |     fn handle_normal_event(&mut self, eve...
     |        ^^^^^^^^^^^^^^^^^^^
 ...
-389 |     fn handle_hints_loading_event(&mut self, event: Even...
+389 |     fn handle_hints_loading_event(&mut se...
     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-406 |     fn handle_hints_event(&mut self, event: Event) {
+406 |     fn handle_hints_event(&mut self, even...
     |        ^^^^^^^^^^^^^^^^^^
 ...
-420 |     fn handle_level_select_event(&mut self, event: Event) {
+420 |     fn handle_level_select_event(&mut sel...
     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-448 |     fn handle_mode_select_event(&mut self, event: Event) {
+448 |     fn handle_mode_select_event(&mut self...
     |        ^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-492 |     fn handle_confirm_quit_event(&mut self, event: Event) {
+492 |     fn handle_confirm_quit_event(&mut sel...
     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
 509 |     fn is_engine_available(&self) -> bool {
     |        ^^^^^^^^^^^^^^^^^^^
 ...
-517 |     fn engine_busy_message(ai_thinking: bool) -> String {
+517 |     fn engine_busy_message(ai_thinking: b...
     |        ^^^^^^^^^^^^^^^^^^^
 ...
 526 |     fn try_make_move_at_cursor(&mut self) {
@@ -182,10 +181,10 @@ warning: multiple associated items are never used
 652 |     fn open_board_editor(&mut self) {
     |        ^^^^^^^^^^^^^^^^^
 ...
-663 |     fn handle_board_edit_event(&mut self, event: Event) {
+663 |     fn handle_board_edit_event(&mut self,...
     |        ^^^^^^^^^^^^^^^^^^^^^^^
 ...
-736 |     fn active_board_edit_input(&mut self) -> &mut String {
+736 |     fn active_board_edit_input(&mut self)...
     |        ^^^^^^^^^^^^^^^^^^^^^^^
 ...
 745 |     fn apply_board_edit(&mut self) {
@@ -212,7 +211,7 @@ warning: struct `BoardArea` is never constructed
 warning: function `poll_event` is never used
   --> crates/cli/src/tui/event.rs:88:8
    |
-88 | pub fn poll_event(timeout: Duration, text_input: bool) ->...
+88 | pub fn poll_event(timeout: Duration, text_...
    |        ^^^^^^^^^^
 
 warning: function `map_key_event` is never used
@@ -224,25 +223,25 @@ warning: function `map_key_event` is never used
 warning: function `map_key_event_text_input` is never used
    --> crates/cli/src/tui/event.rs:173:4
     |
-173 | fn map_key_event_text_input(code: KeyCode) -> Event {
+173 | fn map_key_event_text_input(code: KeyCode...
     |    ^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `map_mouse_event` is never used
    --> crates/cli/src/tui/event.rs:189:4
     |
-189 | fn map_mouse_event(mouse: crossterm::event::MouseEvent) ...
+189 | fn map_mouse_event(mouse: crossterm::even...
     |    ^^^^^^^^^^^^^^^
 
 warning: function `parse_move_string` is never used
  --> crates/cli/src/tui/parse.rs:8:8
   |
-8 | pub fn parse_move_string(input: &str) -> Result<Vec<Square...
+8 | pub fn parse_move_string(input: &str) -> Re...
   |        ^^^^^^^^^^^^^^^^^
 
 warning: function `parse_hex_u64` is never used
   --> crates/cli/src/tui/parse.rs:37:8
    |
-37 | pub fn parse_hex_u64(input: &str) -> Result<u64, String> {
+37 | pub fn parse_hex_u64(input: &str) -> Resul...
    |        ^^^^^^^^^^^^^
 
 warning: function `render` is never used
@@ -254,55 +253,55 @@ warning: function `render` is never used
 warning: function `render_title` is never used
   --> crates/cli/src/tui/render.rs:44:4
    |
-44 | fn render_title(frame: &mut Frame, area: Rect) {
+44 | fn render_title(frame: &mut Frame, area: R...
    |    ^^^^^^^^^^^^
 
 warning: function `render_content` is never used
   --> crates/cli/src/tui/render.rs:66:4
    |
-66 | fn render_content(frame: &mut Frame, area: Rect, app: &Ap...
+66 | fn render_content(frame: &mut Frame, area:...
    |    ^^^^^^^^^^^^^^
 
 warning: function `render_board` is never used
   --> crates/cli/src/tui/render.rs:78:4
    |
-78 | fn render_board(frame: &mut Frame, area: Rect, app: &App) {
+78 | fn render_board(frame: &mut Frame, area: R...
    |    ^^^^^^^^^^^^
 
 warning: function `render_info_panel` is never used
   --> crates/cli/src/tui/render.rs:95:4
    |
-95 | fn render_info_panel(frame: &mut Frame, area: Rect, app: ...
+95 | fn render_info_panel(frame: &mut Frame, ar...
    |    ^^^^^^^^^^^^^^^^^
 
 warning: function `render_help_bar` is never used
    --> crates/cli/src/tui/render.rs:282:4
     |
-282 | fn render_help_bar(frame: &mut Frame, area: Rect, app: &...
+282 | fn render_help_bar(frame: &mut Frame, are...
     |    ^^^^^^^^^^^^^^^
 
 warning: function `render_hints_loading_popup` is never used
    --> crates/cli/src/tui/render.rs:321:4
     |
-321 | fn render_hints_loading_popup(frame: &mut Frame) {
+321 | fn render_hints_loading_popup(frame: &mut...
     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `render_hints_popup` is never used
    --> crates/cli/src/tui/render.rs:352:4
     |
-352 | fn render_hints_popup(frame: &mut Frame, app: &App) {
+352 | fn render_hints_popup(frame: &mut Frame, ...
     |    ^^^^^^^^^^^^^^^^^^
 
 warning: function `render_level_dialog` is never used
    --> crates/cli/src/tui/render.rs:416:4
     |
-416 | fn render_level_dialog(frame: &mut Frame, app: &App) {
+416 | fn render_level_dialog(frame: &mut Frame,...
     |    ^^^^^^^^^^^^^^^^^^^
 
 warning: function `render_mode_dialog` is never used
    --> crates/cli/src/tui/render.rs:464:4
     |
-464 | fn render_mode_dialog(frame: &mut Frame, app: &App) {
+464 | fn render_mode_dialog(frame: &mut Frame, ...
     |    ^^^^^^^^^^^^^^^^^^
 
 warning: function `render_quit_dialog` is never used
@@ -314,19 +313,19 @@ warning: function `render_quit_dialog` is never used
 warning: function `centered_rect` is never used
    --> crates/cli/src/tui/render.rs:545:4
     |
-545 | fn centered_rect(percent_x: u16, percent_y: u16, area: R...
+545 | fn centered_rect(percent_x: u16, percent_...
     |    ^^^^^^^^^^^^^
 
 warning: function `render_board_edit_dialog` is never used
    --> crates/cli/src/tui/render.rs:562:4
     |
-562 | fn render_board_edit_dialog(frame: &mut Frame, app: &App) {
+562 | fn render_board_edit_dialog(frame: &mut F...
     |    ^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `render_side_selector` is never used
    --> crates/cli/src/tui/render.rs:694:4
     |
-694 | fn render_side_selector(lines: &mut Vec<Line<'_>>, side:...
+694 | fn render_side_selector(lines: &mut Vec<L...
     |    ^^^^^^^^^^^^^^^^^^^^
 
 warning: associated items `new`, `cursor`, and `last_move` are never used
@@ -335,23 +334,23 @@ warning: associated items `new`, `cursor`, and `last_move` are never used
 26 | impl<'a> BoardWidget<'a> {
    | ------------------------ associated items in this implementation
 27 |     /// Creates a new board widget.
-28 |     pub fn new(board: &'a Board, side_to_move: Disc) -> S...
+28 |     pub fn new(board: &'a Board, side_to_m...
    |            ^^^
 ...
-39 |     pub fn cursor(mut self, row: usize, col: usize) -> Se...
+39 |     pub fn cursor(mut self, row: usize, co...
    |            ^^^^^^
 ...
-45 |     pub fn last_move(mut self, sq: Option<Square>) -> Self {
+45 |     pub fn last_move(mut self, sq: Option<...
    |            ^^^^^^^^^
 
 warning: `cli` (bin "cli") generated 35 warnings (run `cargo fix --bin "cli" -p cli` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 11.64s
+    Finished `release` profile [optimized] target(s) in 11.93s
 mkdir -p coach-engine/players.d
-cp /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp || { echo "ERROR: Neural Reversi binary not found"; exit 1; }
+cp /home/oliv/dev/agent/othello/ref/neural-reversi/src/target/release/cli coach-engine/neural-reversi-gtp || { echo "ERROR: Neural Reversi binary not found"; exit 1; }
 # Pre-decompress weight files so engine loads raw binary (no zstd overhead)
-Decompressing /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst -> coach-engine/eval-e6bbc4f6.bin...
-/home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval-e6bbc4f6.zst: 609599984 bytes 
-Decompressing /home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval_sm-e6bbc4f6.zst -> coach-engine/eval_sm-e6bbc4f6.bin...
-/home/oliv/dev/agent/othello/ref/coach-adapters/neural-reversi/../../neural-reversi/src/eval_sm-e6bbc4f6.zst: 228436344 bytes 
+Decompressing /home/oliv/dev/agent/othello/ref/neural-reversi/src/eval-e6bbc4f6.zst -> coach-engine/eval-e6bbc4f6.bin...
+/home/oliv/dev/agent/othello/ref/neural-reversi/src/eval-e6bbc4f6.zst: 609599984 bytes 
+Decompressing /home/oliv/dev/agent/othello/ref/neural-reversi/src/eval_sm-e6bbc4f6.zst -> coach-engine/eval_sm-e6bbc4f6.bin...
+/home/oliv/dev/agent/othello/ref/neural-reversi/src/eval_sm-e6bbc4f6.zst: 228436344 bytes 
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
 coach-engine/ ready: 6 files

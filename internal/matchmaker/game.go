@@ -190,12 +190,6 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 		if mv == "" { gr.ErrorCode = game.ErrInvalidResponse; if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }; break }
 
-		// Coach-induced timeout: "? timeout" → ErrTimeout (same as MM guard).
-		if strings.Contains(resp, "timeout") {
-			gr.ErrorCode = game.ErrTimeout
-			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
-			break
-		}
 		if mv == "RESIGN" || strings.HasPrefix(resp, "?") {
 			gr.ErrorCode = game.ErrResign
 			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }

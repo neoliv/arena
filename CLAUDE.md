@@ -208,3 +208,25 @@ The Arena supports distributed match play across contributor machines:
 
 Go binary that runs on each contributor machine. One coach per host, managing
 many concurrent AI instances.
+
+## Push-Based Matchmaker Protocol
+
+The coach connects via WebSocket to `wss://arena.arsac.org/api/coach/ws`. Protocol:
+- **Coach → MM:** `register`, `heartbeat` (with `ack_id`), `engine_exited`, `engine_timeout`, `engine_crash`
+- **MM → Coach:** `launch(id=N, ...)`, `kill(id=N, ...)`
+- Heartbeats are sent on every state change + 10s fallback
+- Sequence numbers: each launch has a monotonic ID. Heartbeat carries `ack_id` = last processed launch ID
+- `coachHasRoom` uses `hbRunning + inflight + 1 < coresTotal`
+- Key files: `cmd/coach/wsloop.go`, `internal/matchmaker/wscoach.go`, `internal/coach/wsproto.go`
+
+## OTHELLO_HOME
+
+All scripts auto-detect `OTHELLO_HOME` from `$SCRIPT_DIR/..`. Env var overrides. Coach dir defaults to `$HOME/coach`. No hardcoded paths.
+
+## Session Persistence
+
+Sessions survive server restarts via DB fallback in `internal/web/auth.go`. `web_sessions` table is NOT cleared by `arena-clear-db.sh`. Use `grep "session create"` in server log to debug persistence issues.
+
+## Coach Logs
+
+Coach writes to `~/coach/log/coach.log` (host). Engine stderr to `~/coach/log/<session>.err`. Arena server at `/var/log/arena/server.log` (VPS).

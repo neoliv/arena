@@ -1,6 +1,11 @@
 ### ARENA Prompts
 
 
+
+
+Arena: Game detail, board.
+Put the stone tally "B:7 W:13" left of the board (currently under the board). With the same font as the move/score that are displayed right of the board.
+
 ### Maybe
 
 How could we make the path handling in scripts, code, documentation, ... more independant of where the user is putting the coach/ (current: ~/coach) and othello/ (current: /home/oliv/dev/agent/othello).
