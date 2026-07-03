@@ -1,4 +1,4 @@
-=== Arena Coach Update === (Fri Jul  3 07:37:46 AM CEST 2026)
+=== Arena Coach Update === (Fri Jul  3 11:14:37 AM CEST 2026)
 0. coach.yaml copied from arena source
 1. Coach binary...
 Already up to date.
@@ -15,7 +15,7 @@ Already up to date.
 
 ─── neursi ───
    /home/oliv/dev/agent/othello/neursi/engine
-   -> /home/oliv/coach/engines/e8af71370a964b8b/
+   -> /home/oliv/coach/engines/b29452a50fd4d139/
    version: 0.1.2 (probed via GTP, caches warmed)
 
 ─── Reload ───

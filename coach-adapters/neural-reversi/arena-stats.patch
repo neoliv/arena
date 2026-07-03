@@ -1,5 +1,5 @@
 diff --git a/crates/cli/src/gtp.rs b/crates/cli/src/gtp.rs
-index ede2be7..06bf97d 100644
+index ede2be7..f8565c5 100644
 --- a/crates/cli/src/gtp.rs
 +++ b/crates/cli/src/gtp.rs
 @@ -14,6 +14,7 @@ use reversi_core::{
@@ -49,7 +49,38 @@ index ede2be7..06bf97d 100644
              black_time_ms: 0,
              white_time_ms: 0,
              black_in_byoyomi: false,
-@@ -614,15 +623,36 @@ impl GtpEngine {
+@@ -563,7 +572,12 @@ impl GtpEngine {
+     /// Success if the move was played, error if invalid
+     fn handle_play(&mut self, color: &str, move_str: &str) -> GtpResponse {
+         if let Err(msg) = self.validate_color(color) {
+-            return GtpResponse::Error(msg);
++            // The opponent may have passed silently — infer it from board state.
++            if !self.game.board().has_legal_moves() {
++                self.game.make_pass();
++            } else {
++                return GtpResponse::Error(msg);
++            }
+         }
+ 
+         if move_str == "pass" {
+@@ -599,7 +613,15 @@ impl GtpEngine {
+     /// The generated move in coordinate notation, or "pass" if no legal moves
+     fn handle_genmove(&mut self, color: &str) -> GtpResponse {
+         if let Err(msg) = self.validate_color(color) {
+-            return GtpResponse::Error(msg);
++            // The requested color doesn't match our internal side_to_move.
++            // The opponent may have passed (no legal moves). Check board state:
++            //   - opponent has moves → genuine color mismatch, reject
++            //   - opponent has no moves → they passed, flip side and proceed
++            if !self.game.board().has_legal_moves() {
++                self.game.make_pass();
++            } else {
++                return GtpResponse::Error(msg);
++            }
+         }
+ 
+         if !self.game.board().has_legal_moves() {
+@@ -614,15 +636,36 @@ impl GtpEngine {
          let options = match time_control {
              TimeControlMode::Infinite => {
                  let level_idx = self.level.min(MAX_LEVEL);
