@@ -449,7 +449,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				flagColor := map[string]string{
 					"timeout":          "#ef4444",
 					"from_book":        "#94a3b8",
-					"end_search":       "#22d3ee",
+					"end_search":       "#a78bfa",
 					"score_exact":      "#4ade80",
 					"aspiration_fail":  "#fbbf24",
 				}
@@ -508,7 +508,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				legX := 40
 				for _, entry := range []struct{ flag, color, label string }{
 					{"from_book", "#94a3b8", "from_book"},
-					{"end_search", "#22d3ee", "end_search"},
+					{"end_search", "#a78bfa", "end_search"},
 					{"score_exact", "#4ade80", "score_exact"},
 					{"aspiration_fail", "#fbbf24", "aspiration_fail"},
 					{"timeout", "#ef4444", "timeout"},
