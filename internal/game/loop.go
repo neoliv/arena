@@ -18,13 +18,11 @@ type MoveStats struct {
 	Nodes       int64   `json:"nodes"`
 	Depth       int     `json:"depth"`
 	TimeMs      float64 `json:"time_ms"`
-	Timeout     bool    `json:"timeout"`
+	Flags       string  `json:"flags"`        // space-delimited search state flags
 	Score       int     `json:"score"`
 	Nps         int64   `json:"nps"`
 	Empties     int     `json:"empties"`
 	AllocatedMs float64 `json:"allocated_ms"`
-	EndSearch   bool    `json:"end_search"`
-	BookExit    bool    `json:"book_exit"`
 	BookEval    *int    `json:"book_eval,omitempty"`
 }
 
@@ -33,13 +31,11 @@ type neursiStatsV1 struct {
 	Nodes       int64   `json:"nodes"`
 	Depth       int     `json:"depth"`
 	TimeMs      float64 `json:"time_ms"`
-	Timeout     bool    `json:"timeout"`
+	Flags       string  `json:"flags"`        // space-delimited search state flags
 	Score       int     `json:"score"`
 	Nps         int64   `json:"nps"`
 	Empties     int     `json:"empties"`
 	AllocatedMs float64 `json:"allocated_ms"`
-	EndSearch   bool    `json:"end_search"`
-	BookExit    bool    `json:"book_exit"`
 	BookEval    *int    `json:"book_eval"`
 }
 
@@ -201,13 +197,13 @@ func PlayGame(black, white *Session, opening string, gameTimeSec float64) GameRe
 					Nodes:       s.Nodes,
 					Depth:       s.Depth,
 					TimeMs:      s.TimeMs,
-					Timeout:     s.Timeout,
+					Flags:       s.Flags,
 					Score:       s.Score,
 					Nps:         s.Nps,
 					Empties:     s.Empties,
 					AllocatedMs: s.AllocatedMs,
-					EndSearch:   s.EndSearch,
-					BookExit:    s.BookExit,
+					
+					
 					BookEval:    s.BookEval,
 				})
 			}

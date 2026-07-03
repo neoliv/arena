@@ -534,7 +534,7 @@ func (s *Server) HandleSubmitSpeed(w http.ResponseWriter, r *http.Request) {
 			Nodes      int64   `json:"nodes"`
 			TimeS      float64 `json:"time_s"`
 			Depth      int     `json:"depth"`
-			Timeout    bool    `json:"timeout"`
+			Flags      string  `json:"flags"`
 			Score      int     `json:"score"`
 			NPS        int64   `json:"nps"`
 			Branching  int     `json:"branching"`
@@ -555,7 +555,7 @@ func (s *Server) HandleSubmitSpeed(w http.ResponseWriter, r *http.Request) {
 			eID = e2ID
 		}
 		if eID == 0 { continue }
-		timeoutInt := 0; if m.Timeout { timeoutInt = 1 }
+		timeoutInt := 0; if strings.Contains(m.Flags, "timeout") { timeoutInt = 1 }
 		s.DB.Exec(`INSERT INTO speed_stats (engine_id, match_id, ply, total_nodes, total_time_s, total_depth, timeouts, total_nps, total_branch, total_empties, sample_count)
 			VALUES (?,?,?,?,?,?,?,?,?,?,1)`, eID, req.MatchID, m.Ply, m.Nodes, m.TimeS, m.Depth, timeoutInt, m.NPS, m.Branching, m.Empties)
 	}

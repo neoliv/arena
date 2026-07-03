@@ -650,13 +650,11 @@ func gameToManifestGame(gr game.GameResult, role string) sprt.ManifestGame {
 			Nodes:       ms.Nodes,
 			Depth:       ms.Depth,
 			TimeMs:      ms.TimeMs,
-			Timeout:     ms.Timeout,
+			Flags:       ms.Flags,
 			Score:       ms.Score,
 			Nps:         ms.Nps,
 			Empties:     ms.Empties,
 			AllocatedMs: ms.AllocatedMs,
-			EndSearch:   ms.EndSearch,
-			BookExit:    ms.BookExit,
 			BookEval:    ms.BookEval,
 		}
 	}
@@ -772,15 +770,15 @@ func (as *accumulatedStats) recordGame(gr game.GameResult, candID, refID *sprt.M
 			plyAccum.unspentMs.Add(ms.AllocatedMs - ms.TimeMs)
 		}
 		plyAccum.count++
-		if ms.Timeout {
+		if strings.Contains(ms.Flags, "timeout") {
 			plyAccum.timeouts++
 		}
 
 		// Game-level: track end-search start ply and book exit
-		if ms.EndSearch {
+		if strings.Contains(ms.Flags, "end_search") {
 			engineGame.endSearchStartPly.Add(float64(ms.Ply))
 		}
-		if ms.BookExit {
+		if strings.Contains(ms.Flags, "from_book") {
 			engineGame.bookExitPly.Add(float64(ms.Ply))
 			if ms.BookEval != nil {
 				engineGame.bookExitEval.Add(float64(*ms.BookEval))
@@ -802,7 +800,7 @@ func (as *accumulatedStats) recordGame(gr game.GameResult, candID, refID *sprt.M
 			totalNodes += ms.Nodes
 			totalTimeMs += ms.TimeMs
 			depthSum += float64(ms.Depth)
-			if ms.Timeout {
+			if strings.Contains(ms.Flags, "timeout") {
 				timeouts++
 			}
 			moveCount++

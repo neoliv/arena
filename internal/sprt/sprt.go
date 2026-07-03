@@ -303,13 +303,14 @@ type ManifestMove struct {
 	Nodes       int64   `json:"nodes"`
 	Depth       int     `json:"depth"`
 	TimeMs      float64 `json:"time_ms"`
-	Timeout     bool    `json:"timeout"`
+
 	Score       int     `json:"score"`
 	Nps         int64   `json:"nps"`
 	Empties     int     `json:"empties"`
 	AllocatedMs float64 `json:"allocated_ms"`
-	EndSearch   bool    `json:"end_search"`
-	BookExit    bool    `json:"book_exit"`
+
+
+	Flags       string  `json:"flags"`
 	BookEval    *int    `json:"book_eval,omitempty"`
 }
 
