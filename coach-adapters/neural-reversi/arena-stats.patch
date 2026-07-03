@@ -1,5 +1,5 @@
 diff --git a/crates/cli/src/gtp.rs b/crates/cli/src/gtp.rs
-index ede2be7..5179f0e 100644
+index ede2be7..e503efe 100644
 --- a/crates/cli/src/gtp.rs
 +++ b/crates/cli/src/gtp.rs
 @@ -14,6 +14,7 @@ use reversi_core::{
@@ -116,7 +116,7 @@ index ede2be7..5179f0e 100644
 +                    "# arena-stats v1: {{\"nodes\":{},\"depth\":{},\"score\":{},\"time_ms\":{},\"empties\":{}}}",
 +                    result.n_nodes(),
 +                    result.depth(),
-+                    (result.score().unwrap_or(0.0) * 100.0) as i32,
++                    (result.score().unwrap_or(0.0)) as i32,
 +                    elapsed_ms,
 +                    empties
 +                );
@@ -125,7 +125,7 @@ index ede2be7..5179f0e 100644
 +                    "# arena-stats v1: {{\"nodes\":{},\"depth\":{},\"score\":{},\"time_ms\":{},\"empties\":{},\"flags\":\"{}\"}}",
 +                    result.n_nodes(),
 +                    result.depth(),
-+                    (result.score().unwrap_or(0.0) * 100.0) as i32,
++                    (result.score().unwrap_or(0.0)) as i32,
 +                    elapsed_ms,
 +                    empties,
 +                    flags
