@@ -13,11 +13,24 @@ import (
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
+	"github.com/neoliv/arena/internal/db"
 	"github.com/neoliv/arena/internal/game"
 )
 
 var traceGameID atomic.Int64
-func InitTrace(path string) error { return nil }
+
+// InitTrace seeds the in-memory game ID counter from the database so
+// that trace IDs and DB game IDs stay in sync across arena restarts.
+// Must be called after DB is opened and migrations have run.
+func InitTrace(dbase *db.DB) error {
+	var maxID int64
+	if err := dbase.QueryRow("SELECT COALESCE(MAX(id), 0) FROM games").Scan(&maxID); err != nil {
+		return fmt.Errorf("init trace: %w", err)
+	}
+	traceGameID.Store(maxID)
+	slog.Info("game trace seeded", "max_db_id", maxID)
+	return nil
+}
 
 //
 //go:embed openings_8ply.txt

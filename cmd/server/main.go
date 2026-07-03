@@ -150,7 +150,7 @@ func main() {
 	coachHandler.OnHeartbeat = func(coachID string, sessionID string, aiUpdates map[string]int) bool {
 		return mm.OnCoachHeartbeat(coachID, sessionID, aiUpdates)
 	}
-	if err := matchmaker.InitTrace("/var/log/arena/game_trace.log"); err != nil {
+	if err := matchmaker.InitTrace(mm.DB); err != nil {
 		slog.Warn("game trace disabled", "err", err)
 	}
 	mux.HandleFunc("GET /api/matchmaker/status", mm.HandleStatus)
