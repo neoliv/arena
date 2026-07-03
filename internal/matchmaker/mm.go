@@ -146,8 +146,8 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 
 		// Store per-move data for game detail charts.
 		for mn, mv := range g.Moves {
-			m.DB.Exec(`INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score)
-				VALUES (?,?,?,?,?,?,?,?)`,
+			m.DB.Exec(`INSERT INTO game_moves (game_id, move_num, side, move, nodes, depth, time_ms, score, flags)
+				VALUES (?,?,?,?,?,?,?,?,?)`,
 				gameID, mn+1, mv.Side, mv.Move, mv.Nodes, mv.Depth, mv.TimeMs, mv.Score, mv.Flags)
 		}
 
