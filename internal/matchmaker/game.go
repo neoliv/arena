@@ -203,8 +203,13 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 
 		if mv == "" { gr.ErrorCode = game.ErrInvalidResponse; if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }; break }
 
-		if mv == "RESIGN" || strings.HasPrefix(resp, "?") {
+		if mv == "RESIGN" {
 			gr.ErrorCode = game.ErrResign
+			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
+			break
+		}
+		if strings.HasPrefix(resp, "?") {
+			gr.ErrorCode = game.ErrInvalidResponse
 			if side == "b" { gr.Result = "0-1" } else { gr.Result = "1-0" }
 			break
 		}
@@ -271,7 +276,7 @@ func playOneGame(ctx context.Context, black, white coach.Stream, opening string,
 	if gr.Result == "" {
 		if bCount > wCount { gr.Result = "1-0" } else if wCount > bCount { gr.Result = "0-1" } else { gr.Result = "1/2" }
 	}
-	if gr.ErrorCode == game.ErrTimeout || gr.ErrorCode == game.ErrResign {
+	if gr.ErrorCode == game.ErrTimeout || gr.ErrorCode == game.ErrResign || gr.ErrorCode == game.ErrInvalidResponse {
 		// Tournament forfeit rule: winner gets max(actual discs, 34), loser 30.
 		if gr.Result == "1-0" {
 			w := bCount; if w < 34 { w = 34 }
