@@ -549,7 +549,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			// ── Board viewer ──────────────────────────────────────
 			if len(boardStates) > 0 {
 				lastIdx := len(boardStates) - 1
-				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-bottom:1.5em">`, lastIdx)
+				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-top:1.5em;margin-bottom:1.5em">`, lastIdx)
 				io.WriteString(w, `<div style="display:flex;align-items:center;justify-content:center;gap:12px">`)
 				// Stone tally — left of board, same font as move/score
 				io.WriteString(w, `<div id="stone-tally" style="font-size:2em;font-weight:700;min-width:80px;text-align:right">`)
