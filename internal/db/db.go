@@ -78,9 +78,9 @@ func (db *DB) Migrate() error {
 		"ALTER TABLE engines ADD COLUMN engine_manifest TEXT DEFAULT ''",
 			// Fix created_at: old schema used TEXT datetime('now'), new uses unixepoch().
 		"UPDATE games SET created_at = COALESCE(unixepoch(created_at), 0) WHERE typeof(created_at) = 'text'",
-		"UPDATE matches SET created_at = COALESCE(unixepoch(created_at), 0) WHERE typeof(created_at) = 'text'",
 		"ALTER TABLE games ADD COLUMN disconnect INTEGER DEFAULT 0",
 		"ALTER TABLE games ADD COLUMN error_code INTEGER DEFAULT 0",
+			"ALTER TABLE games ADD COLUMN game_time_sec REAL DEFAULT 0",
 			"ALTER TABLE game_moves ADD COLUMN flags TEXT DEFAULT ''",
 				"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0, flags TEXT DEFAULT '')",
 		// idx_games_created on games(created_at) is ASC by default; SQLite reads
@@ -108,23 +108,9 @@ CREATE TABLE IF NOT EXISTS engines (
     UNIQUE(name, version)
 );
 
-CREATE TABLE IF NOT EXISTS matches (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    engine1_id    INTEGER REFERENCES engines(id),
-    engine2_id    INTEGER REFERENCES engines(id),
-    time_control  TEXT NOT NULL DEFAULT '{}',
-    opening_book  TEXT,
-    runner_id     TEXT,
-    total_games   INTEGER NOT NULL DEFAULT 0,
-    wins_1        INTEGER DEFAULT 0,
-    wins_2        INTEGER DEFAULT 0,
-    draws         INTEGER DEFAULT 0,
-    created_at    INTEGER DEFAULT (unixepoch())
-);
-
 CREATE TABLE IF NOT EXISTS games (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id      INTEGER REFERENCES matches(id),
+    match_id      INTEGER DEFAULT 0,
     game_number   INTEGER NOT NULL,
     black_id      INTEGER REFERENCES engines(id),
     white_id      INTEGER REFERENCES engines(id),
@@ -140,6 +126,7 @@ CREATE TABLE IF NOT EXISTS games (
     white_depth   INTEGER,
     disconnect    INTEGER DEFAULT 0,
     error_code    INTEGER DEFAULT 0,
+    game_time_sec REAL DEFAULT 0,
     created_at    INTEGER DEFAULT (unixepoch())
 );
 
@@ -147,7 +134,7 @@ CREATE TABLE IF NOT EXISTS elo_history (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     engine_id     INTEGER REFERENCES engines(id),
     opponent_id   INTEGER REFERENCES engines(id),
-    match_id      INTEGER REFERENCES matches(id),
+    match_id      INTEGER DEFAULT 0,
     rating_before REAL NOT NULL,
     rating_after  REAL NOT NULL,
     games          INTEGER NOT NULL DEFAULT 0,
@@ -157,7 +144,6 @@ CREATE TABLE IF NOT EXISTS elo_history (
     created_at    INTEGER DEFAULT (unixepoch())
 );
 
-CREATE INDEX IF NOT EXISTS idx_games_match ON games(match_id);
 CREATE INDEX IF NOT EXISTS idx_games_black ON games(black_id);
 CREATE INDEX IF NOT EXISTS idx_games_white ON games(white_id);
 CREATE INDEX IF NOT EXISTS idx_elo_engine ON elo_history(engine_id);

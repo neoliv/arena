@@ -21,7 +21,7 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 			CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN g.black_depth+g.white_depth ELSE g.white_depth+g.black_depth END),0) AS INTEGER) as avg_ply,
 			COALESCE((SELECT COUNT(*) FROM speed_stats ss WHERE ss.engine_id=e.id AND ss.timeouts>0),0) as timeouts,
 			COALESCE((SELECT COUNT(*) FROM speed_stats ss WHERE ss.engine_id=e.id),0) as moves,
-			CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN 100.0*(1.0-g.black_time_s/NULLIF(COALESCE((SELECT CAST(json_extract(m.time_control,'$.seconds') AS REAL) FROM matches m WHERE m.id=g.match_id),60),0)) ELSE 100.0*(1.0-g.white_time_s/NULLIF(COALESCE((SELECT CAST(json_extract(m.time_control,'$.seconds') AS REAL) FROM matches m WHERE m.id=g.match_id),60),0)) END),0) AS REAL) as unspent_pct,
+			CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN 100.0*(1.0-g.black_time_s/NULLIF(COALESCE(g.game_time_sec,60),0)) ELSE 100.0*(1.0-g.white_time_s/NULLIF(COALESCE(g.game_time_sec,60),0)) END),0) AS REAL) as unspent_pct,
 			CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN g.black_time_s ELSE g.white_time_s END),0) AS REAL) as avg_time_s
 			FROM engines e LEFT JOIN games g ON g.black_id=e.id OR g.white_id=e.id
 			GROUP BY e.name HAVING games>0 ORDER BY games DESC`)

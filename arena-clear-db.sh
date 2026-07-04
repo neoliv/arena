@@ -30,7 +30,7 @@ echo "  backup created: $BACKUP_NAME"
 echo "--- Clearing tables ---"
 TABLES=(
     elo_history engines
-    game_moves games matches
+    game_moves games
 )
 for t in "${TABLES[@]}"; do
     count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")

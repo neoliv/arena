@@ -591,8 +591,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/engines", s.requireToken(s.HandleRegisterEngine))
 	mux.HandleFunc("GET /api/engines", s.requireToken(s.HandleListEngines))
 	mux.HandleFunc("GET /api/engines/{id}", s.requireToken(s.HandleGetEngine))
-	mux.HandleFunc("POST /api/matches", s.requireToken(s.HandleSubmitMatch))
-	mux.HandleFunc("GET /api/matches", s.requireToken(s.HandleListMatches))
 	mux.HandleFunc("GET /api/matches/{id}", s.requireToken(s.HandleGetMatch))
 	mux.HandleFunc("GET /api/elo", s.requireToken(s.HandleGetElo))
 	mux.HandleFunc("GET /api/elo/{id}", s.requireToken(s.HandleGetEngineElo))

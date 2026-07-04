@@ -61,6 +61,7 @@ type MatchMaker struct {
 type GameResult struct {
 	Games                  []gameResult
 	E1Name, E1Ver, E2Name, E2Ver string
+	GameTimeSec            float64
 }
 
 func New(database *db.DB, relay *coach.Relay) *MatchMaker {
@@ -110,15 +111,7 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 		return
 	}
 
-	tc, _ := json.Marshal(map[string]interface{}{"type": "total", "seconds": 30})
-	res, err := m.DB.Exec(`INSERT INTO matches (engine1_id, engine2_id, time_control, runner_id, total_games)
-		VALUES (?,?,?,?,?)`, e1ID, e2ID, tc, "matchmaker", len(gr.Games))
-	if err != nil || res == nil {
-		slog.Error("storeMatch: insert matches failed", "err", err)
-		return
-	}
-	matchID64, _ := res.LastInsertId()
-	matchID := int(matchID64)
+	matchID := 0 // matches table removed — match_id no longer references anything
 
 	wins1, wins2, draws := 0, 0, 0
 	for i, g := range gr.Games {
@@ -133,10 +126,10 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 		if g.Disconnect {
 			disc = 1
 		}
-		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect, error_code, created_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())`,
+		gres, err := m.DB.Exec(`INSERT INTO games (match_id, game_number, black_id, white_id, result, final_score, opening_line, black_time_s, white_time_s, black_nodes, white_nodes, black_depth, white_depth, disconnect, error_code, game_time_sec, created_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())`,
 			matchID, i+1, blackID, whiteID, g.Result, g.FinalScore, g.OpeningLine,
-			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc, g.ErrorCode)
+			g.BlackTimeS, g.WhiteTimeS, g.BlackNodes, g.WhiteNodes, g.BlackDepth, g.WhiteDepth, disc, g.ErrorCode, gr.GameTimeSec)
 		if err != nil || gres == nil {
 			slog.Error("storeMatch: insert game failed", "err", err, "match", matchID, "game", i+1)
 			continue
@@ -174,7 +167,6 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 			m.updateElo(blackID, whiteID, matchID, g)
 		}
 	}
-	m.DB.Exec("UPDATE matches SET wins_1=?, wins_2=?, draws=? WHERE id=?", wins1, wins2, draws, matchID)
 }
 
 func (m *MatchMaker) resolveEngine(name, ver string) int {
@@ -364,6 +356,7 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 		Games:  games,
 		E1Name: bParts[0], E1Ver: bParts[1],
 		E2Name: wParts[0], E2Ver: wParts[1],
+		GameTimeSec: 30.0,
 	}
 
 	// Mark assignment completed so it disappears from "In Progress".
@@ -404,7 +397,7 @@ func (m *MatchMaker) executeMatch(blackStream, whiteStream coach.Stream, gameTim
 	ctx := context.Background()
 	games := playGames(ctx, blackStream, whiteStream, 2, gameTimeSec, 0)
 	slog.Info("matchmaker match played", "games", len(games))
-	m.storeCh <- GameResult{Games: games}
+	m.storeCh <- GameResult{Games: games, GameTimeSec: 30.0}
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────────

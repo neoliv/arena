@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -71,33 +70,26 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, pageHead+navHTML)
 
 	var gid, mid, gnum, finalScore, blackNodes, whiteNodes, blackDepth, whiteDepth, disconnect, errorCode int
-	var result, opening, bName, bVer, wName, wVer, tcJSON string
+	var result, opening, bName, bVer, wName, wVer string
 	var bTime, wTime, gameTimeSec float64
 	var bElo, wElo, bEloBefore, wEloBefore float64
 	err := h.DB.QueryRow(
 		"SELECT g.id, g.match_id, g.game_number, g.result, COALESCE(g.final_score,0), COALESCE(g.opening_line,''), "+
 			"COALESCE(g.black_time_s,0), COALESCE(g.white_time_s,0), COALESCE(g.black_nodes,0), COALESCE(g.white_nodes,0), "+
 			"COALESCE(g.black_depth,0), COALESCE(g.white_depth,0), COALESCE(g.disconnect,0), COALESCE(g.error_code,0), eb.name, eb.version, ew.name, ew.version, "+
-			"COALESCE(m.time_control,'{}'), "+
+			"COALESCE(g.game_time_sec,30), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.black_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=g.white_id ORDER BY created_at DESC LIMIT 1), 1500.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.black_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0), "+
 			"COALESCE((SELECT rating_before FROM elo_history WHERE engine_id=g.white_id AND match_id=g.match_id ORDER BY created_at DESC LIMIT 1), 0.0) "+
-			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id JOIN matches m ON m.id=g.match_id WHERE g.id=?",
-		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &disconnect, &errorCode, &bName, &bVer, &wName, &wVer, &tcJSON, &bElo, &wElo, &bEloBefore, &wEloBefore)
+			"FROM games g JOIN engines eb ON g.black_id=eb.id JOIN engines ew ON g.white_id=ew.id WHERE g.id=?",
+		id).Scan(&gid, &mid, &gnum, &result, &finalScore, &opening, &bTime, &wTime, &blackNodes, &whiteNodes, &blackDepth, &whiteDepth, &disconnect, &errorCode, &bName, &bVer, &wName, &wVer, &gameTimeSec, &bElo, &wElo, &bEloBefore, &wEloBefore)
 	if err != nil {
 		io.WriteString(w, "<p>Game not found.</p>"+pageFoot)
 		return
 	}
 
-	var tc struct {
-		Seconds float64 `json:"seconds"`
-		Label   string  `json:"label"`
-	}
-	json.Unmarshal([]byte(tcJSON), &tc)
-	if tc.Seconds > 0 {
-		gameTimeSec = tc.Seconds
-	}
+	if gameTimeSec <= 0 { gameTimeSec = 30 }
 
 	bDelta := bElo - bEloBefore
 	wDelta := wElo - wEloBefore
@@ -166,10 +158,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		bUnspent = max(0, gameTimeSec-bTime)
 		wUnspent = max(0, gameTimeSec-wTime)
 	}
-	tcLabel := tc.Label
-	if tcLabel == "" && tc.Seconds > 0 {
-		tcLabel = fmt.Sprintf("%.0fs", tc.Seconds)
-	}
+	tcLabel := fmt.Sprintf("%.0fs", gameTimeSec)
 	otherGame := gid + 1
 	if gnum == 2 {
 		otherGame = gid - 1
