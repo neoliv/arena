@@ -323,10 +323,26 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
 				}
 				if metric == "score" {
-					// Zero line for score chart (center = Black up, White down)
+					// Signed axis: -maxVal at bottom (White advantage), +maxVal at top (Black advantage)
+					// Overflow (>64 discs) shown in red.
+
+					overflowColor := func(v float64) string {
+						if v > 64 || v < -64 { return "#f44336" }
+						return "#6a6"
+					}
+					for pct := 0; pct <= 100; pct += 25 {
+						y := chartH - pct*chartH/100 + 44
+						// Map pct to signed value: 0% = -maxVal, 50% = 0, 100% = +maxVal
+						val := (float64(pct)/50.0 - 1.0) * maxVal
+						if pct == 0 { val = -maxVal }
+						if pct == 100 { val = maxVal }
+						if pct == 50 { val = 0 }
+						fmt.Fprintf(w, `<text x="0" y="%d" fill="%s" font-size="11">%+.0f</text>`,
+							y, overflowColor(val), val)
+					}
+					// Zero line
 					z := chartH/2 + topPad
 					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, z, z)
-					fmt.Fprintf(w, `<text x="0" y="%d" fill="#6a6" font-size="10">0</text>`, z+4)
 				}
 				if metric == "score" && maxValR > 0 {
 					niceStepR := maxValR / 4
@@ -530,6 +546,49 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			renderChart("diff", maxDiscDiff, 0, "", "Disc diff (B-W)")
 			renderChart("score", maxBScore, maxWScore, "", "Score (cP)")
 
+			// ── Board viewer ──────────────────────────────────────
+			if len(boardStates) > 0 {
+				lastIdx := len(boardStates) - 1
+				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-bottom:1.5em">`, lastIdx)
+				io.WriteString(w, `<div style="display:flex;align-items:center;justify-content:center;gap:12px">`)
+				// Stone tally — left of board, same font as move/score
+				io.WriteString(w, `<div id="stone-tally" style="font-size:2em;font-weight:700;min-width:80px;text-align:right">`)
+				fmt.Fprintf(w, `<span style="color:#22d3ee">B:%d</span> <span style="color:#d4c4a8">W:%d</span>`,
+					game.Popcount(boardStates[lastIdx].board.Black()), game.Popcount(boardStates[lastIdx].board.White()))
+				io.WriteString(w, `</div>`)
+				io.WriteString(w, `<div id="board-container" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px">`)
+				io.WriteString(w, renderBoardSVG(boardStates[lastIdx].board, boardStates[lastIdx].lastSq))
+				io.WriteString(w, `</div>`)
+				io.WriteString(w, `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">`)
+				// Move + score line: "D5 +12" — move in white, score in green
+				fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;gap:.3em"><span id="mv-text" style="font-size:2em;font-weight:700;color:#fff"></span><span id="mv-score" style="font-size:2em;font-weight:700;color:#4caf50"></span></div>`)
+				// Ply counter + current-move
+				fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;gap:.2em"><div id="ply-counter" style="font-size:2.5em;font-weight:700;color:var(--fg);line-height:1">%d</div><span id="current-move" style="font-size:2.5em;font-weight:700;color:var(--link)"></span></div>`, len(boardStates))
+				// Simplified stats: "51ms 12kn 5.9Mnps"
+				io.WriteString(w, `<div id="mv-stats" style="color:var(--muted);font-size:.85em"></div>`)
+				io.WriteString(w, `<button id="btn-prev" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Previous move">◀</button>`)
+				io.WriteString(w, `<button id="btn-next" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Next move">▶</button>`)
+				io.WriteString(w, `</div>`)
+				io.WriteString(w, `</div>`)
+				io.WriteString(w, `<div id="board-label" style="color:var(--muted);margin-top:.3em;font-size:.9em">click bar or row to jump · ◀▶ to navigate</div>`)
+				// Hidden board data for hover interaction
+				io.WriteString(w, `<div id="board-data" style="display:none">`)
+				for idx, bs := range boardStates {
+					moveLabel := ""
+				if idx < openingPlies && idx*2 < len(opening) {
+					moveLabel = opening[idx*2 : idx*2+2]
+				} else if i := idx - openingPlies; i >= 0 && i < len(moves) {
+					moveLabel = moves[i].move
+				}
+				fmt.Fprintf(w, `<div data-idx="%d" data-move="%s" data-black="%d" data-white="%d">%s</div>`,
+					idx, htmlEscape(moveLabel),
+					game.Popcount(bs.board.Black()), game.Popcount(bs.board.White()),
+					renderBoardSVG(bs.board, bs.lastSq))
+				}
+				io.WriteString(w, `</div></div>`)
+				io.WriteString(w, boardInteractionJS)
+			}
+
 			// ── Stats summary ──────────────────────────────────────────
 			type sideStats struct {
 				moves                                  int
@@ -661,49 +720,6 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				writeStatRow("First ES", bES, wES)
 			}
 			io.WriteString(w, `</table></div>`)
-
-			// ── Board viewer ──────────────────────────────────────
-			if len(boardStates) > 0 {
-				lastIdx := len(boardStates) - 1
-				fmt.Fprintf(w, `<div class="board-viewer" id="board-viewer" data-default-idx="%d" style="text-align:center;margin-bottom:1.5em">`, lastIdx)
-				io.WriteString(w, `<div style="display:flex;align-items:center;justify-content:center;gap:12px">`)
-				// Stone tally — left of board, same font as move/score
-				io.WriteString(w, `<div id="stone-tally" style="font-size:2em;font-weight:700;min-width:80px;text-align:right">`)
-				fmt.Fprintf(w, `<span style="color:#22d3ee">B:%d</span> <span style="color:#d4c4a8">W:%d</span>`,
-					game.Popcount(boardStates[lastIdx].board.Black()), game.Popcount(boardStates[lastIdx].board.White()))
-				io.WriteString(w, `</div>`)
-				io.WriteString(w, `<div id="board-container" style="background:#1a5c3a;display:inline-block;padding:8px;border-radius:8px">`)
-				io.WriteString(w, renderBoardSVG(boardStates[lastIdx].board, boardStates[lastIdx].lastSq))
-				io.WriteString(w, `</div>`)
-				io.WriteString(w, `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">`)
-				// Move + score line: "D5 +12" — move in white, score in green
-				fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;gap:.3em"><span id="mv-text" style="font-size:2em;font-weight:700;color:#fff"></span><span id="mv-score" style="font-size:2em;font-weight:700;color:#4caf50"></span></div>`)
-				// Ply counter + current-move
-				fmt.Fprintf(w, `<div style="display:flex;align-items:baseline;gap:.2em"><div id="ply-counter" style="font-size:2.5em;font-weight:700;color:var(--fg);line-height:1">%d</div><span id="current-move" style="font-size:2.5em;font-weight:700;color:var(--link)"></span></div>`, len(boardStates))
-				// Simplified stats: "51ms 12kn 5.9Mnps"
-				io.WriteString(w, `<div id="mv-stats" style="color:var(--muted);font-size:.85em"></div>`)
-				io.WriteString(w, `<button id="btn-prev" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Previous move">◀</button>`)
-				io.WriteString(w, `<button id="btn-next" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:1.2em" title="Next move">▶</button>`)
-				io.WriteString(w, `</div>`)
-				io.WriteString(w, `</div>`)
-				io.WriteString(w, `<div id="board-label" style="color:var(--muted);margin-top:.3em;font-size:.9em">click bar or row to jump · ◀▶ to navigate</div>`)
-				// Hidden board data for hover interaction
-				io.WriteString(w, `<div id="board-data" style="display:none">`)
-				for idx, bs := range boardStates {
-					moveLabel := ""
-				if idx < openingPlies && idx*2 < len(opening) {
-					moveLabel = opening[idx*2 : idx*2+2]
-				} else if i := idx - openingPlies; i >= 0 && i < len(moves) {
-					moveLabel = moves[i].move
-				}
-				fmt.Fprintf(w, `<div data-idx="%d" data-move="%s" data-black="%d" data-white="%d">%s</div>`,
-					idx, htmlEscape(moveLabel),
-					game.Popcount(bs.board.Black()), game.Popcount(bs.board.White()),
-					renderBoardSVG(bs.board, bs.lastSq))
-				}
-				io.WriteString(w, `</div></div>`)
-				io.WriteString(w, boardInteractionJS)
-			}
 
 			// ── Moves summary (below graphs, above move table) ──
 			totalTime := bTime + wTime
