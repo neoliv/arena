@@ -29,8 +29,8 @@ echo "  backup created: $BACKUP_NAME"
 # Clear all data tables, keep tokens and sessions
 echo "--- Clearing tables ---"
 TABLES=(
-    bisect_steps bisections coach_ais coaches elo_history engines
-    game_moves games match_assignments matches speed_stats
+    elo_history engines
+    game_moves games matches
 )
 for t in "${TABLES[@]}"; do
     count=$(ssh "${VPS_USER}@${VPS}" "sqlite3 '$DB' \"SELECT COUNT(*) FROM $t\"")

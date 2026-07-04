@@ -70,15 +70,8 @@ func (db *DB) Migrate() error {
 	}
 	// Add columns that may not exist in older databases
 	for _, stmt := range []string{
-		"ALTER TABLE coaches ADD COLUMN version TEXT DEFAULT ''",
-		"ALTER TABLE coaches ADD COLUMN session_id TEXT DEFAULT ''",
-		"ALTER TABLE api_tokens ADD COLUMN nickname TEXT DEFAULT ''",
-		"ALTER TABLE coach_ais ADD COLUMN created TEXT DEFAULT ''",
-		"ALTER TABLE coach_ais ADD COLUMN changelog_short TEXT DEFAULT ''",
-		"ALTER TABLE coach_ais ADD COLUMN changelog_full TEXT DEFAULT ''",
-		"ALTER TABLE coach_ais ADD COLUMN engine_id TEXT DEFAULT ''",
-		"ALTER TABLE coach_ais ADD COLUMN engine_manifest TEXT DEFAULT ''",
-		"ALTER TABLE engines ADD COLUMN created TEXT DEFAULT ''",
+						"ALTER TABLE api_tokens ADD COLUMN nickname TEXT DEFAULT ''",
+												"ALTER TABLE engines ADD COLUMN created TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_short TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_full TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN engine_id TEXT DEFAULT ''",
@@ -90,9 +83,6 @@ func (db *DB) Migrate() error {
 		"ALTER TABLE games ADD COLUMN error_code INTEGER DEFAULT 0",
 			"ALTER TABLE game_moves ADD COLUMN flags TEXT DEFAULT ''",
 				"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0, flags TEXT DEFAULT '')",
-			"CREATE INDEX IF NOT EXISTS idx_gm_game ON game_moves(game_id)",
-		"CREATE INDEX IF NOT EXISTS idx_assign_session1 ON match_assignments(session1_id)",
-		"CREATE INDEX IF NOT EXISTS idx_assign_session2 ON match_assignments(session2_id)",
 		// idx_games_created on games(created_at) is ASC by default; SQLite reads
 		// indices backwards so DESC queries are also served by this index.
 		"CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at)",
@@ -167,49 +157,6 @@ CREATE TABLE IF NOT EXISTS elo_history (
     created_at    INTEGER DEFAULT (unixepoch())
 );
 
-CREATE TABLE IF NOT EXISTS bisections (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    engine_name   TEXT NOT NULL,
-    good_commit   TEXT NOT NULL,
-    bad_commit    TEXT NOT NULL,
-    ref_engine_id INTEGER REFERENCES engines(id),
-    games_per_step INTEGER DEFAULT 100,
-    status        TEXT DEFAULT 'pending',
-    current_good  TEXT,
-    current_bad   TEXT,
-    created_at    INTEGER DEFAULT (unixepoch()),
-    finished_at   TEXT
-);
-
-CREATE TABLE IF NOT EXISTS speed_stats (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    engine_id     INTEGER REFERENCES engines(id),
-    match_id      INTEGER REFERENCES matches(id),
-    ply           INTEGER NOT NULL,
-    total_nodes   INTEGER NOT NULL DEFAULT 0,
-    total_time_s  REAL NOT NULL DEFAULT 0.0,
-    total_depth   INTEGER NOT NULL DEFAULT 0,
-    timeouts      INTEGER NOT NULL DEFAULT 0,
-    total_nps     INTEGER NOT NULL DEFAULT 0,
-    total_branch  INTEGER NOT NULL DEFAULT 0,
-    total_empties INTEGER NOT NULL DEFAULT 0,
-    sample_count  INTEGER NOT NULL DEFAULT 1,
-    created_at    INTEGER DEFAULT (unixepoch())
-);
-
-CREATE INDEX IF NOT EXISTS idx_speed_engine ON speed_stats(engine_id);
-CREATE INDEX IF NOT EXISTS idx_speed_ply ON speed_stats(ply);
-
-CREATE TABLE IF NOT EXISTS bisect_steps (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    bisection_id  INTEGER REFERENCES bisections(id),
-    commit_hash   TEXT NOT NULL,
-    elo_result    REAL,
-    verdict       TEXT,
-    games_played  INTEGER,
-    created_at    INTEGER DEFAULT (unixepoch())
-);
-
 CREATE INDEX IF NOT EXISTS idx_games_match ON games(match_id);
 CREATE INDEX IF NOT EXISTS idx_games_black ON games(black_id);
 CREATE INDEX IF NOT EXISTS idx_games_white ON games(white_id);
@@ -228,66 +175,6 @@ CREATE TABLE IF NOT EXISTS game_moves (
 );
 CREATE INDEX IF NOT EXISTS idx_gm_game ON game_moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_elo_created ON elo_history(created_at);
-
-CREATE TABLE IF NOT EXISTS coaches (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    coach_id      TEXT NOT NULL UNIQUE,
-    version       TEXT DEFAULT '',
-    label         TEXT DEFAULT '',
-    cores_total   INTEGER NOT NULL DEFAULT 0,
-    memory_mb_total INTEGER NOT NULL DEFAULT 0,
-    last_seen     TEXT,
-    created_at    INTEGER DEFAULT (unixepoch()),
-    updated_at    INTEGER DEFAULT (unixepoch())
-);
-
-CREATE TABLE IF NOT EXISTS coach_ais (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    coach_id            INTEGER NOT NULL REFERENCES coaches(id),
-    engine_name         TEXT NOT NULL,
-    engine_version      TEXT NOT NULL,
-    cores_per_instance  INTEGER DEFAULT 1,
-    memory_mb_per_instance INTEGER DEFAULT 64,
-    max_instances       INTEGER DEFAULT 1,
-    instances_running   INTEGER DEFAULT 0,
-    run_cmd             TEXT DEFAULT '',
-    build_cmd           TEXT DEFAULT '',
-    engine_id           TEXT DEFAULT '',
-    engine_manifest     TEXT DEFAULT '',
-    is_available        INTEGER DEFAULT 0,
-    created_at          INTEGER DEFAULT (unixepoch()),
-    updated_at          INTEGER DEFAULT (unixepoch()),
-    created           TEXT DEFAULT '',
-    changelog_short   TEXT DEFAULT '',
-    changelog_full    TEXT DEFAULT '',
-    UNIQUE(coach_id, engine_name, engine_version)
-);
-
-CREATE TABLE IF NOT EXISTS match_assignments (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    engine1_id    INTEGER NOT NULL REFERENCES engines(id),
-    engine2_id    INTEGER NOT NULL REFERENCES engines(id),
-    coach1_ai_id  INTEGER NOT NULL REFERENCES coach_ais(id),
-    coach2_ai_id  INTEGER NOT NULL REFERENCES coach_ais(id),
-    time_control  TEXT NOT NULL DEFAULT '{"type":"total","seconds":60}',
-    num_games     INTEGER NOT NULL DEFAULT 10,
-    session1_id   TEXT DEFAULT '',
-    session2_id   TEXT DEFAULT '',
-    status        TEXT NOT NULL DEFAULT 'pending',
-    decline_reason TEXT DEFAULT '',
-    retry_count   INTEGER DEFAULT 0,
-    retry_after   TEXT,
-    created_at    INTEGER DEFAULT (unixepoch()),
-    assigned_at   TEXT,
-    ready_at      TEXT,
-    in_progress_at TEXT,
-    completed_at  TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_coach_ais_available ON coach_ais(is_available);
-CREATE INDEX IF NOT EXISTS idx_assignments_status ON match_assignments(status);
-CREATE INDEX IF NOT EXISTS idx_assignments_coach1 ON match_assignments(coach1_ai_id);
-CREATE INDEX IF NOT EXISTS idx_assignments_coach2 ON match_assignments(coach2_ai_id);
 
 CREATE TABLE IF NOT EXISTS api_tokens (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
