@@ -464,55 +464,45 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					"score_exact":      "#4ade80",
 					"aspiration_fail":  "#fbbf24",
 				}
-				maxFlags := 0
-				for _, m := range moves {
-					fc := 0
-					if m.flags != "" { fc = len(strings.Split(m.flags, " ")) }
-					if fc > maxFlags { maxFlags = fc }
+			io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
+			fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:18px;font-weight:700">%s</span><span style="color:#d4c4a8;font-size:18px;font-weight:700">%s</span></div>`, bName, wName)
+			io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
+			if openingPlies > 0 {
+				openW := openingPlies * 14
+				fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
+				fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced %dpl</text>`, 34+openW/2, chartH+topPad-6, openingPlies)
+			}
+			for pl := 10; pl <= totalPlies; pl += 10 {
+				tx := 34 + pl*14
+				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad-2, tx, topPad+2)
+			}
+			fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">Search state flags</text>`, chartH+68)
+			segH := chartH / 10 // fixed 1/10th chart height per flag block
+			if segH < 3 { segH = 3 }
+			baseY := chartH + topPad // bottom of chart
+			for i, m := range moves {
+				if m.flags == "" {
+					continue
 				}
-				if maxFlags < 1 { maxFlags = 1 }
-				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
-				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:18px;font-weight:700">%s</span><span style="color:#d4c4a8;font-size:18px;font-weight:700">%s</span></div>`, bName, wName)
-				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
-				if openingPlies > 0 {
-					openW := openingPlies * 14
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
-					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced %dpl</text>`, 34+openW/2, chartH+topPad-6, openingPlies)
+				flagList := strings.Split(m.flags, " ")
+				x := 34 + (openingPlies+i)*14
+				barW := 12
+				// Player color base block at bottom
+				baseColor := "#22d3ee"
+				if m.side == "w" { baseColor = "#d4c4a8" }
+				playerY := baseY - segH
+				fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s</title></rect>`,
+					x, playerY, barW, segH, baseColor, m.side, m.move)
+				// Flag blocks piled above player base
+				for fi, f := range flagList {
+					color := flagColor[f]
+					if color == "" { color = "#888" }
+					fy := playerY - (fi+1)*segH
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s: %s</title></rect>`,
+						x, fy, barW, segH, color, m.side, m.move, f)
 				}
-				// Y-axis: grid lines only — flags are names, no numeric scale.
-				for f := 0; f <= maxFlags; f++ {
-					fmt.Fprintf(w, `<line x1="34" y1="%d" x2="100%%" y2="%d" stroke="#2a4a2a" stroke-width="0.5"/>`, chartH-f*chartH/maxFlags, chartH-f*chartH/maxFlags)
-				}
-				for pl := 10; pl <= totalPlies; pl += 10 {
-					tx := 34 + pl*14
-					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad-2, tx, topPad+2)
-				}
-				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">Search state flags</text>`, chartH+68)
-				for i, m := range moves {
-					if m.flags == "" {
-						continue
-					}
-					flagList := strings.Split(m.flags, " ")
-					x := 34 + (openingPlies+i)*14
-					barW := 12
-					segH := chartH / maxFlags
-					if segH < 3 { segH = 3 }
-					// Player color base bar
-					baseColor := "#22d3ee"
-					if m.side == "w" { baseColor = "#d4c4a8" }
-					baseY := chartH - segH + topPad
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s</title></rect>`,
-						x, baseY, barW, segH, baseColor, m.side, m.move)
-					// Flag segments stacked above player base
-					for fi, f := range flagList {
-						color := flagColor[f]
-						if color == "" { color = "#888" }
-						fy := baseY - (fi+1)*segH
-						fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s: %s</title></rect>`,
-							x, fy, barW, segH, color, m.side, m.move, f)
-					}
-				}
-				// Legend
+			}
+			// Legend
 				legY := chartH + topPad + 12
 				legX := 40
 				for _, entry := range []struct{ flag, color, label string }{
