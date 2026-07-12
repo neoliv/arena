@@ -164,7 +164,7 @@ func (m *MatchMaker) storeMatch(gr GameResult) {
 
 		// Elo update (skip disconnected games)
 		if !g.Disconnect {
-			m.updateElo(blackID, whiteID, matchID, g)
+			m.updateElo(blackID, whiteID, gameID, g)
 		}
 	}
 }

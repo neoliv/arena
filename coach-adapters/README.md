@@ -22,23 +22,22 @@ coach-adapters/
 Clone upstream engines alongside this repo:
 
 ```bash
-cd ~/dev/agent/othello-refs
+cd ~/dev/agent/othello/ref
 git clone https://github.com/abulmo/edax-reversi edax
-git clone git@github.com:neoliv/coach-adapters.git
 ```
 
 **Edax data files**: The Edax evaluation data (`eval.dat`) is not included
 in the source repo. It is downloaded automatically on first build (extracted
 from the release tarball). If the download fails, download the tarball manually
 from https://github.com/abulmo/edax-reversi/releases/v4.6 and extract
-`data/eval.dat` to `~/dev/agent/othello-refs/edax/src/data/eval.dat`.
+`data/eval.dat` to `~/dev/agent/othello/ref/edax/src/data/eval.dat`.
 
 ## Usage
 
 Add to your coach's builds.d/:
 
 ```bash
-cp ~/dev/agent/othello-refs/coach-adapters/builds.d/edax.yaml ~/coach/builds.d/
+cp ~/dev/agent/othello/arena/coach-adapters/builds.d/edax.yaml ~/coach/builds.d/
 ~/bin/coach-update
 ```
 

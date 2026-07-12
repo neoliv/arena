@@ -1,1 +1,1 @@
-source: "/home/oliv/dev/agent/neursi/engine"
+source: "${OTHELLO_HOME}/neursi/engine"
