@@ -342,6 +342,23 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 		x, y float64
 		seq  int
 	}
+	// pixGroupHiLo extracts the highest-Elo (lowest y) and lowest-Elo (highest y)
+	// points from a group of points sharing the same pixel column.
+	pixGroupHiLo := func(group []ep) (hi, lo ep) {
+		if len(group) == 0 {
+			return ep{}, ep{}
+		}
+		hiIdx, loIdx := 0, 0
+		for j, pt := range group {
+			if pt.y < group[hiIdx].y {
+				hiIdx = j
+			}
+			if pt.y > group[loIdx].y {
+				loIdx = j
+			}
+		}
+		return group[hiIdx], group[loIdx]
+	}
 	engineData := make([][]ep, len(engineNames))
 	maxSeq := 0
 	for _, p := range points {
@@ -354,6 +371,60 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 			maxSeq = seq
 		}
 	}
+
+	// Decimate: at most 2 points per pixel column per engine (peak + valley).
+	// engineDataHi stores highest-Elo points, engineDataLo stores lowest-Elo.
+	// Sparse engines (≤ chart width) are left undecimated — hi and lo are identical.
+	//
+	// Track original last seq per engine BEFORE decimation — the decimated hi curve's
+	// last point may be the peak of the final pixel column, not the engine's actual
+	// last match.  The retirement check must use the real last match seq.
+	engineLastSeq := make([]int, len(engineNames))
+	engineLastY := make([]float64, len(engineNames))
+	for i, data := range engineData {
+		if n := len(data); n > 0 {
+			engineLastSeq[i] = data[n-1].seq
+			engineLastY[i] = data[n-1].y
+		}
+	}
+	engineDataHi := make([][]ep, len(engineNames))
+	engineDataLo := make([][]ep, len(engineNames))
+	for i, data := range engineData {
+		if len(data) <= int(graphw) {
+			engineDataHi[i] = data
+			engineDataLo[i] = data
+			continue
+		}
+		hi := make([]ep, 0, int(graphw))
+		lo := make([]ep, 0, int(graphw))
+		var curPx int = -1
+		var group []ep
+		for _, pt := range data {
+			pxX := int(pt.x)
+			if pxX != curPx {
+				if len(group) > 0 {
+					ptHi, ptLo := pixGroupHiLo(group)
+					hi = append(hi, ptHi)
+					lo = append(lo, ptLo)
+				}
+				curPx = pxX
+				group = group[:0]
+			}
+			group = append(group, pt)
+		}
+		if len(group) > 0 {
+			ptHi, ptLo := pixGroupHiLo(group)
+			hi = append(hi, ptHi)
+			lo = append(lo, ptLo)
+		}
+		if len(hi) < 2 {
+			hi = data
+			lo = data
+		}
+		engineDataHi[i] = hi
+		engineDataLo[i] = lo
+	}
+	engineData = nil // free memory
 
 	// Hover-highlight JS: legend ↔ curve cross-highlighting
 	io.WriteString(w, `<script>
@@ -396,24 +467,10 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<text x="%.0f" y="%.0f" text-anchor="middle" fill="var(--fg)" font-size="12">Elo</text>`, float64(graphw)/2, float64(-25))
 	fmt.Fprintf(w, `<text x="%.0f" y="%.0f" text-anchor="middle" fill="var(--muted)" font-size="10">Time →</text>`, graphw/2, graphh+30)
 
-	// Data lines with endpoint labels — stagger vertically to avoid overlap.
-	// Retired engines (last game >100 matches ago) keep their curve but
-	// get no right-side label — they still appear in the legend below.
-	//
-	// First pass: draw all curves.
-	for i, data := range engineData {
-		if len(data) < 2 {
-			continue
-		}
-		pts := ""
-		for _, pt := range data {
-			pts += fmt.Sprintf("%.1f,%.1f ", pt.x, pt.y)
-		}
-		col := engineColor(engineNames[i])
-		fmt.Fprintf(w, `<g class="filter-item"><title>%s</title><polyline class="elo-curve" fill="none" stroke="%s" stroke-width="2" points="%s" style="cursor:pointer"/></g>`,
-			engineNames[i], col, strings.TrimSpace(pts))
-	}
-	// Second pass: labels only for active (non-retired) engines, staggered.
+	// Endpoint labels — rendered BEFORE the curves so they appear instantly,
+	// well before the heavy polyline data finishes streaming to the browser.
+	// Labels only for active (non-retired) engines, staggered vertically.
+	// Uses original last seq/y (pre-decimation) for accurate retirement check.
 	type labelInfo struct {
 		idx  int
 		y    float64
@@ -421,14 +478,14 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 		name string
 	}
 	var activeLabels []labelInfo
-	for i, data := range engineData {
+	for i, data := range engineDataHi {
 		if len(data) < 2 {
 			continue
 		}
-		if data[len(data)-1].seq < maxSeq-100 {
+		if engineLastSeq[i] < maxSeq-100 {
 			continue
 		} // retired
-		activeLabels = append(activeLabels, labelInfo{idx: i, y: data[len(data)-1].y,
+		activeLabels = append(activeLabels, labelInfo{idx: i, y: engineLastY[i],
 			col: engineColor(engineNames[i]), name: engineNames[i]})
 	}
 	sort.Slice(activeLabels, func(a, b int) bool { return activeLabels[a].y < activeLabels[b].y })
@@ -447,12 +504,39 @@ func (h *Handler) renderEloChart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, lb := range activeLabels {
-		data := engineData[lb.idx]
+		data := engineDataHi[lb.idx]
 		last := data[len(data)-1]
 		fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="0.8" stroke-dasharray="2,2"/>`,
 			last.x, last.y, graphw, lb.y, lb.col)
 		fmt.Fprintf(w, `<text class="elo-label" x="%.1f" y="%.1f" dx="4" dy="3" fill="%s" font-size="10" text-anchor="start">%s</text>`,
 			graphw, lb.y, lb.col, lb.name)
+	}
+
+	// Data lines: lo (valley) drawn first at low opacity, then hi (peak) on top.
+	// Each engine's lo+hi form a visual "band" showing Elo range per pixel column.
+	for i := range engineDataHi {
+		dataHi := engineDataHi[i]
+		if len(dataHi) < 2 {
+			continue
+		}
+		col := engineColor(engineNames[i])
+		fmt.Fprintf(w, `<g class="filter-item"><title>%s</title>`, engineNames[i])
+		// Lo curve (valley) — drawn first, behind hi
+		dataLo := engineDataLo[i]
+		if len(dataLo) >= 2 {
+			ptsLo := ""
+			for _, pt := range dataLo {
+				ptsLo += fmt.Sprintf("%.1f,%.1f ", pt.x, pt.y)
+			}
+			fmt.Fprintf(w, `<polyline fill="none" stroke="%s" stroke-width="1" points="%s" style="opacity:0.25;cursor:pointer;pointer-events:none"/>`, col, strings.TrimSpace(ptsLo))
+		}
+		// Hi curve (peak) — primary visual
+		ptsHi := ""
+		for _, pt := range dataHi {
+			ptsHi += fmt.Sprintf("%.1f,%.1f ", pt.x, pt.y)
+		}
+		fmt.Fprintf(w, `<polyline class="elo-curve" fill="none" stroke="%s" stroke-width="2" points="%s" style="cursor:pointer"/></g>`,
+			col, strings.TrimSpace(ptsHi))
 	}
 	io.WriteString(w, `</g></svg>`)
 
