@@ -1,22 +1,28 @@
-=== Arena Coach Update === (Fri Jul  3 12:51:38 PM CEST 2026)
+=== Arena Coach Update === (Sun Jul 12 08:30:43 AM CEST 2026)
 0. coach.yaml copied from arena source
 1. Coach binary...
 Already up to date.
    updated (binary changed)
    Scanning: /home/oliv/dev/agent/othello/arena/builds.d
-   Added new entry: neursi.yaml
-   Scanning: /home/oliv/dev/agent/othello/arena/coach-adapters/builds.d
+   Added new entry: edax.yaml
+   Added new entry: egaroucid.yaml
    Added new entry: neural-reversi.yaml
+   Scanning: /home/oliv/dev/agent/othello/arena/coach-adapters/builds.d
+
+─── edax ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/edax
+   -> /home/oliv/coach/engines/420bbc0de266ccc8/
+   version: 4.6 (probed via GTP, caches warmed)
+
+─── egaroucid ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/egaroucid
+   -> /home/oliv/coach/engines/730733d8709c45f8/
+   version: 7.8.1 Linux x64 SIMD (GCC) (probed via GTP, caches warmed)
 
 ─── neural-reversi ───
    /home/oliv/dev/agent/othello/arena/coach-adapters/neural-reversi
-   -> /home/oliv/coach/engines/b87aa520025a95e2/
+   -> /home/oliv/coach/engines/bb012b0a01f33549/
    version: 6.1.0 (probed via GTP, caches warmed)
-
-─── neursi ───
-   /home/oliv/dev/agent/othello/neursi/engine
-   -> /home/oliv/coach/engines/f3eb72143d419ad9/
-   version: 0.1.2 (probed via GTP, caches warmed)
 
 ─── Reload ───
 3. NN weights up to date (/home/oliv/coach/share/eval-large.bin)
@@ -24,6 +30,6 @@ Coach binary was updated — restarting service...
 Coach not running.
 
 === Done ===
-6 players deployed from /home/oliv/coach/engines
-2 engines built successfully
+9 players deployed from /home/oliv/coach/engines
+3 engines built successfully
 Log saved to: /home/oliv/dev/agent/othello/arena/log/coach-update.log

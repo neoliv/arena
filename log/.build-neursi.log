@@ -1,57 +1,5 @@
 make: 'coach-build' is up to date.
-   Compiling libc v0.2.186
-   Compiling cfg-if v1.0.4
-   Compiling find-msvc-tools v0.1.9
-   Compiling shlex v2.0.1
-   Compiling encoding_index_tests v0.1.4
-   Compiling pkg-config v0.3.33
-   Compiling proc-macro2 v1.0.106
-   Compiling crossbeam-utils v0.8.21
-   Compiling quote v1.0.45
-   Compiling zerocopy v0.8.52
-   Compiling unicode-ident v1.0.24
-   Compiling getrandom v0.4.3
-   Compiling zstd-safe v7.2.4
-   Compiling rand_core v0.10.1
-   Compiling serde_core v1.0.228
-   Compiling rustversion v1.0.22
-   Compiling rayon-core v1.13.0
-   Compiling cpufeatures v0.3.0
-   Compiling zmij v1.0.21
-   Compiling encoding-index-singlebyte v1.20141219.5
-   Compiling encoding-index-tradchinese v1.20141219.5
-   Compiling chacha20 v0.10.1
-   Compiling encoding-index-simpchinese v1.20141219.5
-   Compiling encoding-index-japanese v1.20141219.5
-   Compiling encoding-index-korean v1.20141219.5
-   Compiling scopeguard v1.2.0
-   Compiling serde_json v1.0.150
-   Compiling serde v1.0.228
-   Compiling lock_api v0.4.14
-   Compiling encoding v0.2.33
-   Compiling either v1.16.0
-   Compiling itoa v1.0.18
-   Compiling memchr v2.8.2
-   Compiling byteorder v1.5.0
    Compiling neursi v0.1.2 (/home/oliv/dev/agent/othello/neursi/engine)
-   Compiling rapidhash v4.4.2
-   Compiling wthor v0.6.0
-   Compiling crossbeam-epoch v0.9.18
-   Compiling syn v2.0.117
-   Compiling crossbeam-deque v0.8.6
-   Compiling getrandom v0.2.17
-   Compiling hostname v0.4.2
-   Compiling jobserver v0.1.34
-   Compiling rand_core v0.6.4
-   Compiling rand v0.10.1
-   Compiling cc v1.2.65
-   Compiling rayon v1.12.0
-   Compiling zstd-sys v2.0.16+zstd.1.5.7
-   Compiling serde_derive v1.0.228
-   Compiling ppv-lite86 v0.2.21
-   Compiling rand_chacha v0.3.1
-   Compiling rand v0.8.6
-   Compiling zstd v0.13.3
    Compiling reversi-core v6.1.0 (/home/oliv/dev/agent/othello/ref/neural-reversi/src/crates/reversi-core)
 warning: unused import: `crate::board::*`
  --> src/endgame/solve.rs:2:5
@@ -84,13 +32,13 @@ warning: unused import: `std::sync::atomic::AtomicBool`
 warning: unused imports: `HostCalib` and `host_calib_path`
    --> src/time_mgr.rs:118:38
     |
-118 | ...e, HostCalib, host_calib_path};
-    |       ^^^^^^^^^  ^^^^^^^^^^^^^^^
+118 | use crate::calibrate::{EsCalibTable, HostCalib, host_calib_path};
+    |                                      ^^^^^^^^^  ^^^^^^^^^^^^^^^
 
 warning: unused variable: `offset`
    --> src/board.rs:518:13
     |
-518 |         let offset = DIR_OFFSE...
+518 |         let offset = DIR_OFFSETS[dir];
     |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_offset`
     |
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
@@ -98,31 +46,31 @@ warning: unused variable: `offset`
 warning: unused variable: `y`
   --> src/calibrate.rs:31:13
    |
-31 |         let y: i32 = parts[0].p...
+31 |         let y: i32 = parts[0].parse().ok()?;
    |             ^ help: if this is intentional, prefix it with an underscore: `_y`
 
 warning: unused variable: `m`
   --> src/calibrate.rs:32:13
    |
-32 |         let m: u32 = parts[1].p...
+32 |         let m: u32 = parts[1].parse().ok()?;
    |             ^ help: if this is intentional, prefix it with an underscore: `_m`
 
 warning: unused variable: `d`
   --> src/calibrate.rs:33:13
    |
-33 |         let d: u32 = parts[2].p...
+33 |         let d: u32 = parts[2].parse().ok()?;
    |             ^ help: if this is intentional, prefix it with an underscore: `_d`
 
 warning: unused variable: `days_since`
   --> src/calibrate.rs:35:13
    |
-35 | ...   let days_since = |y: i32,...
-   |           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_days_since`
+35 |         let days_since = |y: i32, m: u32, d: u32| -> i64 {
+   |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_days_since`
 
 warning: unused variable: `n_empties`
    --> src/endgame/solve.rs:270:9
     |
-270 |     let n_empties = empties as...
+270 |     let n_empties = empties as usize;
     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_empties`
 
 warning: variable `skipped_count` is assigned to, but never used
@@ -143,19 +91,19 @@ warning: value assigned to `skipped_count` is never read
     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-   --> src/gtp.rs:491:21
+   --> src/gtp.rs:470:21
     |
-491 | ...   let mut color = match pa...
-    |           ----^^^^^
-    |           |
-    |           help: remove this `mut`
+470 |                 let mut color = match parts[1] {
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
     |
     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
 warning: function `count_last_flip` is never used
   --> src/endgame/solve.rs:30:4
    |
-30 | fn count_last_flip(sq: u32, pla...
+30 | fn count_last_flip(sq: u32, player: u64, opponent: u64) -> u32 {
    |    ^^^^^^^^^^^^^^^
    |
    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
@@ -170,5 +118,5 @@ warning: unused import: `neursi::board::*`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `neursi` (bin "es_calibrate") generated 1 warning (run `cargo fix --bin "es_calibrate" -p neursi` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 16.67s
+    Finished `release` profile [optimized] target(s) in 9.93s
 coach-engine/ ready: 5 files
