@@ -12,12 +12,11 @@ CGO is disabled. Only two deps beyond stdlib: `nhooyr.io/websocket` and `modernc
 
 There are zero `_test.go` files. Verify changes by building (`go build ./...`) and deploying.
 
-## Edit vs Write
+## Whitespace-prone files
 
-**If a file needs 3+ changes, Write it entirely instead of patching with Edit.**
-Consecutive Edit attempts on the same file frequently fail on whitespace mismatches
-(tabs vs spaces are invisible in diffs). This produces partial corruption that
-requires more fixes. The most failure-prone files:
+General Edit-vs-Write guidance lives in the global AGENTS.md. In this repo,
+these files additionally have mixed indentation that makes Edit-style patching
+especially failure-prone — prefer Write for them:
 
 - `cmd/coach/main.go` — deeply nested, mixed whitespace in closures
 - `internal/db/db.go` — SQL strings with multi-line backtick literals
@@ -26,9 +25,6 @@ requires more fixes. The most failure-prone files:
 - `internal/matchmaker/mm.go` — deeply nested, tab-indented, multi-line SQL
 - `internal/matchmaker/game.go` — deeply nested, mixed indent + raw strings
 - `coach-update.sh` — bash, some lines indented, some not
-
-For a single targeted change, Edit is fine. For a function rewrite or multiple
-insertions, use Read + Write.
 
 ## Scripts
 
