@@ -52,9 +52,9 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 func main() {
 	var (
-		dbPath   = flag.String("db", envDefault("ARENA_DB", "/opt/arena/arena.db"), "SQLite database path")
-		addr     = flag.String("addr", envDefault("LISTEN_ADDR", ":8500"), "HTTP listen address")
-		token    = flag.String("token", envDefault("ARENA_TOKEN", ""), "Master API token (also checks DB tokens)")
+		dbPath       = flag.String("db", envDefault("ARENA_DB", "/opt/arena/arena.db"), "SQLite database path")
+		addr         = flag.String("addr", envDefault("LISTEN_ADDR", ":8500"), "HTTP listen address")
+		token        = flag.String("token", envDefault("ARENA_TOKEN", ""), "Master API token (also checks DB tokens)")
 		newToken     = flag.String("new-token", "", "Generate a new API token for the given email and exit")
 		recomputeElo = flag.Bool("recompute-elo", false, "Recompute Elo for all engines from game history and exit")
 		showVer      = flag.Bool("version", false, "Print version and exit")
@@ -106,7 +106,7 @@ func main() {
 		return
 	}
 
-	slog.Info("arena-server starting", "addr", *addr, "db", *dbPath)
+	slog.Info("arena-server starting", "addr", *addr, "db", *dbPath, "version", version.Version)
 	slog.Info("database ready")
 
 	bm := backup.New(*dbPath)

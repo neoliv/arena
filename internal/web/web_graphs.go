@@ -1,11 +1,14 @@
 package web
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,75 +20,120 @@ import (
 func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tab := r.URL.Query().Get("tab")
-	io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Stats</h1>`+filterBox+`
+	// Export downloads a ZIP (data.csv + chart.svg) with no page chrome.
+	if r.URL.Query().Get("export") == "zip" && (tab == "depth" || tab == "" || tab == "elo") {
+		h.exportChartZip(w, r, tab)
+		return
+	}
+	// htmx auto-refresh requests return only the chart container (no chrome).
+	isHX := r.Header.Get("HX-Request") == "true"
+	if !isHX {
+		io.WriteString(w, pageHead+navHTML+searchJS+`<h1>Stats</h1>`+filterBox+`
 		<nav class="chart-tabs" style="margin-bottom:1.5em">
 		<a href="?tab=elo" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
-		if tab == "" || tab == "elo" {
-			return "#fff"
-		} else {
-			return "var(--fg)"
-		}
-	}()+`;background:`+func() string {
-		if tab == "" || tab == "elo" {
-			return "var(--nav-hl)"
-		} else {
-			return "rgba(56,136,85,0.06)"
-		}
-	}()+`">Elo</a>
-		<a href="?tab=errors" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;`+func() string {
-		var n int
-		h.DB.QueryRow("SELECT COUNT(*) FROM games WHERE error_code != 0").Scan(&n)
-		if n > 0 && tab != "errors" {
-			return "border:1px solid rgba(244,67,54,0.6);color:var(--fg);background:rgba(244,67,54,0.2)"
-		}
-		if tab == "errors" {
-			if n > 0 {
-				return "border:1px solid rgba(244,67,54,0.8);color:#fff;background:rgba(244,67,54,0.5)"
+			if tab == "" || tab == "elo" {
+				return "#fff"
+			} else {
+				return "var(--fg)"
 			}
-			return "border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"
-		}
-		return "border:1px solid var(--nav-hl);color:var(--fg);background:rgba(56,136,85,0.06)"
-	}()+`">Errors</a>
+		}()+`;background:`+func() string {
+			if tab == "" || tab == "elo" {
+				return "var(--nav-hl)"
+			} else {
+				return "rgba(56,136,85,0.06)"
+			}
+		}()+`">Elo</a>
+		<a href="?tab=errors" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;`+func() string {
+			var n int
+			h.DB.QueryRow("SELECT COUNT(*) FROM games WHERE error_code != 0").Scan(&n)
+			if n > 0 && tab != "errors" {
+				return "border:1px solid rgba(244,67,54,0.6);color:var(--fg);background:rgba(244,67,54,0.2)"
+			}
+			if tab == "errors" {
+				if n > 0 {
+					return "border:1px solid rgba(244,67,54,0.8);color:#fff;background:rgba(244,67,54,0.5)"
+				}
+				return "border:1px solid var(--nav-hl);color:#fff;background:var(--nav-hl)"
+			}
+			return "border:1px solid var(--nav-hl);color:var(--fg);background:rgba(56,136,85,0.06)"
+		}()+`">Errors</a>
 		<a href="?tab=games" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
-		if tab == "games" {
-			return "#fff"
-		} else {
-			return "var(--fg)"
-		}
-	}()+`;background:`+func() string {
-		if tab == "games" {
-			return "var(--nav-hl)"
-		} else {
-			return "rgba(56,136,85,0.06)"
-		}
-	}()+`">Played</a>
+			if tab == "games" {
+				return "#fff"
+			} else {
+				return "var(--fg)"
+			}
+		}()+`;background:`+func() string {
+			if tab == "games" {
+				return "var(--nav-hl)"
+			} else {
+				return "rgba(56,136,85,0.06)"
+			}
+		}()+`">Played</a>
 		<a href="?tab=unspent" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
-		if tab == "unspent" {
-			return "#fff"
-		} else {
-			return "var(--fg)"
-		}
-	}()+`;background:`+func() string {
-		if tab == "unspent" {
-			return "var(--nav-hl)"
-		} else {
-			return "rgba(56,136,85,0.06)"
-		}
-	}()+`">Time</a>
+			if tab == "unspent" {
+				return "#fff"
+			} else {
+				return "var(--fg)"
+			}
+		}()+`;background:`+func() string {
+			if tab == "unspent" {
+				return "var(--nav-hl)"
+			} else {
+				return "rgba(56,136,85,0.06)"
+			}
+		}()+`">Time</a>
+		<a href="?tab=depth" class="chart-tab" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:1.1em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:`+func() string {
+			if tab == "depth" {
+				return "#fff"
+			} else {
+				return "var(--fg)"
+			}
+		}()+`;background:`+func() string {
+			if tab == "depth" {
+				return "var(--nav-hl)"
+			} else {
+				return "rgba(56,136,85,0.06)"
+			}
+		}()+`">Depth</a>
 		</nav>`)
 
-	switch tab {
-	case "games":
-		h.renderStatsBars(w, r, "games")
-	case "unspent":
-		h.renderStatsBars(w, r, "unspent")
-	case "errors":
-		h.renderErrorChart(w, r)
-	default:
-		h.renderEloChart(w, r)
-		h.renderRanksTable(w, r)
+		// Export button: downloads a ZIP with data.csv + chart.svg for the
+		// current chart (depth and elo tabs only).
+		exportTab := ""
+		if tab == "depth" || tab == "" || tab == "elo" {
+			exportTab = tab
+			if exportTab == "" {
+				exportTab = "elo"
+			}
+		}
+		if exportTab != "" {
+			fmt.Fprintf(w, `<div style="margin-bottom:1em"><a href="/stats?tab=%s&export=zip" style="display:inline-block;padding:.35em .7em;border-radius:5px;font-size:.9em;font-weight:600;text-decoration:none;border:1px solid var(--nav-hl);color:var(--fg);background:rgba(56,136,85,0.06)">⬇ Export (csv + svg)</a></div>`, exportTab)
+		}
 	}
-	io.WriteString(w, pageFoot)
+
+	// Auto-refresh for the depth tab: htmx re-fetches just the chart
+	// container every 30s (no page chrome) so we can watch the run converge.
+	if tab == "depth" {
+		io.WriteString(w, `<div hx-get="/stats?tab=depth" hx-trigger="every 30s" hx-swap="outerHTML">`)
+		h.renderDepthChart(w, r)
+		io.WriteString(w, `</div>`)
+	} else {
+		switch tab {
+		case "games":
+			h.renderStatsBars(w, r, "games")
+		case "unspent":
+			h.renderStatsBars(w, r, "unspent")
+		case "errors":
+			h.renderErrorChart(w, r)
+		default:
+			h.renderEloChart(w, r)
+			h.renderRanksTable(w, r)
+		}
+	}
+	if !isHX {
+		io.WriteString(w, pageFoot)
+	}
 }
 
 // renderRanksTable renders the player rankings table — merged below the Elo chart.
@@ -693,6 +741,149 @@ func fmtPct(pct float64) string {
 	return s
 }
 
+// renderDepthChart plots one curve per engine family with search depth on
+// the X axis and Elo on the Y axis, with a 95% CI bar (±400/√games) at each
+// point. Depth is parsed from engine names matching "-dN" (e.g. "edax-4.6-d8").
+func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
+	type pt struct {
+		family string
+		depth  int
+		elo    float64
+		ci     float64
+		games  int
+	}
+	re := regexp.MustCompile(`-d(\d+)`)
+	rows, err := h.DB.Query(`SELECT e.name,
+			COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY id DESC LIMIT 1), 1500.0),
+			(SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id)
+			FROM engines e`)
+	if err != nil || rows == nil {
+		io.WriteString(w, `<p style="color:var(--muted)">No data yet.</p>`)
+		return
+	}
+	defer rows.Close()
+	var pts []pt
+	for rows.Next() {
+		var name string
+		var elo float64
+		var games int
+		if rows.Scan(&name, &elo, &games) != nil {
+			continue
+		}
+		m := re.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		depth, _ := strconv.Atoi(m[1])
+		if games < 1 {
+			games = 1
+		}
+		pts = append(pts, pt{family: enginePrefix(name), depth: depth, elo: elo, ci: 400.0 / math.Sqrt(float64(games)), games: games})
+	}
+	if len(pts) == 0 {
+		io.WriteString(w, `<p style="color:var(--muted)">No depth data yet — engines with "-dN" names are needed.</p>`)
+		return
+	}
+
+	// Group points by engine family (prefix before first '-').
+	fams := map[string][]pt{}
+	var order []string
+	for _, p := range pts {
+		if _, ok := fams[p.family]; !ok {
+			order = append(order, p.family)
+		}
+		fams[p.family] = append(fams[p.family], p)
+	}
+	sort.Strings(order)
+	for _, f := range order {
+		sort.Slice(fams[f], func(i, j int) bool { return fams[f][i].depth < fams[f][j].depth })
+	}
+
+	// Scale: depth range with padding, Elo range including CI bars.
+	minD, maxD := pts[0].depth, pts[0].depth
+	minE, maxE := pts[0].elo, pts[0].elo
+	for _, p := range pts {
+		if p.depth < minD {
+			minD = p.depth
+		}
+		if p.depth > maxD {
+			maxD = p.depth
+		}
+		if p.elo-p.ci < minE {
+			minE = p.elo - p.ci
+		}
+		if p.elo+p.ci > maxE {
+			maxE = p.elo + p.ci
+		}
+	}
+	if maxD == minD {
+		maxD = minD + 1
+	}
+	pad := (maxE - minE) * 0.1
+	if pad < 25 {
+		pad = 25
+	}
+	minE -= pad
+	maxE += pad
+
+	const svgw, svgh = 960, 400
+	const left, right, top, bottom = 70, 30, 20, 40
+	plotW := svgw - left - right
+	plotH := svgh - top - bottom
+	x := func(d int) float64 { return left + float64(d-minD)/float64(maxD-minD)*float64(plotW) }
+	y := func(v float64) float64 { return top + (maxE-v)/(maxE-minE)*float64(plotH) }
+
+	fmt.Fprintf(w, `<svg viewBox="0 0 %d %d" style="width:100%%;max-width:960px">`, svgw, svgh)
+	// Horizontal grid lines + Elo labels.
+	for i := 0; i <= 4; i++ {
+		val := minE + (maxE-minE)*float64(i)/4
+		yy := y(val)
+		fmt.Fprintf(w, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="var(--border)" stroke-width="0.5"/>`, left, yy, svgw-right, yy)
+		fmt.Fprintf(w, `<text x="%d" y="%.1f" fill="var(--muted)" font-size="10" text-anchor="end">%.0f</text>`, left-6, yy+4, val)
+	}
+	// Depth tick labels.
+	for d := minD; d <= maxD; d++ {
+		xx := x(d)
+		fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle">%d</text>`, xx, svgh-15, d)
+	}
+	fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle">Search depth</text>`, float64(left+plotW)/2, svgh-3)
+	fmt.Fprintf(w, `<text x="14" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle" transform="rotate(-90 14 %d)">Elo</text>`, svgh/2, svgh/2)
+
+	// Curves: CI bars, then polyline, then points.
+	for fi, fam := range order {
+		col := chartColors[fi%len(chartColors)]
+		fs := fams[fam]
+		for _, p := range fs {
+			xx := x(p.depth)
+			fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="2" opacity="0.45"/>`,
+				xx, y(p.elo-p.ci), xx, y(p.elo+p.ci), col)
+			fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" opacity="0.45"/>`,
+				xx-4, y(p.elo-p.ci), xx+4, y(p.elo-p.ci), col)
+			fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" opacity="0.45"/>`,
+				xx-4, y(p.elo+p.ci), xx+4, y(p.elo+p.ci), col)
+		}
+		var sb strings.Builder
+		for _, p := range fs {
+			fmt.Fprintf(&sb, "%.1f,%.1f ", x(p.depth), y(p.elo))
+		}
+		fmt.Fprintf(w, `<g class="filter-item"><polyline fill="none" stroke="%s" stroke-width="2" points="%s"/>`, col, strings.TrimSpace(sb.String()))
+		for _, p := range fs {
+			fmt.Fprintf(w, `<circle cx="%.1f" cy="%.1f" r="3.5" fill="%s"><title>%s d%d: Elo %.0f ± %.0f (%d games)</title></circle>`,
+				x(p.depth), y(p.elo), col, fam, p.depth, p.elo, p.ci, p.games)
+		}
+		fmt.Fprintf(w, `</g>`)
+	}
+	fmt.Fprintf(w, `</svg>`)
+
+	// Legend with engine names + Elo values.
+	io.WriteString(w, `<div style="margin-top:.8em">`)
+	for fi, fam := range order {
+		col := chartColors[fi%len(chartColors)]
+		fmt.Fprintf(w, `<span style="color:%s;margin-right:1.2em;white-space:nowrap">● %s</span>`, col, fam)
+	}
+	io.WriteString(w, `</div>`)
+}
+
 func formatTimeControl(tc string) string {
 	var v struct {
 		Seconds float64 `json:"seconds"`
@@ -713,4 +904,104 @@ func parseTime(s string) (float64, error) {
 		return 0, err
 	}
 	return float64(t.Unix()), nil
+}
+
+// captureWriter buffers chart HTML while implementing http.ResponseWriter.
+// Used to re-render a chart and extract its <svg> for export.
+type captureWriter struct {
+	bytes.Buffer
+	hdr http.Header
+}
+
+func (c *captureWriter) Header() http.Header {
+	if c.hdr == nil {
+		c.hdr = make(http.Header)
+	}
+	return c.hdr
+}
+
+func (c *captureWriter) WriteHeader(int) {}
+
+// exportChartZip builds a ZIP containing data.csv (chart data) and
+// chart.svg (the rendered chart) and streams it as a download.
+func (h *Handler) exportChartZip(w http.ResponseWriter, r *http.Request, tab string) {
+	// Re-render the chart into a buffer so we can extract the <svg>.
+	cw := &captureWriter{}
+	r2 := r.Clone(r.Context())
+	q := r2.URL.Query()
+	q.Del("export")
+	r2.URL.RawQuery = q.Encode()
+	if tab == "depth" {
+		h.renderDepthChart(cw, r2)
+	} else {
+		h.renderEloChart(cw, r2)
+	}
+	html := cw.String()
+	svg := ""
+	if i := strings.Index(html, "<svg"); i >= 0 {
+		if j := strings.Index(html[i:], "</svg>"); j >= 0 {
+			svg = html[i : i+j+len("</svg>")]
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-export.zip"`, tab))
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+	if f, err := zw.Create("data.csv"); err == nil {
+		io.WriteString(f, h.chartCSV(tab))
+	}
+	if f, err := zw.Create("chart.svg"); err == nil {
+		io.WriteString(f, svg)
+	}
+}
+
+// chartCSV returns the chart's underlying data as CSV.
+func (h *Handler) chartCSV(tab string) string {
+	var sb strings.Builder
+	if tab == "depth" {
+		sb.WriteString("family,depth,elo,ci,games\n")
+		re := regexp.MustCompile(`-d(\d+)`)
+		rows, _ := h.DB.Query(`SELECT e.name,
+			COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY id DESC LIMIT 1), 1500.0),
+			(SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id)
+			FROM engines e`)
+		if rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var name string
+				var elo float64
+				var games int
+				if rows.Scan(&name, &elo, &games) != nil {
+					continue
+				}
+				m := re.FindStringSubmatch(name)
+				if m == nil {
+					continue
+				}
+				depth, _ := strconv.Atoi(m[1])
+				if games < 1 {
+					games = 1
+				}
+				fmt.Fprintf(&sb, "%s,%d,%.1f,%.1f,%d\n", enginePrefix(name), depth, elo, 400.0/math.Sqrt(float64(games)), games)
+			}
+		}
+		return sb.String()
+	}
+	// Elo history tab
+	sb.WriteString("engine,match_id,elo\n")
+	rows, err := h.DB.Query(`SELECT e.name, eh.match_id, eh.rating_after FROM elo_history eh JOIN engines e ON eh.engine_id=e.id WHERE eh.id IN (SELECT MAX(eh2.id) FROM elo_history eh2 GROUP BY eh2.engine_id, eh2.match_id) ORDER BY eh.match_id`)
+	if err == nil && rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			var mid int
+			var elo float64
+			if rows.Scan(&name, &mid, &elo) != nil {
+				continue
+			}
+			fmt.Fprintf(&sb, "%s,%d,%.1f\n", name, mid, elo)
+		}
+	}
+	return sb.String()
 }

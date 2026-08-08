@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/neoliv/arena/internal/db"
 )
+
+// sessionTTL is the maximum age of a web session. Both the DB cleanup and the
+// Validate TTL checks use this constant — keep them in sync.
+const sessionTTL = 720 * time.Hour // 30 days
 
 // RateLimiter tracks login attempts per IP with a sliding window.
 type RateLimiter struct {
@@ -29,9 +34,15 @@ func NewRateLimiter() *RateLimiter {
 			for ip, times := range rl.attempts {
 				var recent []time.Time
 				for _, t := range times {
-					if t.After(cutoff) { recent = append(recent, t) }
+					if t.After(cutoff) {
+						recent = append(recent, t)
+					}
 				}
-				if len(recent) == 0 { delete(rl.attempts, ip) } else { rl.attempts[ip] = recent }
+				if len(recent) == 0 {
+					delete(rl.attempts, ip)
+				} else {
+					rl.attempts[ip] = recent
+				}
 			}
 			rl.mu.Unlock()
 		}
@@ -47,7 +58,9 @@ func (rl *RateLimiter) Allow(ip string, maxAttempts int, window time.Duration) (
 	cutoff := now.Add(-window)
 	var recent []time.Time
 	for _, t := range rl.attempts[ip] {
-		if t.After(cutoff) { recent = append(recent, t) }
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
 	}
 	rl.attempts[ip] = recent
 	if len(recent) >= maxAttempts {
@@ -68,19 +81,25 @@ type Session struct {
 // SessionStore manages web sessions with DB persistence.
 // Memory cache provides fast lookups; DB ensures survival across restarts.
 type SessionStore struct {
-	mu       sync.Mutex
-	cache    map[string]*Session
-	db       *db.DB
+	mu    sync.Mutex
+	cache map[string]*Session
+	db    *db.DB
 }
 
 // NewSessionStore creates a new session store backed by the database.
 func NewSessionStore(database *db.DB) *SessionStore {
 	ss := &SessionStore{cache: make(map[string]*Session), db: database}
-	// Clean expired sessions from DB periodically
+	// Clean expired sessions from DB periodically. Cutoff must match the
+	// sessionTTL used by Validate — a shorter cutoff deletes still-valid
+	// sessions from the DB, breaking the restart fallback.
 	go func() {
 		for range time.Tick(1 * time.Hour) {
-			cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
-			ss.db.Exec("DELETE FROM web_sessions WHERE created_at < ?", cutoff)
+			cutoff := time.Now().Add(-sessionTTL).UTC().Format(time.RFC3339)
+			if res, err := ss.db.Exec("DELETE FROM web_sessions WHERE created_at < ?", cutoff); err == nil {
+				if n, _ := res.RowsAffected(); n > 0 {
+					slog.Info("session cleanup", "deleted", n, "older_than_hours", int(sessionTTL.Hours()))
+				}
+			}
 		}
 	}()
 	return ss
@@ -96,31 +115,55 @@ func (ss *SessionStore) Create(token, email string) string {
 	now := time.Now().UTC().Format(time.RFC3339)
 	ss.db.Exec("INSERT INTO web_sessions (id, token, email, created_at) VALUES (?, ?, ?, ?)", sid, token, email, now)
 	ss.cache[sid] = &Session{Token: token, Email: email, CreatedAt: time.Now()}
+	slog.Info("session create", "email", email, "sid", sid[:min(8, len(sid))])
 	return sid
 }
 
 // Validate checks a session ID and returns the session if valid.
+// Valid sessions get their created_at refreshed (sliding window): each use
+// extends the session another sessionTTL, and the DB row is updated so the
+// session also survives server restarts.
 func (ss *SessionStore) Validate(sid string) *Session {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	// Check cache first
 	if s, ok := ss.cache[sid]; ok {
-		if time.Since(s.CreatedAt) < 720*time.Hour { return s }
+		if time.Since(s.CreatedAt) < sessionTTL {
+			ss.touch(sid, s)
+			return s
+		}
 		delete(ss.cache, sid)
+		slog.Info("session invalid", "sid", sid[:min(8, len(sid))], "reason", "expired_cache")
 		return nil
 	}
 	// Fall back to DB (survives server restarts)
 	var token, email, createdStr string
 	err := ss.db.QueryRow("SELECT token, email, created_at FROM web_sessions WHERE id=?", sid).Scan(&token, &email, &createdStr)
-	if err != nil { return nil }
-	created, _ := time.Parse(time.RFC3339, createdStr)
-	if time.Since(created) > 720*time.Hour {
-		ss.db.Exec("DELETE FROM web_sessions WHERE id=?", sid)
+	if err != nil {
+		slog.Info("session invalid", "sid", sid[:min(8, len(sid))], "reason", "not_found")
 		return nil
 	}
-	s := &Session{Token: token, Email: email, CreatedAt: created}
+	created, _ := time.Parse(time.RFC3339, createdStr)
+	if time.Since(created) > sessionTTL {
+		ss.db.Exec("DELETE FROM web_sessions WHERE id=?", sid)
+		slog.Info("session invalid", "sid", sid[:min(8, len(sid))], "reason", "expired_db")
+		return nil
+	}
+	s := &Session{Token: token, Email: email, CreatedAt: time.Now()}
 	ss.cache[sid] = s // populate cache
 	return s
+}
+
+// touch refreshes the session's created_at so the sliding window extends.
+// Cache update is immediate; the DB update is throttled to once per hour to
+// avoid a write on every page view.
+func (ss *SessionStore) touch(sid string, s *Session) {
+	if time.Since(s.CreatedAt) < time.Hour {
+		return
+	}
+	now := time.Now()
+	s.CreatedAt = now
+	ss.db.Exec("UPDATE web_sessions SET created_at=? WHERE id=?", now.UTC().Format(time.RFC3339), sid)
 }
 
 // Destroy removes a session from both cache and DB.
@@ -174,7 +217,9 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) renderLogin(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Othello Arena — Login</title>`+sharedCSS+`<style>body{display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:var(--bg)}.box{background:var(--bg2);padding:2em;border-radius:8px;border:1px solid var(--border);max-width:400px;width:100%}h1{text-align:center;margin:0 0 1em}input{width:100%;padding:.6em;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font:inherit;box-sizing:border-box}button{width:100%;padding:.6em;margin-top:1em;background:var(--accent);color:#fff;border:none;border-radius:4px;font:inherit;cursor:pointer}.error{color:#e55;text-align:center;margin-bottom:1em}</style></head><body><div class="box"><h1>Othello Arena</h1>`)
-	if msg != "" { fmt.Fprintf(w, `<p class="error">%s</p>`, msg) }
+	if msg != "" {
+		fmt.Fprintf(w, `<p class="error">%s</p>`, msg)
+	}
 	io.WriteString(w, `<form method="post" autocomplete="off"><input type="text" name="token" placeholder="Enter your API token" autocomplete="off" autofocus><button type="submit">Sign in</button></form></div></body></html>`)
 }
 
@@ -209,6 +254,9 @@ func (h *Handler) RequireLogin(next http.HandlerFunc) http.HandlerFunc {
 				next(w, r)
 				return
 			}
+			// Cookie present but session invalid — this is the "why am I
+			// being prompted again?" case worth tracing.
+			slog.Info("auth cookie rejected", "path", r.URL.Path, "sid", c.Value[:min(8, len(c.Value))])
 		}
 		// Also accept Authorization header (API token directly)
 		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
