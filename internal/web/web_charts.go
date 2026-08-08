@@ -11,9 +11,10 @@ import (
 func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	type engineStats struct {
-		Name                                       string
-		Games, AvgPly, Timeouts, TotalMoves        int
-		UnspentPct, AvgTimeS                       float64
+		Name                                string
+		Games, AvgPly, Timeouts, TotalMoves int
+		UnspentPct, AvgTimeS                float64
+		AvgDurationS                        float64
 	}
 	var stats []engineStats
 
@@ -22,14 +23,15 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 			COALESCE((SELECT COUNT(*) FROM speed_stats ss WHERE ss.engine_id=e.id AND ss.timeouts>0),0) as timeouts,
 			COALESCE((SELECT COUNT(*) FROM speed_stats ss WHERE ss.engine_id=e.id),0) as moves,
 			CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN 100.0*(1.0-g.black_time_s/NULLIF(COALESCE(g.game_time_sec,60),0)) ELSE 100.0*(1.0-g.white_time_s/NULLIF(COALESCE(g.game_time_sec,60),0)) END),0) AS REAL) as unspent_pct,
-			CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN g.black_time_s ELSE g.white_time_s END),0) AS REAL) as avg_time_s
+			CAST(COALESCE(AVG(CASE WHEN g.black_id=e.id THEN g.black_time_s ELSE g.white_time_s END),0) AS REAL) as avg_time_s,
+			CAST(COALESCE(AVG(g.black_time_s+g.white_time_s),0) AS REAL) as avg_duration_s
 			FROM engines e LEFT JOIN games g ON g.black_id=e.id OR g.white_id=e.id
 			GROUP BY e.name HAVING games>0 ORDER BY games DESC`)
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var s engineStats
-			rows.Scan(&s.Name, &s.Games, &s.AvgPly, &s.Timeouts, &s.TotalMoves, &s.UnspentPct, &s.AvgTimeS)
+			rows.Scan(&s.Name, &s.Games, &s.AvgPly, &s.Timeouts, &s.TotalMoves, &s.UnspentPct, &s.AvgTimeS, &s.AvgDurationS)
 			stats = append(stats, s)
 		}
 	}
@@ -41,15 +43,39 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 
 	fmtVal := func(v float64) string {
 		switch {
-		case v >= 1e9: return fmt.Sprintf("%.1fG", v/1e9)
-		case v >= 1e6: return fmt.Sprintf("%.0fM", v/1e6)
-		case v >= 1e3: return fmt.Sprintf("%.0fk", v/1e3)
-		default: return fmt.Sprintf("%.0f", v)
+		case v >= 1e9:
+			return fmt.Sprintf("%.1fG", v/1e9)
+		case v >= 1e6:
+			return fmt.Sprintf("%.0fM", v/1e6)
+		case v >= 1e3:
+			return fmt.Sprintf("%.0fk", v/1e3)
+		default:
+			return fmt.Sprintf("%.0f", v)
+		}
+	}
+	fmtSig3 := func(v float64) string {
+		switch {
+		case v >= 1e6:
+			return fmt.Sprintf("%.2fM", v/1e6)
+		case v >= 1e5:
+			return fmt.Sprintf("%.1fk", v/1e3)
+		case v >= 1e4:
+			return fmt.Sprintf("%.2fk", v/1e3)
+		case v >= 1e3:
+			return fmt.Sprintf("%.2fk", v/1e3)
+		case v >= 100:
+			return fmt.Sprintf("%.0f", v)
+		case v >= 10:
+			return fmt.Sprintf("%.1f", v)
+		default:
+			return fmt.Sprintf("%.2f", v)
 		}
 	}
 
 	// SVG bar chart helper
-	maxW := 600; barH := 20; gap := 4
+	maxW := 600
+	barH := 20
+	gap := 4
 	maxLabelW := 0
 	for _, s := range stats {
 		if len(s.Name) > maxLabelW {
@@ -58,7 +84,10 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 	}
 	labelX := maxLabelW*7 + 10
 	rightPad := 96
-	drawBars := func(title, unit string, getVal func(engineStats) float64, getMax func() float64, color string) string {
+	drawBars := func(title, unit string, getVal func(engineStats) float64, getMax func() float64, color string, fmtLabel func(float64) string) string {
+		if fmtLabel == nil {
+			fmtLabel = fmtVal
+		}
 		var svg strings.Builder
 		maxVal := getMax()
 		if maxVal == 0 {
@@ -73,10 +102,10 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 			if w < 2 {
 				w = 2
 			}
-			y := i*(barH+gap)
+			y := i * (barH + gap)
 			fmt.Fprintf(&svg, `<g class="filter-item"><text x="%d" y="%d" fill="var(--fg)" font-size="11" text-anchor="end">%s</text>`, labelX-6, y+12, s.Name)
 			fmt.Fprintf(&svg, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="2"/>`, labelX, y, w, barH, color)
-			fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="var(--fg)" font-size="11" font-weight="600">%s</text></g>`, labelX+w+8, y+12, fmtVal(val)+unit)
+			fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="var(--fg)" font-size="11" font-weight="600">%s</text></g>`, labelX+w+8, y+12, fmtLabel(val)+unit)
 		}
 		svg.WriteString(`</svg>`)
 		return svg.String()
@@ -94,7 +123,10 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 	switch chart {
 	case "games":
 		sort.Slice(stats, func(i, j int) bool { return stats[i].Games > stats[j].Games })
-		io.WriteString(w, drawBars("Games per Engine", "", getGames, getMaxGames, chartColors[0]))
+		var totalGames int
+		h.DB.QueryRow("SELECT COUNT(*) FROM games").Scan(&totalGames)
+		fmt.Fprintf(w, `<p style="color:var(--fg);margin-bottom:.5em;font-size:1.1em">Total games: <strong>%s</strong></p>`, commaNum(totalGames))
+		io.WriteString(w, drawBars("Games per Engine", "", getGames, getMaxGames, chartColors[0], nil))
 	case "unspent":
 		sort.Slice(stats, func(i, j int) bool { return stats[i].UnspentPct > stats[j].UnspentPct })
 		getUnspent := func(s engineStats) float64 { return s.UnspentPct }
@@ -107,7 +139,19 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 			}
 			return m
 		}
-		io.WriteString(w, drawBars("Unspent Time (%)", "%", getUnspent, getMaxUnspent, chartColors[3]))
+		io.WriteString(w, drawBars("Unspent Time (%)", "%", getUnspent, getMaxUnspent, chartColors[3], nil))
+		sort.Slice(stats, func(i, j int) bool { return stats[i].AvgDurationS > stats[j].AvgDurationS })
+		getAvgDuration := func(s engineStats) float64 { return s.AvgDurationS }
+		getMaxAvgDuration := func() float64 {
+			m := 0.0
+			for _, s := range stats {
+				if s.AvgDurationS > m {
+					m = s.AvgDurationS
+				}
+			}
+			return m
+		}
+		io.WriteString(w, drawBars("Average Game Duration", " s", getAvgDuration, getMaxAvgDuration, chartColors[0], fmtSig3))
 	}
 
 	switch chart {

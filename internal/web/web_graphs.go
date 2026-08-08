@@ -71,7 +71,7 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 		} else {
 			return "rgba(56,136,85,0.06)"
 		}
-	}()+`">Unspent</a>
+	}()+`">Time</a>
 		</nav>`)
 
 	switch tab {
