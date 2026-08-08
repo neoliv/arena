@@ -1,4 +1,4 @@
-# AGENTS.md — OpenCode Guidance
+# AGENTS.md — Arena (Go match server + coach)
 
 ## Build
 
@@ -12,57 +12,232 @@ CGO is disabled. Only two deps beyond stdlib: `nhooyr.io/websocket` and `modernc
 
 There are zero `_test.go` files. Verify changes by building (`go build ./...`) and deploying.
 
-## Edit vs Write threshold
+## Edit vs Write
 
-If a file needs 3+ changes, read it and Write the whole file. Edit often fails on
-whitespace mismatches in these files: `cmd/coach/main.go`, `internal/db/db.go`,
-`internal/coach/api.go`, `internal/web/web.go`, `internal/matchmaker/mm.go`,
-`internal/matchmaker/game.go`, `coach-update.sh`.
+**If a file needs 3+ changes, Write it entirely instead of patching with Edit.**
+Consecutive Edit attempts on the same file frequently fail on whitespace mismatches
+(tabs vs spaces are invisible in diffs). This produces partial corruption that
+requires more fixes. The most failure-prone files:
 
-## SQLite ALTER TABLE
+- `cmd/coach/main.go` — deeply nested, mixed whitespace in closures
+- `internal/db/db.go` — SQL strings with multi-line backtick literals
+- `internal/coach/api.go` — tab-indented Go with JSON/SQL strings
+- `internal/web/web.go` — raw HTML strings inside Go, mixed indent
+- `internal/matchmaker/mm.go` — deeply nested, tab-indented, multi-line SQL
+- `internal/matchmaker/game.go` — deeply nested, mixed indent + raw strings
+- `coach-update.sh` — bash, some lines indented, some not
 
-New columns go through migrations in `internal/db/db.go`, not via CREATE TABLE.
-Use `db.Exec(stmt)` with `"ignore errors"` comment — column may already exist on
-existing DBs. Count `?` placeholders against arguments carefully.
+For a single targeted change, Edit is fine. For a function rewrite or multiple
+insertions, use Read + Write.
 
-## Web pages
+## Scripts
 
-All pages MUST use `sharedCSS` (dark-mode CSS custom properties), `pageHead`, and
-`pageFoot` from `internal/web/web.go`. Never write inline `<style>` blocks.
+```bash
+./arena-deploy.sh          # build, deploy to VPS, clean logs, health check
+./arena-clear-db.sh        # clear all game data from VPS DB (keeps tokens+sessions)
+./arena-check.sh [--watch] # quick server health check
+./arena-logs.sh            # pull server/caddy/journal logs to local log/
+./arena-sprt-gate.sh       # build engine + run SPRT vs previous version
+~/bin/coach-update.sh      # rebuild all engines + coach on host (run on host)
+```
 
-CDN: use `cdn.jsdelivr.net/npm/<pkg>@<version>` with pinned versions. `unpkg.com`
-redirects; bare version specifiers return 400.
+### SPRT tool
+
+`cmd/sprt/` is a standalone binary for fast regression testing between two
+engine versions. It plays color-swapped game pairs via local GTP subprocesses
+and accumulates a Sequential Probability Ratio Test until a decision is
+reached (or max games exhausted). Games are saved as local WTHOR files —
+nothing is posted to the arena.
+
+```
+go build -o sprt ./cmd/sprt/
+./sprt --candidate "./neursi --weights new.bin" --reference "./neursi --weights prev.bin" --tc 1
+```
+
+Exit codes: 0 = accepted (not meaningfully weaker), 1 = rejected, 2 = inconclusive.
+Designed for `git bisect run`.
+
+Shared packages:
+- `internal/game/` — GTP engine lifecycle, opening book, board validation, game loop
+- `internal/sprt/` — SPRT accumulator, LLR update, decision logic, JSON summary
 
 ## Deploy
 
-Always use scripts — never deploy manually:
-- `./arena-deploy.sh [--clear-db]` — build, stop, scp, start, health check
-- `./arena-clear-db.sh` — wipe game data, keeps tokens + sessions
-- `./arena-check.sh [--watch]` — health check
+**ALWAYS use the scripts. Never deploy or clear the DB manually.**
 
-Use `--clear-db` when changing framework code (game loop, board, scoring, matchmaker).
-Not needed for web-only changes.
+```bash
+./arena-deploy.sh --clear-db  # builds server, deploys to VPS, clears logs + DB
+./arena-deploy.sh             # same without DB clear (keep game data)
+./arena-clear-db.sh           # clear game data only (keeps tokens+sessions)
+```
 
-## Architecture
+The deploy script does: `systemctl stop`, truncates server logs, scp binary, `systemctl start`,
+health check. Manual `systemctl stop/scp/start` skips log truncation and is forbidden.
 
-Single Go module. Four binaries:
-- `cmd/server` — REST API + SQLite + web dashboard (the arena)
-- `cmd/coach` — distributed play agent on contributor machines
-- `cmd/match_runner` — local GTP match runner
-- `cmd/sprt` — SPRT regression testing tool
+`arena-clear-db.sh` also truncates the server log — use it instead of raw `sqlite3 DELETE`.
 
-Shared packages: `internal/game/` (GTP, board, book), `internal/sprt/`, `internal/db/`,
-`internal/web/`, `internal/matchmaker/`, `internal/coach/`.
+**When to use `--clear-db`:** Required for any deploy that changes the framework
+(game loop, board, scoring, error codes, matchmaker, relay). NOT required for
+web-only changes (HTML, CSS, dashboard under `internal/web/` that don't touch
+the game pipeline).
 
-Coach ↔ server protocol is push-based WebSocket (`wss://arena.arsac.org/api/coach/ws`).
-Key files: `cmd/coach/wsloop.go`, `internal/matchmaker/wscoach.go`, `internal/coach/wsproto.go`.
+## Common Pitfalls
+
+### SQLite ALTER TABLE
+New columns must be added via migration (`internal/db/db.go` migrate list), not
+just in CREATE TABLE. Existing databases need ALTER TABLE to match the schema.
+Use `db.Exec(stmt)` with comment "ignore errors — column may already exist".
+
+### Go SQL parameter counting
+When adding columns, count `?` placeholders against arguments. SQLite error
+"missing argument with index N" means the N-th placeholder has no matching arg.
+Use `Exec(... , engineID, engineManifest, now)` — trailing args are easy to miss.
+
+### Coach scanning logic
+The coach scans `engines_dir/*/players.d/*.yaml` (glob, not flat ReadDir).
+Config field `engines_dir` from `coach.yaml` takes priority over `-players` flag.
+Default is `~/coach/engines`. Binary paths are resolved relative to engine dir.
+
+### Coach registration flow
+- `loadAndRegister()` — scans filesystem, populates `cfg.AIs`, calls `register()`
+- `register()` — POSTs cfg.AIs to `/api/coach/register`
+- `heartbeatLoop` — detects server restarts via `server_gen` field, calls `loadAndRegister()` on change
+- SIGHUP — also triggers `loadAndRegister()`
+
+### Web auth model
+- Web dashboard: `RequireLogin` middleware (session cookie)
+- API endpoints: `requireToken` (Bearer token) or `checkAuthOrOpen` (coach endpoints, open if no token configured)
+- The API `/api/engines` etc. require token — these are for match_runner, not web pages
+- Web pages query the database directly via internal handlers
+
+### systemd unit
+Environment lines MUST have matching double quotes:
+```
+Environment="ARENA_TOKEN=the-token-value"
+```
+A missing closing quote swallows the next line and the variable is silently ignored.
+
+## Player YAML — `%game_time%` substitution
+
+The coach substitutes `%game_time%` in the player YAML `args` field with the
+matchmaker's chosen time control in seconds. This lets engines that need a CLI
+flag (like edax's `-t`) receive the time control at launch rather than via GTP.
+
+```yaml
+# edax — uses -t flag for time-per-game
+args: "-gtp -t %game_time% -l 5"
+
+# neursi — uses -t flag for game time
+args: "-t %game_time%"
+
+# darwersi — uses --time flag for game time
+args: "--name dw-rodent --max-depth 8 --end-search 44 --time %game_time%"
+```
+
+The substitution is a simple `strings.Replace`. If the placeholder is absent,
+nothing changes. The engine process is per-match, so the value is always correct
+for the current time control.
+
+### Coach-side time enforcement
+
+The coach now tracks genmove wall-clock time via GTP-aware bridge goroutines.
+If accumulated thinking time exceeds `gameTimeSec * 1.05` (5% margin) per game,
+the engine is killed and the assignment is marked as failed. A watchdog also
+fires if the engine doesn't respond at all within 2x the per-game budget.
+
+This replaces the arena's `game_time` GTP command. Time enforcement is coach-side
+where wall-clock measurement is reliable.
+
+### GTP protocol — standard only
+
+The arena matchmaker only sends standard GTP commands: `boardsize`, `clear_board`,
+`play`, `genmove`, `quit`. The arena-specific extensions (`game_time`, `final_score`,
+`stats`) have been removed:
+- `game_time` → coach-side CLI flag substitution
+- `final_score` → computed from result
+- `stats` → optional, ignored if engine doesn't support it
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `cmd/server/main.go` | Arena server entry point |
+| `cmd/coach/main.go` | Coach binary (contributor machines) |
+| `cmd/match_runner/main.go` | Local GTP match runner |
+| `cmd/sprt/main.go` | SPRT regression-testing tool |
+| `internal/game/engine.go` | Shared GTP engine lifecycle |
+| `internal/game/loop.go` | Shared Othello game execution |
+| `internal/game/board.go` | Shared Othello board + move validation |
+| `internal/game/book.go` | Shared opening book loading |
+| `internal/sprt/sprt.go` | SPRT accumulator + decision logic |
+| `internal/db/db.go` | Schema + migrations |
+| `internal/db/coach.go` | Coach/coach_ais/match_assignments queries |
+| `internal/coach/api.go` | Coach REST API handlers |
+| `internal/web/web.go` | Web dashboard handlers |
+| `internal/matchmaker/mm.go` | Match scheduling |
+| `deploy.sh` | Build + deploy to VPS |
+| `arena-sprt-gate.sh` | Build + SPRT + report pass/fail |
+| `coach-update.sh` | Build engines + coach binary on host |
+
+## Web UI
+
+Pages use HTMX (`unpkg.com/htmx.org@2.0.4`) for auto-refresh on dynamic content
+(rankings, matches, coaches). No custom JS required — declarative attributes on
+container elements (`hx-get`, `hx-trigger="every 30s"`, `hx-swap="outerHTML"`).
+
+Game detail page has tabbed charts (Time/Nodes/NpS) with dark green background,
+black bars for black moves, white bars for white moves, and proper display of
+parity inversions (when a player moves twice because the opponent has no legal
+moves). Visited links use a darker shade (`--link-visited`) to distinguish from
+unvisited links.
+
+### Web: shared CSS is mandatory
+All arena pages MUST use the `sharedCSS` constant from `internal/web/web.go`.
+Never write inline `<style>` blocks — they will be missing dark mode and
+will diverge from the rest of the site. The shared CSS uses CSS custom
+properties (`var(--bg)`, `var(--fg)`, etc.) so all colors automatically
+adapt to `prefers-color-scheme`. When adding a new page, use `pageHead`
+and `pageFoot` constants for the HTML wrapper.
+
+**CDN resolution rule:** Always use specific versions with `jsdelivr.net`.
+`unpkg.com` returns 301 redirects; `jsdelivr` returns 200 directly. Bare
+version specifiers (`vega@5`) may return 400 — always pin to a tested version
+(`vega@5.27.0`). Prefer `cdn.jsdelivr.net/npm/<pkg>@<version>` over
+`unpkg.com/<pkg>@<version>`.
+
+## Distributed Match Play: Coach & Match Maker
+
+The Arena supports distributed match play across contributor machines:
+
+### Coach (`arena/cmd/coach/main.go`)
+
+Go binary that runs on each contributor machine. One coach per host, managing
+many concurrent AI instances.
+
+## Push-Based Matchmaker Protocol
+
+The coach connects via WebSocket to `wss://arena.arsac.org/api/coach/ws`. Protocol:
+- **Coach → MM:** `register`, `heartbeat` (with `ack_id`), `engine_exited`, `engine_timeout`, `engine_crash`
+- **MM → Coach:** `launch(id=N, ...)`, `kill(id=N, ...)`
+- Heartbeats are sent on every state change + 10s fallback
+- Sequence numbers: each launch has a monotonic ID. Heartbeat carries `ack_id` = last processed launch ID
+- `coachHasRoom` uses `hbRunning + inflight + 1 < coresTotal`
+- Key files: `cmd/coach/wsloop.go`, `internal/matchmaker/wscoach.go`, `internal/coach/wsproto.go`
 
 ## OTHELLO_HOME
 
-Scripts auto-detect `OTHELLO_HOME` from `$SCRIPT_DIR/..`. Env var overrides.
-Coach dir defaults to `$HOME/coach`. No hardcoded paths.
+All scripts auto-detect `OTHELLO_HOME` from `$SCRIPT_DIR/..`. Env var overrides. Coach dir defaults to `$HOME/coach`. No hardcoded paths.
 
-## More detail
+## Session Persistence
 
-See `CLAUDE.md` for coach registration flow, `%game_time%` substitution,
-coach-side time enforcement, session persistence, and coach log paths.
+Sessions survive server restarts via DB fallback in `internal/web/auth.go`. `web_sessions` table is NOT cleared by `arena-clear-db.sh`. Use `grep "session create"` in server log to debug persistence issues.
+
+## Coach Logs
+
+Coach writes to `~/coach/log/coach.log` (host). Engine stderr to `~/coach/log/<session>.err`. Arena server at `/var/log/arena/server.log` (VPS).
+
+## Documentation
+
+- `README.md` — Arena overview, coach setup, identity model
+- `../neursi/docs/gtp-protocol.md` — GTP spec with arena extensions
+- `../neursi/docs/arena-design.md` — Architecture, API table, DB schema
