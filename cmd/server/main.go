@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/neoliv/arena/internal/api"
@@ -155,6 +156,13 @@ func main() {
 	}
 	mux.HandleFunc("GET /api/matchmaker/status", mm.HandleStatus)
 	mux.HandleFunc("GET /api/matchmaker/debug", mm.HandleDebug)
+	mux.HandleFunc("POST /api/matchmaker/drain", func(w http.ResponseWriter, r *http.Request) {
+		if !requireTokenAuth(r, validateToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		mm.HandleDrain(w, r)
+	})
 	mux.HandleFunc("POST /api/matchmaker/register", mm.HandleRegister)
 	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)
 	mux.HandleFunc("POST /api/matchmaker/complete", mm.HandleComplete)
@@ -166,7 +174,7 @@ func main() {
 
 	sessions := web.NewSessionStore(database)
 	limiter := web.NewRateLimiter()
-	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus, CoachStatusFunc: mm.CoachStatus, ActiveAssignmentsFunc: mm.ActiveAssignments, ResourceStore: resourceStore}
+	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus, CoachStatusFunc: mm.CoachStatus, ActiveAssignmentsFunc: mm.ActiveAssignments, ResourceStore: resourceStore, SetDrainFunc: mm.SetDrained, IsDrainedFunc: mm.IsDrained, DrainStateFunc: mm.DrainState, PlayingCountFunc: mm.Wanted.PlayingCount}
 	webHandler.RegisterRoutes(mux)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +223,16 @@ func envDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// requireTokenAuth checks the Authorization Bearer header against the
+// validateToken closure (master token or DB tokens).
+func requireTokenAuth(r *http.Request, validateToken func(string) bool) bool {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	return validateToken(strings.TrimPrefix(auth, "Bearer "))
 }
 
 // handleShortFlags is duplicated across cmd/*/main.go.

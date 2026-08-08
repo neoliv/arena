@@ -9,12 +9,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/neoliv/arena/internal/coach"
-	"github.com/neoliv/arena/internal/game"
 	"github.com/neoliv/arena/internal/db"
 	"github.com/neoliv/arena/internal/elo"
+	"github.com/neoliv/arena/internal/game"
 	"github.com/neoliv/arena/internal/web"
 )
 
@@ -45,8 +46,8 @@ type MatchMaker struct {
 	quit       chan struct{}
 
 	// In-memory transient state (reset on arena restart — coaches re-register).
-	assignMu    sync.Mutex
-	assignments map[int64]*MatchAssignment
+	assignMu     sync.Mutex
+	assignments  map[int64]*MatchAssignment
 	nextAssignID int64
 
 	// WebSocket coach connections (push-based protocol).
@@ -55,25 +56,28 @@ type MatchMaker struct {
 	coachHeartbeats map[string]coach.CoachMessage // coachID → last heartbeat
 	coachNextID     map[string]int                // coachID → next launch ID to send
 	coachAckedID    map[string]int                // coachID → last heartbeat's ack_id
+
+	// drained stops new pair launches while letting in-flight games finish.
+	drained atomic.Bool
 }
 
 // GameResult carries completed game data for storage.
 type GameResult struct {
-	Games                  []gameResult
+	Games                        []gameResult
 	E1Name, E1Ver, E2Name, E2Ver string
-	GameTimeSec            float64
+	GameTimeSec                  float64
 }
 
 func New(database *db.DB, relay *coach.Relay) *MatchMaker {
 	storeCh := make(chan GameResult, 64)
 	m := &MatchMaker{
-		DB:          database,
-		Relay:       relay,
-		Wanted:      NewWantedList(database, storeCh),
-		storeCh:     storeCh,
-		wakeup:      make(chan struct{}, 1),
-		quit:        make(chan struct{}),
-		assignments:    make(map[int64]*MatchAssignment),
+		DB:              database,
+		Relay:           relay,
+		Wanted:          NewWantedList(database, storeCh),
+		storeCh:         storeCh,
+		wakeup:          make(chan struct{}, 1),
+		quit:            make(chan struct{}),
+		assignments:     make(map[int64]*MatchAssignment),
 		coachConns:      make(map[string]*coachConn),
 		coachHeartbeats: make(map[string]coach.CoachMessage),
 		coachNextID:     make(map[string]int),
@@ -366,6 +370,11 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 		m.assignMu.Unlock()
 	}
 
+	// Reset the pair to pending so it can be re-offered on the next tick.
+	// Without this, the pair stays "playing" forever and is never replayed
+	// (nor released from the drain in-flight count).
+	m.Wanted.ResetPair(p.ID)
+
 	// Cleanup relay sessions and error store entries
 	m.Relay.Cleanup(blackSid)
 	m.Relay.Cleanup(whiteSid)
@@ -501,7 +510,47 @@ var _ = web.EngineStatus{} // compile-time check
 func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	m.Wanted.mu.RLock()
 	defer m.Wanted.mu.RUnlock()
-	fmt.Fprintf(w, `{"coaches": %d, "pairs": %d}`, len(m.Wanted.coaches), len(m.Wanted.pairs))
+	fmt.Fprintf(w, `{"coaches": %d, "pairs": %d, "drained": %v, "playing": %d, "drain_state": %q}`,
+		len(m.Wanted.coaches), len(m.Wanted.pairs), m.drained.Load(), m.Wanted.PlayingCount(), m.DrainState())
+}
+
+// DrainState returns the matchmaker pause state:
+//   - "running":  not paused, new matches are issued
+//   - "pausing":  pause requested, games still in flight (draining)
+//   - "stopped":  pause requested, all in-flight games finished
+func (m *MatchMaker) DrainState() string {
+	if !m.drained.Load() {
+		return "running"
+	}
+	if m.Wanted.PlayingCount() > 0 {
+		return "pausing"
+	}
+	return "stopped"
+}
+
+// SetDrained toggles drain mode: no new pairs are launched, but games
+// already in flight finish normally.
+func (m *MatchMaker) SetDrained(v bool) {
+	m.drained.Store(v)
+	slog.Info("matchmaker drain set", "drained", v, "state", m.DrainState())
+}
+
+// IsDrained reports whether the matchmaker is in drain mode.
+func (m *MatchMaker) IsDrained() bool {
+	return m.drained.Load()
+}
+
+// HandleDrain toggles drain mode via the API. Body: {"drain": true|false}.
+func (m *MatchMaker) HandleDrain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Drain *bool `json:"drain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Drain == nil {
+		http.Error(w, `{"error": "body must be {\"drain\": true|false}"}`, http.StatusBadRequest)
+		return
+	}
+	m.SetDrained(*req.Drain)
+	fmt.Fprintf(w, `{"drained": %v, "state": %q, "playing": %d}`, *req.Drain, m.DrainState(), m.Wanted.PlayingCount())
 }
 
 // HandleDebug dumps the full state for debugging pairing issues.
@@ -516,7 +565,9 @@ func (m *MatchMaker) HandleDebug(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `"engines": [`)
 		first := true
 		for key, e := range c.Engines {
-			if !first { fmt.Fprintf(w, `,`) }
+			if !first {
+				fmt.Fprintf(w, `,`)
+			}
 			first = false
 			fmt.Fprintf(w, `{"key": %q, "available": %v, "max_inst": %d, "inst_running": %d}`, key, e.Available, e.MaxInstances, e.InstancesRunning)
 		}
@@ -525,8 +576,12 @@ func (m *MatchMaker) HandleDebug(w http.ResponseWriter, r *http.Request) {
 	// Dump first 3 pairs
 	fmt.Fprintf(w, `, "first_pairs": [`)
 	for i, p := range m.Wanted.pairs {
-		if i >= 3 { break }
-		if i > 0 { fmt.Fprintf(w, `,`) }
+		if i >= 3 {
+			break
+		}
+		if i > 0 {
+			fmt.Fprintf(w, `,`)
+		}
 		fmt.Fprintf(w, `{"id": %q, "status": %q, "b_key": %q, "w_key": %q, "b_connected": %v, "w_connected": %v, "session_id": %q, "b_coach": %q, "w_coach": %q}`,
 			p.ID, p.Status, p.BlackEngine, p.WhiteEngine, p.BlackConnected, p.WhiteConnected, p.SessionID, p.BlackCoachID, p.WhiteCoachID)
 	}
@@ -575,7 +630,9 @@ func (m *MatchMaker) HandlePoll(w http.ResponseWriter, r *http.Request) {
 		if _, err := fmt.Sscanf(ns, "%d", &n); err != nil {
 			n = 3
 		}
-		if n > 16 { n = 16 }
+		if n > 16 {
+			n = 16
+		}
 	}
 	assignments := m.Wanted.PollAssignments(coachID, n)
 	if len(assignments) == 0 {

@@ -841,12 +841,16 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="var(--border)" stroke-width="0.5"/>`, left, yy, svgw-right, yy)
 		fmt.Fprintf(w, `<text x="%d" y="%.1f" fill="var(--muted)" font-size="10" text-anchor="end">%.0f</text>`, left-6, yy+4, val)
 	}
-	// Depth tick labels.
-	for d := minD; d <= maxD; d++ {
-		xx := x(d)
-		fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle">%d</text>`, xx, svgh-15, d)
+	// Depth tick labels — only at depths actually present in the data.
+	seenDepth := map[int]bool{}
+	for _, p := range pts {
+		seenDepth[p.depth] = true
 	}
-	fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle">Search depth</text>`, float64(left+plotW)/2, svgh-3)
+	for d := range seenDepth {
+		xx := x(d)
+		fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="14" font-weight="600" text-anchor="middle">%d</text>`, xx, svgh-15, d)
+	}
+	fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="12" text-anchor="middle">Search depth</text>`, float64(left+plotW)/2, svgh-3)
 	fmt.Fprintf(w, `<text x="14" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle" transform="rotate(-90 14 %d)">Elo</text>`, svgh/2, svgh/2)
 
 	// Curves: CI bars, then polyline, then points.

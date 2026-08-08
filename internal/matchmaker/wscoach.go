@@ -126,10 +126,14 @@ func (m *MatchMaker) handleCoachMessage(cc *coachConn, msg coach.CoachMessage) {
 		// Only trigger launch if the heartbeat confirms we have room.
 		// During warmup, hbRunning=0 but inflight covers in-flight launches.
 		hbRunning := 0
-		for _, p := range msg.Players { hbRunning += p.Instances }
+		for _, p := range msg.Players {
+			hbRunning += p.Instances
+		}
 		next := m.coachNextID[cc.coachID]
 		inflight := next - (msg.AckID + 1)
-		if inflight < 0 { inflight = 0 }
+		if inflight < 0 {
+			inflight = 0
+		}
 		if hbRunning+inflight < 8 {
 			m.tryLaunch()
 		}
@@ -163,6 +167,11 @@ func (m *MatchMaker) handleCoachMessage(cc *coachConn, msg coach.CoachMessage) {
 }
 
 func (m *MatchMaker) tryLaunch() {
+	// Drain mode: stop launching new pairs; in-flight games continue to
+	// completion. Enabled via POST /api/matchmaker/drain {"drain":true}.
+	if m.drained.Load() {
+		return
+	}
 	pairs := m.Wanted.PendingPairs()
 	if len(pairs) == 0 {
 		return
@@ -272,7 +281,9 @@ func (m *MatchMaker) sendToCoach(coachID string, msg coach.MMMessage) {
 }
 
 func parseTCSeconds(tcJSON string) float64 {
-	var tc struct{ Seconds float64 `json:"seconds"` }
+	var tc struct {
+		Seconds float64 `json:"seconds"`
+	}
 	json.Unmarshal([]byte(tcJSON), &tc)
 	if tc.Seconds <= 0 {
 		return 30

@@ -12,14 +12,14 @@ import (
 
 // moveRow is a single row from the game_moves table.
 type moveRow struct {
-	num            int
-	side, move     string
-	nodes          int
-	depth          int
-	timeMs         float64
-	nps            int
-	score          int
-	flags          string
+	num        int
+	side, move string
+	nodes      int
+	depth      int
+	timeMs     float64
+	nps        int
+	score      int
+	flags      string
 }
 
 // computeBoardStates replays the entire game from the opening line through
@@ -62,8 +62,6 @@ func computeBoardStates(opening string, moves []moveRow) []boardState {
 	return states
 }
 
-
-
 func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -89,7 +87,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if gameTimeSec <= 0 { gameTimeSec = 30 }
+	if gameTimeSec <= 0 {
+		gameTimeSec = 30
+	}
 
 	bDelta := bElo - bEloBefore
 	wDelta := wElo - wEloBefore
@@ -111,20 +111,32 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 	// ── Error badge (right of score) ──────────────────────────
 	// Color: faulty engine (loser) or red for infra/disconnect.
 	statusBadge := ""
-	if errorCode != 0 || disconnect != 0  {
+	if errorCode != 0 || disconnect != 0 {
 		errLabel := ""
 		errColor := "#f44336" // default: red (infra/disconnect)
 		if errorCode != 0 {
-			if label, ok := game.ErrorLabel[int8(errorCode)]; ok { errLabel = label }
+			if label, ok := game.ErrorLabel[int8(errorCode)]; ok {
+				errLabel = label
+			}
 			// Color by losing engine
-			if result == "1-0" { errColor = "#d4c4a8" } else { errColor = "#22d3ee" }
+			if result == "1-0" {
+				errColor = "#d4c4a8"
+			} else {
+				errColor = "#22d3ee"
+			}
 		} else if disconnect != 0 {
 			errLabel = "disconnected"
 		}
 		bTimedOut = gameTimeSec > 0 && bTime > gameTimeSec*1.05
 		wTimedOut = gameTimeSec > 0 && wTime > gameTimeSec*1.05
-		if bTimedOut { errLabel = "black timeout"; errColor = "#22d3ee" }
-		if wTimedOut { errLabel = "white timeout"; errColor = "#d4c4a8" }
+		if bTimedOut {
+			errLabel = "black timeout"
+			errColor = "#22d3ee"
+		}
+		if wTimedOut {
+			errLabel = "white timeout"
+			errColor = "#d4c4a8"
+		}
 		if errLabel != "" {
 			statusBadge = fmt.Sprintf(` <span style="color:%s;font-weight:900;font-size:2em">[%s]</span>`, errColor, errLabel)
 		}
@@ -316,16 +328,24 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					// Overflow (>64 discs) shown in red.
 
 					overflowColor := func(v float64) string {
-						if v > 64 || v < -64 { return "#f44336" }
+						if v > 64 || v < -64 {
+							return "#f44336"
+						}
 						return "#6a6"
 					}
 					for pct := 0; pct <= 100; pct += 25 {
 						y := chartH - pct*chartH/100 + 44
 						// Map pct to signed value: 0% = -maxVal, 50% = 0, 100% = +maxVal
 						val := (float64(pct)/50.0 - 1.0) * maxVal
-						if pct == 0 { val = -maxVal }
-						if pct == 100 { val = maxVal }
-						if pct == 50 { val = 0 }
+						if pct == 0 {
+							val = -maxVal
+						}
+						if pct == 100 {
+							val = maxVal
+						}
+						if pct == 50 {
+							val = 0
+						}
 						fmt.Fprintf(w, `<text x="0" y="%d" fill="%s" font-size="11">%+.0f</text>`,
 							y, overflowColor(val), val)
 					}
@@ -359,7 +379,9 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#6a6" stroke-width="1" stroke-dasharray="4,4"/>`, lx, topPad, lx, chartH+topPad)
 				midY := chartH/2 + topPad
 				plyLabel := fmt.Sprintf("%d/60", totalPlies)
-				if totalPlies == 60 { plyLabel = "60" }
+				if totalPlies == 60 {
+					plyLabel = "60"
+				}
 				fmt.Fprintf(w, `<text x="%d" y="%d" text-anchor="start" fill="#6a6" font-size="10" font-weight="600">%s</text>`, lx+4, midY+4, plyLabel)
 				// Ply 60 marker — max board capacity
 				px60 := 34 + 60*14 + 6
@@ -444,7 +466,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 					case "depth":
 						tip = fmt.Sprintf("%s %s: depth %d", m.side, m.move, m.depth)
 					case "score":
-						tip = fmt.Sprintf("%s %s: %+d cP", m.side, m.move, m.score)
+						tip = fmt.Sprintf("%s %s: %+d discs (engine eval)", m.side, m.move, m.score)
 					case "diff":
 						tip = fmt.Sprintf("%s %s: %+d discs", m.side, m.move, discDiffs[i])
 					}
@@ -458,51 +480,57 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			// ── Flags chart ─────────────────────────────────────────
 			if tab == "flags" {
 				flagColor := map[string]string{
-					"timeout":          "#ef4444",
-					"from_book":        "#94a3b8",
-					"end_search":       "#a78bfa",
-					"score_exact":      "#4ade80",
-					"aspiration_fail":  "#fbbf24",
+					"timeout":         "#ef4444",
+					"from_book":       "#94a3b8",
+					"end_search":      "#a78bfa",
+					"score_exact":     "#4ade80",
+					"aspiration_fail": "#fbbf24",
 				}
-			io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
-			fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:18px;font-weight:700">%s</span><span style="color:#d4c4a8;font-size:18px;font-weight:700">%s</span></div>`, bName, wName)
-			io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
-			if openingPlies > 0 {
-				openW := openingPlies * 14
-				fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
-				fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced %dpl</text>`, 34+openW/2, chartH+topPad-6, openingPlies)
-			}
-			for pl := 10; pl <= totalPlies; pl += 10 {
-				tx := 34 + pl*14
-				fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad-2, tx, topPad+2)
-			}
-			fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">Search state flags</text>`, chartH+68)
-			segH := chartH / 10 // fixed 1/10th chart height per flag block
-			if segH < 3 { segH = 3 }
-			baseY := chartH + topPad // bottom of chart
-			for i, m := range moves {
-				if m.flags == "" {
-					continue
+				io.WriteString(w, fmt.Sprintf(`<div style="background:#2d5a2d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 8px 24px 8px;overflow-x:auto">`))
+				fmt.Fprintf(w, `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="color:#22d3ee;font-size:18px;font-weight:700">%s</span><span style="color:#d4c4a8;font-size:18px;font-weight:700">%s</span></div>`, bName, wName)
+				io.WriteString(w, fmt.Sprintf(`<svg width="%s" height="%d">`, chartW, chartH+82))
+				if openingPlies > 0 {
+					openW := openingPlies * 14
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#3a3a3a" opacity="0.5"/>`, 34, topPad, openW, chartH)
+					fmt.Fprintf(w, `<text x="%d" y="%d" fill="#888" font-size="11" text-anchor="middle" font-style="italic">forced %dpl</text>`, 34+openW/2, chartH+topPad-6, openingPlies)
 				}
-				flagList := strings.Split(m.flags, " ")
-				x := 34 + (openingPlies+i)*14
-				barW := 12
-				// Player color base block at bottom
-				baseColor := "#22d3ee"
-				if m.side == "w" { baseColor = "#d4c4a8" }
-				playerY := baseY - segH
-				fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s</title></rect>`,
-					x, playerY, barW, segH, baseColor, m.side, m.move)
-				// Flag blocks piled above player base
-				for fi, f := range flagList {
-					color := flagColor[f]
-					if color == "" { color = "#888" }
-					fy := playerY - (fi+1)*segH
-					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s: %s</title></rect>`,
-						x, fy, barW, segH, color, m.side, m.move, f)
+				for pl := 10; pl <= totalPlies; pl += 10 {
+					tx := 34 + pl*14
+					fmt.Fprintf(w, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a5a3a" stroke-width="1"/>`, tx, topPad-2, tx, topPad+2)
 				}
-			}
-			// Legend
+				fmt.Fprintf(w, `<text x="50%%" y="%d" text-anchor="middle" fill="#6a6" font-size="12">Search state flags</text>`, chartH+68)
+				segH := chartH / 10 // fixed 1/10th chart height per flag block
+				if segH < 3 {
+					segH = 3
+				}
+				baseY := chartH + topPad // bottom of chart
+				for i, m := range moves {
+					if m.flags == "" {
+						continue
+					}
+					flagList := strings.Split(m.flags, " ")
+					x := 34 + (openingPlies+i)*14
+					barW := 12
+					// Player color base block at bottom
+					baseColor := "#22d3ee"
+					if m.side == "w" {
+						baseColor = "#d4c4a8"
+					}
+					playerY := baseY - segH
+					fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s</title></rect>`,
+						x, playerY, barW, segH, baseColor, m.side, m.move)
+					// Flag blocks piled above player base
+					for fi, f := range flagList {
+						color := flagColor[f]
+						if color == "" {
+							color = "#888"
+						}
+						fy := playerY - (fi+1)*segH
+						fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" rx="1"><title>%s %s: %s</title></rect>`,
+							x, fy, barW, segH, color, m.side, m.move, f)
+					}
+				}
+				// Legend
 				legY := chartH + topPad + 12
 				legX := 40
 				for _, entry := range []struct{ flag, color, label string }{
@@ -523,7 +551,7 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			renderChart("nps", maxNPS, 0, "", "Nodes per second")
 			renderChart("depth", maxDepth, 0, "", "Search depth")
 			renderChart("diff", maxDiscDiff, 0, "", "Disc diff (B-W)")
-			renderChart("score", maxBScore, maxWScore, "", "Score (cP)")
+			renderChart("score", maxBScore, maxWScore, "", "Eval (discs)")
 
 			// ── Board viewer ──────────────────────────────────────
 			if len(boardStates) > 0 {
@@ -554,15 +582,15 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 				io.WriteString(w, `<div id="board-data" style="display:none">`)
 				for idx, bs := range boardStates {
 					moveLabel := ""
-				if idx < openingPlies && idx*2 < len(opening) {
-					moveLabel = opening[idx*2 : idx*2+2]
-				} else if i := idx - openingPlies; i >= 0 && i < len(moves) {
-					moveLabel = moves[i].move
-				}
-				fmt.Fprintf(w, `<div data-idx="%d" data-move="%s" data-black="%d" data-white="%d">%s</div>`,
-					idx, htmlEscape(moveLabel),
-					game.Popcount(bs.board.Black()), game.Popcount(bs.board.White()),
-					renderBoardSVG(bs.board, bs.lastSq))
+					if idx < openingPlies && idx*2 < len(opening) {
+						moveLabel = opening[idx*2 : idx*2+2]
+					} else if i := idx - openingPlies; i >= 0 && i < len(moves) {
+						moveLabel = moves[i].move
+					}
+					fmt.Fprintf(w, `<div data-idx="%d" data-move="%s" data-black="%d" data-white="%d">%s</div>`,
+						idx, htmlEscape(moveLabel),
+						game.Popcount(bs.board.Black()), game.Popcount(bs.board.White()),
+						renderBoardSVG(bs.board, bs.lastSq))
 				}
 				io.WriteString(w, `</div></div>`)
 				io.WriteString(w, boardInteractionJS)
@@ -570,14 +598,14 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 
 			// ── Stats summary ──────────────────────────────────────────
 			type sideStats struct {
-				moves                                  int
-				totalTime, totalNodes                  float64
-				times, nodes, depths, npsVals          []float64
-				timeMin, timeMax, timeAvg, timeStd     float64
-				nodeMin, nodeMax, nodeAvg, nodeStd     float64
-				depthMin, depthMax, depthAvg           float64
-				npsMin, npsMax, npsAvg, npsStd         float64
-				firstES                                 int
+				moves                              int
+				totalTime, totalNodes              float64
+				times, nodes, depths, npsVals      []float64
+				timeMin, timeMax, timeAvg, timeStd float64
+				nodeMin, nodeMax, nodeAvg, nodeStd float64
+				depthMin, depthMax, depthAvg       float64
+				npsMin, npsMax, npsAvg, npsStd     float64
+				firstES                            int
 			}
 			var bStats, wStats sideStats
 			for _, m := range moves {
@@ -713,8 +741,12 @@ func (h *Handler) handleGameDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			// One-line transcript: opening + all moves in monospace
 			var transcript string
-			if opening != "" { transcript = opening }
-			for _, m := range moves { transcript += m.move }
+			if opening != "" {
+				transcript = opening
+			}
+			for _, m := range moves {
+				transcript += m.move
+			}
 			fmt.Fprintf(w, `<div style="margin-top:.4em;font-family:monospace;font-size:1.1em;word-break:break-all;color:var(--fg);text-align:center">%s</div>`, htmlEscape(transcript))
 
 			io.WriteString(w, `<table style="margin-top:1.5em"><tr><th>#</th><th>Side</th><th>Move</th><th>Time</th><th>Nodes</th><th>Dp</th><th>NPS</th><th>Score</th></tr>`)

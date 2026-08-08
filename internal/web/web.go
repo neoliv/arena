@@ -70,6 +70,7 @@ var navHTML = `<nav>
 	</nav>`
 
 var bannerOnce sync.Once
+
 func SetRollbackBanner() {
 	bannerOnce.Do(func() {
 		navHTML = `<div style="background:#c44;color:#fff;text-align:center;padding:.4em;font-weight:600;margin-bottom:.5em">⚠ Database was restored from backup — recent games may be missing.</div>` + navHTML
@@ -85,7 +86,9 @@ const pageFoot = `</body></html>`
 // This prevents nested <html> documents on auto-refreshing pages.
 func htmxWrap(r *http.Request) (open, closing string) {
 	path := r.URL.Path
-	if r.URL.RawQuery != "" { path += "?" + r.URL.RawQuery }
+	if r.URL.RawQuery != "" {
+		path += "?" + r.URL.RawQuery
+	}
 	open = `<div hx-get="` + path + `" hx-trigger="every 30s" hx-swap="outerHTML">` + filterBox
 	closing = `</div>`
 	if r.Header.Get("HX-Request") != "true" {
@@ -96,7 +99,7 @@ func htmxWrap(r *http.Request) (open, closing string) {
 }
 
 // chartColors are chalk/pastel hues visible on both light and dark backgrounds.
-var chartColors = [8]string{"#4caf50","#6bd4ff","#ffe66b","#6bff8a","#ff8a6b","#c46bff","#6bffe6","#ffb86b"}
+var chartColors = [8]string{"#4caf50", "#6bd4ff", "#ffe66b", "#6bff8a", "#ff8a6b", "#c46bff", "#6bffe6", "#ffb86b"}
 
 // EngineStatus is a point-in-time snapshot of a registered engine.
 type EngineStatus struct {
@@ -128,29 +131,41 @@ type AssignmentStatus struct {
 }
 
 type Handler struct {
-	DB                   *db.DB
-	Token                string
-	Sessions             *SessionStore
-	Limiter              *RateLimiter
-	EngineStatusFunc     func() []EngineStatus
-	CoachStatusFunc      func() []CoachStatus
+	DB                    *db.DB
+	Token                 string
+	Sessions              *SessionStore
+	Limiter               *RateLimiter
+	EngineStatusFunc      func() []EngineStatus
+	CoachStatusFunc       func() []CoachStatus
 	ActiveAssignmentsFunc func() []AssignmentStatus
-	ResourceStore        *coach.PlayerResourceStore
+	ResourceStore         *coach.PlayerResourceStore
+	SetDrainFunc          func(bool) // matchmaker drain toggle (nil = unavailable)
+	IsDrainedFunc         func() bool
+	DrainStateFunc        func() string // "running" | "pausing" | "stopped"
+	PlayingCountFunc      func() int    // in-flight game pairs
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("POST /login", h.handleLogin)
 	mux.HandleFunc("GET /logout", h.HandleLogout)
-	mux.HandleFunc("GET /{$}", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/stats", http.StatusMovedPermanently) }))
+	mux.HandleFunc("GET /{$}", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/stats", http.StatusMovedPermanently)
+	}))
 	// charts route handled below
-	mux.HandleFunc("GET /graphs", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/stats?tab="+r.URL.Query().Get("tab"), http.StatusMovedPermanently) }))
+	mux.HandleFunc("GET /graphs", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/stats?tab="+r.URL.Query().Get("tab"), http.StatusMovedPermanently)
+	}))
 	mux.HandleFunc("GET /stats", h.RequireLogin(h.handleGraphs))
 	mux.HandleFunc("GET /games", h.RequireLogin(h.handleGames))
-		mux.HandleFunc("GET /games/{id}", h.RequireLogin(h.handleGameDetail))
+	mux.HandleFunc("GET /games/{id}", h.RequireLogin(h.handleGameDetail))
 	mux.HandleFunc("GET /engines/{name}", h.RequireLogin(h.handleEngine))
-	mux.HandleFunc("GET /versions", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/players", http.StatusMovedPermanently) }))
-	mux.HandleFunc("GET /ranks", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/stats?tab=elo", http.StatusMovedPermanently) }))
+	mux.HandleFunc("GET /versions", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/players", http.StatusMovedPermanently)
+	}))
+	mux.HandleFunc("GET /ranks", h.RequireLogin(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/stats?tab=elo", http.StatusMovedPermanently)
+	}))
 	mux.HandleFunc("GET /players", h.RequireLogin(h.handleVersions))
 	mux.HandleFunc("GET /coaches", h.RequireLogin(h.handleCoaches))
 	mux.HandleFunc("GET /health", h.RequireLogin(h.handleHealth))
@@ -160,6 +175,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/suspend/{id}", h.RequireLogin(h.handleAdminSuspend))
 	mux.HandleFunc("GET /admin/delete/{id}", h.RequireLogin(h.handleAdminDelete))
 	mux.HandleFunc("POST /admin/new", h.RequireLogin(h.handleAdminNew))
+	mux.HandleFunc("POST /admin/drain", h.RequireLogin(h.handleAdminDrain))
 	mux.HandleFunc("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(404)

@@ -1,0 +1,7 @@
+name: "neur-6.1.0-d18"
+created: "2026-08-08"
+changelog_short: "Neural Reversi depth 18, no ES"
+binary: "neural-reversi-gtp"
+args: "--mid-depth 18 --end-depth 0 --eval-file eval-e6bbc4f6.bin --eval-sm-file eval_sm-e6bbc4f6.bin"
+cores: 1
+memory_mb: 1792

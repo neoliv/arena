@@ -52,10 +52,10 @@ type wantedPair struct {
 	WhiteConnected   bool      // coach dialed relay for this side
 	BlackConnectedAt time.Time // when the coach dialed
 	WhiteConnectedAt time.Time
-	SessionID        string // base session ID for relay (both sides share this)
+	SessionID        string  // base session ID for relay (both sides share this)
 	gameTimeSec      float64 // parsed from TimeControl
-	BlackCoachID     string // coach that was assigned the black side
-	WhiteCoachID     string // coach that was assigned the white side
+	BlackCoachID     string  // coach that was assigned the black side
+	WhiteCoachID     string  // coach that was assigned the white side
 }
 
 // ── WantedList ──────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		bothSides  bool
 	}
 	var complete []candidate // both sides available
-	var single   []candidate // only one side available
+	var single []candidate   // only one side available
 
 	for _, p := range w.pairs {
 		if p.Status != "pending" {
@@ -355,8 +355,12 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		// Expire declines after 30s — at-capacity declines are transient
 		// (games finish, cores free up). Without TTL, a single decline
 		// permanently excludes that engine pair for this coach.
-		if bDecl && now.Sub(tbDecl) >= 30*time.Second { bDecl = false }
-		if wDecl && now.Sub(twDecl) >= 30*time.Second { wDecl = false }
+		if bDecl && now.Sub(tbDecl) >= 30*time.Second {
+			bDecl = false
+		}
+		if wDecl && now.Sub(twDecl) >= 30*time.Second {
+			wDecl = false
+		}
 		tb, bOff := w.offers[bdk]
 		tw, wOff := w.offers[wdk]
 		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 2*time.Second)
@@ -398,7 +402,9 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		wdk := declineKey(coachID, wKey)
 		w.offers[bdk] = now
 		w.offers[wdk] = now
-		if p.SessionID == "" { p.SessionID = p.ID }
+		if p.SessionID == "" {
+			p.SessionID = p.ID
+		}
 		p.BlackCoachID = coachID
 		p.WhiteCoachID = coachID
 		out = append(out,
@@ -417,8 +423,12 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		wdk := declineKey(coachID, wKey)
 		tbDecl, bDecl := w.declines[bdk]
 		twDecl, wDecl := w.declines[wdk]
-		if bDecl && now.Sub(tbDecl) >= 30*time.Second { bDecl = false }
-		if wDecl && now.Sub(twDecl) >= 30*time.Second { wDecl = false }
+		if bDecl && now.Sub(tbDecl) >= 30*time.Second {
+			bDecl = false
+		}
+		if wDecl && now.Sub(twDecl) >= 30*time.Second {
+			wDecl = false
+		}
 		tb, bOff := w.offers[bdk]
 		tw, wOff := w.offers[wdk]
 		bOk := hasB && !p.BlackConnected && !bDecl && (!bOff || now.Sub(tb) >= 2*time.Second)
@@ -426,13 +436,17 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		if bOk && !wOk && used[bKey] < maxInst(bKey) {
 			used[bKey]++
 			w.offers[bdk] = now
-			if p.SessionID == "" { p.SessionID = p.ID }
+			if p.SessionID == "" {
+				p.SessionID = p.ID
+			}
 			p.BlackCoachID = coachID
 			out = append(out, Assignment{SessionID: p.SessionID + "-b", Engine: bKey, Side: "black", TimeControl: p.TimeControl, Opening: p.OpeningLine})
 		} else if wOk && !bOk && used[wKey] < maxInst(wKey) {
 			used[wKey]++
 			w.offers[wdk] = now
-			if p.SessionID == "" { p.SessionID = p.ID }
+			if p.SessionID == "" {
+				p.SessionID = p.ID
+			}
 			p.WhiteCoachID = coachID
 			out = append(out, Assignment{SessionID: p.SessionID + "-w", Engine: wKey, Side: "white", TimeControl: p.TimeControl, Opening: p.OpeningLine})
 		}
@@ -443,24 +457,43 @@ func (w *WantedList) PollAssignments(coachID string, n int) []Assignment {
 		var noEngine, connected, declined, offered, atMax int
 		now2 := time.Now()
 		for _, p := range w.pairs {
-			if p.Status != "pending" { continue }
+			if p.Status != "pending" {
+				continue
+			}
 			bKey, wKey := p.BlackEngine, p.WhiteEngine
-			if c.Engines[bKey] == nil && c.Engines[wKey] == nil { noEngine++; continue }
-			if p.BlackConnected || p.WhiteConnected { connected++; continue }
+			if c.Engines[bKey] == nil && c.Engines[wKey] == nil {
+				noEngine++
+				continue
+			}
+			if p.BlackConnected || p.WhiteConnected {
+				connected++
+				continue
+			}
 			bdk, wdk := declineKey(coachID, bKey), declineKey(coachID, wKey)
 			_, bDecl := w.declines[bdk]
 			_, wDecl := w.declines[wdk]
-			if bDecl || wDecl { declined++; continue }
+			if bDecl || wDecl {
+				declined++
+				continue
+			}
 			tb, bOff := w.offers[bdk]
 			tw, wOff := w.offers[wdk]
 			bStale := !bOff || now2.Sub(tb) >= 2*time.Second
 			wStale := !wOff || now2.Sub(tw) >= 2*time.Second
-			if !bStale || !wStale { offered++; continue }
-			if used[bKey] >= maxInst(bKey) || used[wKey] >= maxInst(wKey) { atMax++; continue }
+			if !bStale || !wStale {
+				offered++
+				continue
+			}
+			if used[bKey] >= maxInst(bKey) || used[wKey] >= maxInst(wKey) {
+				atMax++
+				continue
+			}
 		}
 		// Log first pending pair details for debugging
 		for _, p := range w.pairs {
-			if p.Status != "pending" { continue }
+			if p.Status != "pending" {
+				continue
+			}
 			bKey, wKey := p.BlackEngine, p.WhiteEngine
 			hasB := c.Engines[bKey] != nil
 			hasW := c.Engines[wKey] != nil
@@ -680,4 +713,18 @@ func (w *WantedList) AllPairs() []*wantedPair {
 	out := make([]*wantedPair, len(w.pairs))
 	copy(out, w.pairs)
 	return out
+}
+
+// PlayingCount returns the number of pairs currently in flight (games
+// being played right now).
+func (w *WantedList) PlayingCount() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	n := 0
+	for _, p := range w.pairs {
+		if p.Status == "playing" {
+			n++
+		}
+	}
+	return n
 }
