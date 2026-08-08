@@ -163,6 +163,20 @@ func main() {
 		}
 		mm.HandleDrain(w, r)
 	})
+	mux.HandleFunc("GET /api/matchmaker/budget", func(w http.ResponseWriter, r *http.Request) {
+		if !requireTokenAuth(r, validateToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		mm.HandleBudget(w, r)
+	})
+	mux.HandleFunc("POST /api/matchmaker/budget", func(w http.ResponseWriter, r *http.Request) {
+		if !requireTokenAuth(r, validateToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		mm.HandleBudget(w, r)
+	})
 	mux.HandleFunc("POST /api/matchmaker/register", mm.HandleRegister)
 	mux.HandleFunc("GET /api/matchmaker/poll", mm.HandlePoll)
 	mux.HandleFunc("POST /api/matchmaker/complete", mm.HandleComplete)
@@ -174,7 +188,7 @@ func main() {
 
 	sessions := web.NewSessionStore(database)
 	limiter := web.NewRateLimiter()
-	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus, CoachStatusFunc: mm.CoachStatus, ActiveAssignmentsFunc: mm.ActiveAssignments, ResourceStore: resourceStore, SetDrainFunc: mm.SetDrained, IsDrainedFunc: mm.IsDrained, DrainStateFunc: mm.DrainState, PlayingCountFunc: mm.Wanted.PlayingCount}
+	webHandler := &web.Handler{DB: database, Token: *token, Sessions: sessions, Limiter: limiter, EngineStatusFunc: mm.EngineStatus, CoachStatusFunc: mm.CoachStatus, ActiveAssignmentsFunc: mm.ActiveAssignments, ResourceStore: resourceStore, SetDrainFunc: mm.SetDrained, IsDrainedFunc: mm.IsDrained, DrainStateFunc: mm.DrainState, PlayingCountFunc: mm.Wanted.PlayingCount, BudgetSecFunc: mm.Wanted.BudgetSec, SetBudgetSecFunc: mm.Wanted.SetBudget}
 	webHandler.RegisterRoutes(mux)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -70,22 +70,24 @@ func (db *DB) Migrate() error {
 	}
 	// Add columns that may not exist in older databases
 	for _, stmt := range []string{
-						"ALTER TABLE api_tokens ADD COLUMN nickname TEXT DEFAULT ''",
-												"ALTER TABLE engines ADD COLUMN created TEXT DEFAULT ''",
+		"ALTER TABLE api_tokens ADD COLUMN nickname TEXT DEFAULT ''",
+		"ALTER TABLE engines ADD COLUMN created TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_short TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN changelog_full TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN engine_id TEXT DEFAULT ''",
 		"ALTER TABLE engines ADD COLUMN engine_manifest TEXT DEFAULT ''",
-			// Fix created_at: old schema used TEXT datetime('now'), new uses unixepoch().
+		// Fix created_at: old schema used TEXT datetime('now'), new uses unixepoch().
 		"UPDATE games SET created_at = COALESCE(unixepoch(created_at), 0) WHERE typeof(created_at) = 'text'",
 		"ALTER TABLE games ADD COLUMN disconnect INTEGER DEFAULT 0",
 		"ALTER TABLE games ADD COLUMN error_code INTEGER DEFAULT 0",
-			"ALTER TABLE games ADD COLUMN game_time_sec REAL DEFAULT 0",
-			"ALTER TABLE game_moves ADD COLUMN flags TEXT DEFAULT ''",
-				"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0, flags TEXT DEFAULT '')",
+		"ALTER TABLE games ADD COLUMN game_time_sec REAL DEFAULT 0",
+		"ALTER TABLE game_moves ADD COLUMN flags TEXT DEFAULT ''",
+		"CREATE TABLE IF NOT EXISTS game_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER REFERENCES games(id), move_num INTEGER NOT NULL, side TEXT NOT NULL, move TEXT NOT NULL DEFAULT '', nodes INTEGER DEFAULT 0, depth INTEGER DEFAULT 0, time_ms REAL DEFAULT 0, score INTEGER DEFAULT 0, flags TEXT DEFAULT '')",
 		// idx_games_created on games(created_at) is ASC by default; SQLite reads
 		// indices backwards so DESC queries are also served by this index.
 		"CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at)",
+		// settings table — key/value store for arena settings (game budget, ...)
+		"CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')",
 	} {
 		db.Exec(stmt) // ignore errors — column may already exist
 	}
@@ -179,5 +181,10 @@ CREATE TABLE IF NOT EXISTS web_sessions (
     token       TEXT NOT NULL,
     email       TEXT NOT NULL DEFAULT '',
     created_at  INTEGER DEFAULT (unixepoch())
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL DEFAULT ''
 );
 `

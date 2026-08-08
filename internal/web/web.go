@@ -143,6 +143,8 @@ type Handler struct {
 	IsDrainedFunc         func() bool
 	DrainStateFunc        func() string // "running" | "pausing" | "stopped"
 	PlayingCountFunc      func() int    // in-flight game pairs
+	BudgetSecFunc         func() int    // per-game time budget (seconds)
+	SetBudgetSecFunc      func(int) error
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -176,6 +178,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/delete/{id}", h.RequireLogin(h.handleAdminDelete))
 	mux.HandleFunc("POST /admin/new", h.RequireLogin(h.handleAdminNew))
 	mux.HandleFunc("POST /admin/drain", h.RequireLogin(h.handleAdminDrain))
+	mux.HandleFunc("POST /admin/budget", h.RequireLogin(h.handleAdminBudget))
 	mux.HandleFunc("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(404)

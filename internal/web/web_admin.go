@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/neoliv/arena/internal/db"
 )
@@ -44,7 +45,14 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 			help = `Pause the matchmaker: no new games are assigned to coaches. Games already in progress finish normally. Click Resume to start issuing new matches again.`
 		}
 		coachBadge := `<span style="color:var(--muted)">Coaches online: <strong>` + fmt.Sprintf("%d", coaches) + `</strong></span>`
-		io.WriteString(w, pageHead+navHTML+fmt.Sprintf(`<h1>Admin</h1><div style="border:1px solid var(--border);border-radius:6px;padding:.8em 1em;margin-bottom:1.2em;background:var(--bg2)"><div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap"><span style="font-weight:700;font-size:1.1em">Matchmaker: %s</span>%s<span style="margin-left:auto">%s</span></div><div style="color:var(--muted);font-size:.9em;margin-top:.5em">%s</div></div>`, stateBadge, btn, coachBadge, help))
+
+		budgetField := ""
+		if h.BudgetSecFunc != nil {
+			budget := h.BudgetSecFunc()
+			budgetField = fmt.Sprintf(`<form method="post" action="/admin/budget" style="display:inline-flex;align-items:center;gap:.4em" title="Per-game time budget in seconds; saved in the database"><span style="color:var(--muted);font-size:.9em">Game budget:</span><input type="number" name="budget_sec" value="%d" min="1" max="600" style="width:70px;padding:.25em .4em;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"><button type="submit" style="background:var(--nav-hl);color:#fff;border:none;border-radius:4px;padding:.3em .7em;font-size:.9em;cursor:pointer">Set</button></form>`, budget)
+		}
+
+		io.WriteString(w, pageHead+navHTML+fmt.Sprintf(`<h1>Admin</h1><div style="border:1px solid var(--border);border-radius:6px;padding:.8em 1em;margin-bottom:1.2em;background:var(--bg2)"><div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap"><span style="font-weight:700;font-size:1.1em">Matchmaker: %s</span>%s%s<span style="margin-left:auto">%s</span></div><div style="color:var(--muted);font-size:.9em;margin-top:.5em">%s</div></div>`, stateBadge, btn, budgetField, coachBadge, help))
 	} else {
 		io.WriteString(w, pageHead+navHTML+`<h1>Admin — API Tokens</h1>`)
 	}
@@ -88,6 +96,28 @@ func (h *Handler) handleAdminDrain(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
+// handleAdminBudget updates the per-game time budget (seconds).
+func (h *Handler) handleAdminBudget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.SetBudgetSecFunc == nil {
+		http.Error(w, "budget not configured", http.StatusServiceUnavailable)
+		return
+	}
+	r.ParseForm()
+	sec, err := strconv.Atoi(r.FormValue("budget_sec"))
+	if err != nil || sec < 1 || sec > 600 {
+		http.Error(w, "budget_sec must be an integer between 1 and 600", http.StatusBadRequest)
+		return
+	}
+	if err := h.SetBudgetSecFunc(sec); err != nil {
+		http.Error(w, "failed to save budget", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
 func (h *Handler) handleAdminSave(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	id := r.FormValue("id")

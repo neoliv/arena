@@ -40,4 +40,4 @@ make[1]: Leaving directory '/home/oliv/dev/agent/othello/ref/edax/src/src'
 cp /home/oliv/dev/agent/othello/ref/edax/src/bin/lEdax-native-adapter coach-engine/edax || { echo "ERROR: Edax binary not found"; exit 1; }
 cp /home/oliv/dev/agent/othello/ref/edax/src/data/eval.dat coach-engine/data/
 cp players.d/*.yaml coach-engine/players.d/ 2>/dev/null || true
-coach-engine/ ready: 11 files
+coach-engine/ ready: 12 files

@@ -301,7 +301,7 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 		return
 	}
 
-	var gameTimeSec float64 = 30
+	var gameTimeSec float64 = 45
 	if n, _ := fmt.Sscanf(p.TimeControl, "%fs", &gameTimeSec); n != 1 {
 		slog.Warn("unparseable time control, using default", "time_control", p.TimeControl, "default_s", gameTimeSec)
 	}
@@ -360,7 +360,7 @@ func (m *MatchMaker) executeConnectedPair(p *wantedPair) {
 		Games:  games,
 		E1Name: bParts[0], E1Ver: bParts[1],
 		E2Name: wParts[0], E2Ver: wParts[1],
-		GameTimeSec: 30.0,
+		GameTimeSec: gameTimeSec,
 	}
 
 	// Mark assignment completed so it disappears from "In Progress".
@@ -406,7 +406,7 @@ func (m *MatchMaker) executeMatch(blackStream, whiteStream coach.Stream, gameTim
 	ctx := context.Background()
 	games := playGames(ctx, blackStream, whiteStream, 2, gameTimeSec, 0)
 	slog.Info("matchmaker match played", "games", len(games))
-	m.storeCh <- GameResult{Games: games, GameTimeSec: 30.0}
+	m.storeCh <- GameResult{Games: games, GameTimeSec: gameTimeSec}
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────────
@@ -510,8 +510,31 @@ var _ = web.EngineStatus{} // compile-time check
 func (m *MatchMaker) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	m.Wanted.mu.RLock()
 	defer m.Wanted.mu.RUnlock()
-	fmt.Fprintf(w, `{"coaches": %d, "pairs": %d, "drained": %v, "playing": %d, "drain_state": %q}`,
-		len(m.Wanted.coaches), len(m.Wanted.pairs), m.drained.Load(), m.Wanted.PlayingCount(), m.DrainState())
+	fmt.Fprintf(w, `{"coaches": %d, "pairs": %d, "drained": %v, "playing": %d, "drain_state": %q, "budget_sec": %d}`,
+		len(m.Wanted.coaches), len(m.Wanted.pairs), m.drained.Load(), m.Wanted.PlayingCount(), m.DrainState(), m.Wanted.BudgetSec())
+}
+
+// HandleBudget gets or sets the per-game time budget.
+//   - GET: returns {"budget_sec": N}
+//   - POST {"budget_sec": N}: updates the setting (persisted to DB)
+func (m *MatchMaker) HandleBudget(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		fmt.Fprintf(w, `{"budget_sec": %d}`, m.Wanted.BudgetSec())
+		return
+	}
+	var req struct {
+		BudgetSec *int `json:"budget_sec"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BudgetSec == nil {
+		http.Error(w, `{"error": "body must be {\"budget_sec\": N}"}`, http.StatusBadRequest)
+		return
+	}
+	if err := m.Wanted.SetBudget(*req.BudgetSec); err != nil {
+		http.Error(w, `{"error": "failed to save setting"}`, http.StatusInternalServerError)
+		return
+	}
+	slog.Info("game budget set", "budget_sec", *req.BudgetSec)
+	fmt.Fprintf(w, `{"budget_sec": %d}`, m.Wanted.BudgetSec())
 }
 
 // DrainState returns the matchmaker pause state:

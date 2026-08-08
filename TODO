@@ -1,16 +1,7 @@
 ### ARENA Prompts
 
-Recommend how to make the elo graph work fast even when a lot of points. 
-
-Arena session/token:
-- Add session/token management traces. I once again had to re-enter my token. You are missing something. Next time it happens you must have enough traces to understand what happens (the token was still present in the browser).
 
 ### Maybe
 
-- Arena light/dark themes to honor OS prefs.
-
-- The pages that are supposed to auto-refresh aer still not doiing it. My main test is the Games page. What is the current refresh rate?
-
 - Add a page to manage the match maker mode (Elo ranking, Tournament, Blitz tournament, ...) This will change the way the list of desirable games is built. This page could show the list of games that the MM will try to run in the near future.
 
-- Outside the DB, arena should also build a file containing only games (with useful meta-data like players, time allowed, final score,... use WTHOR format and usual meta-data)

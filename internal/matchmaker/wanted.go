@@ -2,10 +2,12 @@
 package matchmaker
 
 import (
+	"fmt"
 	"log/slog"
 	"math"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +70,11 @@ type WantedList struct {
 	DB       *db.DB
 	storeCh  chan<- GameResult
 
+	// budgetSec is the per-game time budget (seconds) used for the
+	// time-control label on wanted pairs. Read from the settings table
+	// at construction; refreshable via SetBudget.
+	budgetSec int
+
 	// offers prevents re-offering the same pair+engine to the same coach
 	// within a short window. Key: "coachID:engineKey" → offeredAt. TTL 5s.
 	offers map[string]time.Time
@@ -81,13 +88,42 @@ type WantedList struct {
 var lastEmptyPollLog time.Time
 
 func NewWantedList(database *db.DB, storeCh chan<- GameResult) *WantedList {
-	return &WantedList{
-		coaches:  make(map[string]*CoachEntry),
-		offers:   make(map[string]time.Time),
-		declines: make(map[string]time.Time),
-		DB:       database,
-		storeCh:  storeCh,
+	w := &WantedList{
+		coaches:   make(map[string]*CoachEntry),
+		offers:    make(map[string]time.Time),
+		declines:  make(map[string]time.Time),
+		DB:        database,
+		storeCh:   storeCh,
+		budgetSec: defaultBudgetSec,
 	}
+	if v := database.GetSetting("game_budget_sec"); v != "" {
+		if sec, err := strconv.Atoi(v); err == nil && sec > 0 {
+			w.budgetSec = sec
+		}
+	}
+	return w
+}
+
+// defaultBudgetSec is the per-game time budget used when no setting is stored.
+const defaultBudgetSec = 45
+
+// BudgetSec returns the current per-game time budget in seconds.
+func (w *WantedList) BudgetSec() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.budgetSec
+}
+
+// SetBudget updates the per-game time budget and persists it to the settings
+// table so it survives restarts.
+func (w *WantedList) SetBudget(sec int) error {
+	if sec < 1 {
+		sec = 1
+	}
+	w.mu.Lock()
+	w.budgetSec = sec
+	w.mu.Unlock()
+	return w.DB.SetSetting("game_budget_sec", strconv.Itoa(sec))
 }
 
 // RegisterCoach adds/updates a coach and its engines.
@@ -181,7 +217,7 @@ func (w *WantedList) Tick() {
 			elos = append(elos, engineElo{
 				Name:    parts[0],
 				Version: parts[1],
-				TC:      "30s",
+				TC:      fmt.Sprintf("%ds", w.budgetSec),
 				Rating:  1500.0,
 				Games:   0,
 			})
