@@ -139,6 +139,7 @@ func (h *Handler) renderStatsBars(w http.ResponseWriter, r *http.Request, chart 
 		h.DB.QueryRow("SELECT COUNT(*) FROM games").Scan(&totalGames)
 		fmt.Fprintf(w, `<p style="color:var(--fg);margin-bottom:.5em;font-size:1.1em">Total games: <strong>%s</strong></p>`, commaNum(totalGames))
 		io.WriteString(w, drawBars("Games per Engine", "", getGames, getMaxGames, chartColors[0], nil, nil))
+		io.WriteString(w, h.renderPairBalance())
 	case "unspent":
 		barLink := func(name string) string {
 			return "/stats?tab=unspent&engine=" + url.QueryEscape(name)
@@ -274,4 +275,77 @@ func (h *Handler) renderTimeDist(w http.ResponseWriter, r *http.Request, engine 
 	fmt.Fprintf(w, `</svg></div><p style="color:var(--muted);margin-top:.5em"><a href="/stats?tab=unspent">← back to Time overview</a></p>`)
 	// Scroll the distribution into view after the page renders.
 	io.WriteString(w, `<script>window.addEventListener('load',function(){var el=document.getElementById('time-dist');if(el)el.scrollIntoView({behavior:'smooth',block:'start'})})</script>`)
+}
+
+// renderPairBalance shows how evenly matches are distributed across engine
+// pairs. With pair-balanced scheduling every pair should converge to a
+// similar game count; sparse pairs (<5) are the ones the matchmaker is
+// actively filling.
+func (h *Handler) renderPairBalance() string {
+	var sb strings.Builder
+	var nEngines int
+	h.DB.QueryRow("SELECT COUNT(*) FROM engines").Scan(&nEngines)
+	if nEngines < 2 {
+		return ""
+	}
+	possible := nEngines * (nEngines - 1) / 2
+
+	// Bucket pairs by games played. The "0" bucket (pairs that never met)
+	// starts at possible−played and shrinks as the round-robin fills in.
+	type bucket struct {
+		label string
+		n     int
+	}
+	buckets := []bucket{
+		{"0", 0}, {"<5", 0}, {"5-9", 0}, {"10-19", 0}, {"20-39", 0}, {"40-79", 0}, {"80-159", 0}, {"160+", 0},
+	}
+	rows, err := h.DB.Query(`SELECT COUNT(*) as c FROM games GROUP BY MIN(black_id,white_id)||'|'||MAX(black_id,white_id)`)
+	if err != nil || rows == nil {
+		return ""
+	}
+	defer rows.Close()
+	played := 0
+	for rows.Next() {
+		var c int
+		if rows.Scan(&c) != nil {
+			continue
+		}
+		played++
+		switch {
+		case c < 5:
+			buckets[1].n++
+		case c < 10:
+			buckets[2].n++
+		case c < 20:
+			buckets[3].n++
+		case c < 40:
+			buckets[4].n++
+		case c < 80:
+			buckets[5].n++
+		case c < 160:
+			buckets[6].n++
+		default:
+			buckets[7].n++
+		}
+	}
+	buckets[0].n = possible - played
+	maxN := 1
+	for _, b := range buckets {
+		if b.n > maxN {
+			maxN = b.n
+		}
+	}
+
+	sb.WriteString(`<h2>Pair Balance</h2>`)
+	fmt.Fprintf(&sb, `<p style="color:var(--muted);font-size:.95em">Games per engine pair — %d of %d pairs played so far (%d never met). Sparse pairs (&lt;5 games) are prioritized by the matchmaker.</p>`, played, possible, possible-played)
+	sb.WriteString(`<table style="width:auto;min-width:400px"><tr><th style="text-align:right">Games/pair</th><th style="text-align:left">Pairs</th><th style="width:220px"></th></tr>`)
+	for _, b := range buckets {
+		w := int(float64(b.n) / float64(maxN) * 200)
+		if w < 2 {
+			w = 2
+		}
+		fmt.Fprintf(&sb, `<tr class="filter-row"><td style="text-align:right;padding-right:1em">%s</td><td style="text-align:right;padding-right:.6em">%d</td><td><span class="bar" style="width:%dpx"></span></td></tr>`, b.label, b.n, w)
+	}
+	sb.WriteString(`</table>`)
+	return sb.String()
 }

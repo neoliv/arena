@@ -241,11 +241,18 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 		if parity == "odd" || parity == "even" {
 			hxURL += "&parity=" + parity
 		}
-		if r.URL.Query().Get("excl_timeouts") == "1" {
+		// Preserve the resolved default state (exclude timeouts + BT) in the
+		// auto-refresh URL so refreshes keep the same view.
+		exclParam := r.URL.Query().Get("excl_timeouts")
+		if exclParam == "0" {
+			hxURL += "&excl_timeouts=0"
+		} else {
 			hxURL += "&excl_timeouts=1"
 		}
 		if est != "" {
 			hxURL += "&est=" + url.QueryEscape(est)
+		} else {
+			hxURL += "&est=bt"
 		}
 		io.WriteString(w, `<div hx-get="`+hxURL+`" hx-trigger="every 30s" hx-swap="outerHTML">`)
 		h.renderDepthChart(w, r)
@@ -959,6 +966,7 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 	}
 	// Estimator selection: historical (live/replayed), shuffle average,
 	// Bradley-Terry. Comma-separated, e.g. est=historical,shuffle,bt.
+	// Defaults to Bradley-Terry when not specified.
 	estParam := r.URL.Query().Get("est")
 	estimators := []string{}
 	for _, e := range strings.Split(estParam, ",") {
@@ -968,10 +976,15 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(estimators) == 0 {
-		estimators = []string{"historical"}
+		estimators = []string{"bt"}
 	}
 	re := regexp.MustCompile(`-d(\d+)`)
-	excl := r.URL.Query().Get("excl_timeouts") == "1"
+	// Exclude timeouts by default; explicit excl_timeouts=0 shows all games.
+	exclParam := r.URL.Query().Get("excl_timeouts")
+	excl := exclParam != "0"
+	if exclParam == "" {
+		excl = true
+	}
 
 	// Batch estimators share one ordered game list (elo_history update order).
 	var games []elo.GameRecord
@@ -1221,6 +1234,25 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 	y := func(v float64) float64 { return top + (maxE-v)/(maxE-minE)*float64(plotH) }
 
 	fmt.Fprintf(w, `<svg viewBox="0 0 %d %d" style="width:100%%;max-width:960px">`, svgw, svgh)
+	// Total games played (sum over displayed engines, respects parity/excl
+	// filters) — kept inside the SVG so it survives the chart export.
+	seenEng := map[int]bool{}
+	totalGames := 0
+	for _, e := range estimators {
+		for _, p := range allPts[e] {
+			if parity == "odd" && p.depth%2 == 0 {
+				continue
+			}
+			if parity == "even" && p.depth%2 == 1 {
+				continue
+			}
+			if !seenEng[p.id] {
+				seenEng[p.id] = true
+				totalGames += p.games
+			}
+		}
+	}
+	fmt.Fprintf(w, `<text x="%d" y="%d" fill="var(--muted)" font-size="12" text-anchor="end">Games: %s</text>`, svgw-right-6, 16, commaNum(totalGames))
 	// Horizontal grid lines + Elo labels.
 	for i := 0; i <= 4; i++ {
 		val := minE + (maxE-minE)*float64(i)/4
@@ -1244,14 +1276,9 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="12" text-anchor="middle">Search depth</text>`, float64(left+plotW)/2, svgh-3)
 	fmt.Fprintf(w, `<text x="14" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle" transform="rotate(-90 14 %d)">Elo</text>`, svgh/2, svgh/2)
 
-	// Curves: per estimator (distinct line style) × per family.
-	estStyle := map[string]string{
-		"historical": "",
-		"shuffle":    ` stroke-dasharray="6,4"`,
-		"bt":         ` stroke-dasharray="2,3"`,
-	}
+	// Curves: per estimator × per family. All estimators use plain
+	// connecting lines; estimators are distinguished by the legend.
 	for _, e := range estimators {
-		style := estStyle[e]
 		for fi, fam := range order {
 			col := chartColors[fi%len(chartColors)]
 			fs := fams[e][fam]
@@ -1273,7 +1300,7 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 			for _, p := range fs {
 				fmt.Fprintf(&sb, "%.1f,%.1f ", x(p.depth), y(p.elo))
 			}
-			fmt.Fprintf(w, `<g class="filter-item"><polyline fill="none" stroke="%s" stroke-width="2"%s points="%s"/>`, col, style, strings.TrimSpace(sb.String()))
+			fmt.Fprintf(w, `<g class="filter-item"><polyline fill="none" stroke="%s" stroke-width="2" points="%s"/>`, col, strings.TrimSpace(sb.String()))
 			for _, p := range fs {
 				label := "Elo"
 				if e == "shuffle" {
@@ -1294,13 +1321,7 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 	for _, e := range estimators {
 		for fi, fam := range order {
 			col := chartColors[fi%len(chartColors)]
-			line := `———`
-			if e == "shuffle" {
-				line = `╌╌╌`
-			} else if e == "bt" {
-				line = `···`
-			}
-			fmt.Fprintf(w, `<span style="color:%s;margin-right:1.2em;white-space:nowrap">%s %s [%s]</span>`, col, line, fam, e)
+			fmt.Fprintf(w, `<span style="color:%s;margin-right:1.2em;white-space:nowrap">——— %s [%s]</span>`, col, fam, e)
 		}
 	}
 	if shufflePending {
@@ -1395,10 +1416,14 @@ func (h *Handler) chartCSV(r *http.Request, tab string) string {
 			}
 		}
 		if len(estimators) == 0 {
-			estimators = []string{"historical"}
+			estimators = []string{"bt"}
 		}
 		re := regexp.MustCompile(`-d(\d+)`)
-		excl := r.URL.Query().Get("excl_timeouts") == "1"
+		exclParam := r.URL.Query().Get("excl_timeouts")
+		excl := exclParam != "0"
+		if exclParam == "" {
+			excl = true
+		}
 
 		// Ordered game list for batch estimators.
 		var games []elo.GameRecord
