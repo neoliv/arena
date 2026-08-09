@@ -5,17 +5,137 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/neoliv/arena/internal/game"
+	"sync"
 	"time"
+
+	"github.com/neoliv/arena/internal/elo"
+	"github.com/neoliv/arena/internal/game"
 )
+
+// shuffleCache memoizes shuffle-average results keyed by a fingerprint of
+// the game set (length + FNV hash of the GameRecords). Games change only
+// when new matches complete, so the cache stays valid across the 30s htmx
+// auto-refreshes and multiple open tabs, avoiding repeated 5-8s computes on
+// the slow VPS.
+var (
+	shuffleCacheMu sync.Mutex
+	shuffleCache   = map[string]struct {
+		mean map[int]float64
+		std  map[int]float64
+		at   time.Time
+	}{}
+	// shuffleInFlight prevents duplicate concurrent computes for the same
+	// fingerprint.
+	shuffleInFlight = map[string]bool{}
+)
+
+func gamesFingerprint(games []elo.GameRecord) string {
+	h := fnv.New64a()
+	h.Write([]byte{byte(len(games) >> 24), byte(len(games) >> 16), byte(len(games) >> 8), byte(len(games))})
+	for _, g := range games {
+		var b [9]byte
+		b[0] = byte(g.BlackID >> 24)
+		b[1] = byte(g.BlackID >> 16)
+		b[2] = byte(g.BlackID >> 8)
+		b[3] = byte(g.BlackID)
+		b[4] = byte(g.WhiteID >> 24)
+		b[5] = byte(g.WhiteID >> 16)
+		b[6] = byte(g.WhiteID >> 8)
+		b[7] = byte(g.WhiteID)
+		b[8] = byte(g.Result * 2)
+		if g.Skip {
+			b[8] |= 0x80
+		}
+		h.Write(b[:])
+	}
+	return strconv.FormatUint(h.Sum64(), 36)
+}
+
+// shuffleCompute runs the (expensive) shuffle-average estimate in the
+// background and caches it. Callers must not hold shuffleCacheMu. Dedupes
+// concurrent computes per fingerprint.
+func shuffleCompute(games []elo.GameRecord) {
+	fp := gamesFingerprint(games)
+	shuffleCacheMu.Lock()
+	if _, ok := shuffleCache[fp]; ok || shuffleInFlight[fp] {
+		shuffleCacheMu.Unlock()
+		return
+	}
+	shuffleInFlight[fp] = true
+	shuffleCacheMu.Unlock()
+
+	mean, std, _ := elo.ShuffleAverage(games, 3000, 100, 1.0, 300)
+
+	shuffleCacheMu.Lock()
+	delete(shuffleInFlight, fp)
+	shuffleCache[fp] = struct {
+		mean map[int]float64
+		std  map[int]float64
+		at   time.Time
+	}{mean, std, time.Now()}
+	shuffleCacheMu.Unlock()
+}
+
+// shuffleResultBlocking returns the cached shuffle-average for the given game
+// set, computing synchronously (and waiting for any in-flight compute) if
+// needed. Used by the CSV export where a blocking result is acceptable.
+func shuffleResultBlocking(games []elo.GameRecord) (mean, std map[int]float64, ready bool) {
+	fp := gamesFingerprint(games)
+	shuffleCacheMu.Lock()
+	if c, ok := shuffleCache[fp]; ok && time.Since(c.at) < 10*time.Minute {
+		shuffleCacheMu.Unlock()
+		return c.mean, c.std, true
+	}
+	if !shuffleInFlight[fp] {
+		shuffleInFlight[fp] = true
+		shuffleCacheMu.Unlock()
+		mean, std, _ = elo.ShuffleAverage(games, 3000, 100, 1.0, 300)
+		shuffleCacheMu.Lock()
+		delete(shuffleInFlight, fp)
+		shuffleCache[fp] = struct {
+			mean map[int]float64
+			std  map[int]float64
+			at   time.Time
+		}{mean, std, time.Now()}
+		shuffleCacheMu.Unlock()
+		return mean, std, true
+	}
+	// Another goroutine is computing; wait for it.
+	shuffleCacheMu.Unlock()
+	deadline := time.Now().Add(120 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		shuffleCacheMu.Lock()
+		if c, ok := shuffleCache[fp]; ok && time.Since(c.at) < 10*time.Minute {
+			shuffleCacheMu.Unlock()
+			return c.mean, c.std, true
+		}
+		shuffleCacheMu.Unlock()
+	}
+	return nil, nil, false
+}
+
+// shuffleResult returns the cached shuffle-average for the given game set,
+// or nil if not yet computed (the caller should render historical data and
+// let the 30s htmx refresh pick up the estimate once it's ready).
+func shuffleResult(games []elo.GameRecord) (mean, std map[int]float64, ready bool) {
+	fp := gamesFingerprint(games)
+	shuffleCacheMu.Lock()
+	defer shuffleCacheMu.Unlock()
+	if c, ok := shuffleCache[fp]; ok && time.Since(c.at) < 10*time.Minute {
+		return c.mean, c.std, true
+	}
+	return nil, nil, false
+}
 
 func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -115,7 +235,19 @@ func (h *Handler) handleGraphs(w http.ResponseWriter, r *http.Request) {
 	// Auto-refresh for the depth tab: htmx re-fetches just the chart
 	// container every 30s (no page chrome) so we can watch the run converge.
 	if tab == "depth" {
-		io.WriteString(w, `<div hx-get="/stats?tab=depth" hx-trigger="every 30s" hx-swap="outerHTML">`)
+		parity := r.URL.Query().Get("parity")
+		est := r.URL.Query().Get("est")
+		hxURL := "/stats?tab=depth"
+		if parity == "odd" || parity == "even" {
+			hxURL += "&parity=" + parity
+		}
+		if r.URL.Query().Get("excl_timeouts") == "1" {
+			hxURL += "&excl_timeouts=1"
+		}
+		if est != "" {
+			hxURL += "&est=" + url.QueryEscape(est)
+		}
+		io.WriteString(w, `<div hx-get="`+hxURL+`" hx-trigger="every 30s" hx-swap="outerHTML">`)
 		h.renderDepthChart(w, r)
 		io.WriteString(w, `</div>`)
 	} else {
@@ -741,6 +873,79 @@ func fmtPct(pct float64) string {
 	return s
 }
 
+// depthRatings replays all games in elo_history order to compute per-engine
+// ratings, optionally excluding games lost to a timeout (error_code ==
+// ErrTimeout). elo_history.id order is the authoritative update sequence
+// (games.id order can diverge because the matchmaker writes elo rows per
+// match, not strictly in game-insertion order).
+// Mirrors the matchmaker's incremental Elo update (K=32 provisional, 16
+// established; draws score 0.5; disconnected games skipped entirely).
+// Returns ratings and game counts keyed by engine id.
+func (h *Handler) depthRatings(excludeTimeouts bool) (map[int]float64, map[int]int) {
+	ratings := map[int]float64{}
+	counts := map[int]int{}
+	rows, err := h.DB.Query(`SELECT eh.id, eh.match_id,
+			g.black_id, g.white_id, g.result, g.error_code, g.disconnect
+			FROM elo_history eh JOIN games g ON g.id = eh.match_id
+			ORDER BY eh.id`)
+	if err != nil || rows == nil {
+		return ratings, counts
+	}
+	defer rows.Close()
+	seen := map[int]bool{}
+	for rows.Next() {
+		var ehID, gid, bID, wID int
+		var result string
+		var ec int8
+		var disc int
+		if rows.Scan(&ehID, &gid, &bID, &wID, &result, &ec, &disc) != nil {
+			continue
+		}
+		// Each game appears once per engine in elo_history; replay it once.
+		if seen[gid] {
+			continue
+		}
+		seen[gid] = true
+		if disc == 1 || (excludeTimeouts && ec == game.ErrTimeout) {
+			continue
+		}
+		sB := 0.5
+		switch result {
+		case "1-0":
+			sB = 1
+		case "0-1":
+			sB = 0
+		}
+		// Mirrors matchmaker.updateElo: each engine's K factor comes from its
+		// own game count, but both compute their expected score from the
+		// shared pre-game ratings. Missing engines start at 1500.
+		rB, okB := ratings[bID]
+		rW, okW := ratings[wID]
+		if !okB {
+			rB = 1500
+		}
+		if !okW {
+			rW = 1500
+		}
+		nB, _ := elo.Update(rB, rW, sB, counts[bID])
+		nW, _ := elo.Update(rW, rB, 1-sB, counts[wID])
+		ratings[bID] = nB
+		ratings[wID] = nW
+		counts[bID]++
+		counts[wID]++
+	}
+	return ratings, counts
+}
+
+func containsStr(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
 // renderDepthChart plots one curve per engine family with search depth on
 // the X axis and Elo on the Y axis, with a 95% CI bar (±400/√games) at each
 // point. Depth is parsed from engine names matching "-dN" (e.g. "edax-4.6-d8").
@@ -752,8 +957,69 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 		ci     float64
 		games  int
 	}
+	// Estimator selection: historical (live/replayed), shuffle average,
+	// Bradley-Terry. Comma-separated, e.g. est=historical,shuffle,bt.
+	estParam := r.URL.Query().Get("est")
+	estimators := []string{}
+	for _, e := range strings.Split(estParam, ",") {
+		e = strings.TrimSpace(e)
+		if e == "historical" || e == "shuffle" || e == "bt" {
+			estimators = append(estimators, e)
+		}
+	}
+	if len(estimators) == 0 {
+		estimators = []string{"historical"}
+	}
 	re := regexp.MustCompile(`-d(\d+)`)
-	rows, err := h.DB.Query(`SELECT e.name,
+	excl := r.URL.Query().Get("excl_timeouts") == "1"
+
+	// Batch estimators share one ordered game list (elo_history update order).
+	var games []elo.GameRecord
+	needGames := false
+	for _, e := range estimators {
+		if e == "shuffle" || e == "bt" || excl {
+			needGames = true
+		}
+	}
+	if needGames {
+		rows, err := h.DB.Query(`SELECT eh.id, eh.match_id,
+				g.black_id, g.white_id, g.result, g.error_code, g.disconnect
+				FROM elo_history eh JOIN games g ON g.id = eh.match_id
+				ORDER BY eh.id`)
+		if err == nil && rows != nil {
+			seen := map[int]bool{}
+			for rows.Next() {
+				var ehID, gid, bID, wID int
+				var result string
+				var ec int8
+				var disc int
+				if rows.Scan(&ehID, &gid, &bID, &wID, &result, &ec, &disc) != nil {
+					continue
+				}
+				if seen[gid] {
+					continue
+				}
+				seen[gid] = true
+				var score float64
+				switch result {
+				case "1-0":
+					score = 1
+				case "0-1":
+					score = 0
+				default:
+					score = 0.5
+				}
+				games = append(games, elo.GameRecord{
+					BlackID: bID, WhiteID: wID, Result: score,
+					Skip: disc == 1 || (excl && ec == game.ErrTimeout),
+				})
+			}
+			rows.Close()
+		}
+	}
+
+	// Historical (live) ratings + game counts per engine from the DB.
+	rows, err := h.DB.Query(`SELECT e.id, e.name,
 			COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY id DESC LIMIT 1), 1500.0),
 			(SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id)
 			FROM engines e`)
@@ -761,45 +1027,166 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `<p style="color:var(--muted)">No data yet.</p>`)
 		return
 	}
-	defer rows.Close()
-	var pts []pt
+	histElo := map[int]float64{}
+	histGames := map[int]int{}
+	engineName := map[int]string{}
 	for rows.Next() {
+		var id int
 		var name string
-		var elo float64
-		var games int
-		if rows.Scan(&name, &elo, &games) != nil {
+		var eloVal float64
+		var gamesN int
+		if rows.Scan(&id, &name, &eloVal, &gamesN) != nil {
 			continue
 		}
-		m := re.FindStringSubmatch(name)
-		if m == nil {
-			continue
+		histElo[id] = eloVal
+		histGames[id] = gamesN
+		engineName[id] = name
+	}
+	rows.Close()
+
+	// Batch estimator results. Shuffle is computed in the background so the
+	// page renders instantly with historical data; the 30s htmx refresh picks
+	// up the estimate once it's ready (and keeps showing the last values when
+	// the game set hasn't changed).
+	var shuffleMean, shuffleStd map[int]float64
+	var btElo map[int]float64
+	shufflePending := false
+	for _, e := range estimators {
+		switch e {
+		case "shuffle":
+			if len(games) == 0 {
+				// No games yet — nothing to compute.
+				break
+			}
+			shuffleMean, shuffleStd, _ = shuffleResult(games)
+			if shuffleMean == nil {
+				shufflePending = true
+				go shuffleCompute(games)
+			}
+		case "bt":
+			btElo = elo.BradleyTerry(games, 5000)
 		}
-		depth, _ := strconv.Atoi(m[1])
-		if games < 1 {
-			games = 1
+	}
+	if shufflePending {
+		// Fall back to historical for the shuffle curve this round.
+		shuffleMean = map[int]float64{}
+		shuffleStd = map[int]float64{}
+		for id, eloVal := range histElo {
+			shuffleMean[id] = eloVal
+			shuffleStd[id] = 0
 		}
-		pts = append(pts, pt{family: enginePrefix(name), depth: depth, elo: elo, ci: 400.0 / math.Sqrt(float64(games)), games: games})
+	}
+
+	// Build points per estimator, keyed by engine id (filtered to -dN names).
+	type estPts struct {
+		elo   map[int]float64
+		games map[int]int
+		ci    map[int]float64
+	}
+	estData := map[string]*estPts{}
+	estData["historical"] = &estPts{elo: histElo, games: histGames}
+	if shuffleMean != nil {
+		estData["shuffle"] = &estPts{elo: shuffleMean, games: histGames}
+	}
+	if btElo != nil {
+		estData["bt"] = &estPts{elo: btElo, games: histGames}
+	}
+
+	// Build per-estimator points list, filtered to depth engines.
+	type dpt struct {
+		id     int
+		family string
+		depth  int
+		elo    float64
+		ci     float64
+		games  int
+	}
+	allPts := map[string][]dpt{} // estimator → points
+	for _, e := range estimators {
+		ed := estData[e]
+		var list []dpt
+		for id, name := range engineName {
+			m := re.FindStringSubmatch(name)
+			if m == nil {
+				continue
+			}
+			depth, _ := strconv.Atoi(m[1])
+			gN := ed.games[id]
+			if gN < 1 {
+				gN = 1
+			}
+			c := 400.0 / math.Sqrt(float64(gN))
+			if e == "shuffle" && shuffleStd != nil {
+				c = shuffleStd[id] // order-effect uncertainty
+			}
+			list = append(list, dpt{id: id, family: enginePrefix(name), depth: depth, elo: ed.elo[id], ci: c, games: gN})
+		}
+		allPts[e] = list
+	}
+
+	// Merge points for scale computation (any estimator present).
+	var pts []dpt
+	for _, e := range estimators {
+		pts = append(pts, allPts[e]...)
 	}
 	if len(pts) == 0 {
 		io.WriteString(w, `<p style="color:var(--muted)">No depth data yet — engines with "-dN" names are needed.</p>`)
 		return
 	}
 
-	// Group points by engine family (prefix before first '-').
-	fams := map[string][]pt{}
-	var order []string
-	for _, p := range pts {
-		if _, ok := fams[p.family]; !ok {
-			order = append(order, p.family)
+	// Group by estimator × family, applying the parity filter.
+	parity := r.URL.Query().Get("parity")
+	fams := map[string]map[string][]dpt{} // estimator → family → points
+	order := []string{}
+	for _, e := range estimators {
+		fams[e] = map[string][]dpt{}
+		for _, p := range allPts[e] {
+			if parity == "odd" && p.depth%2 == 0 {
+				continue
+			}
+			if parity == "even" && p.depth%2 == 1 {
+				continue
+			}
+			fams[e][p.family] = append(fams[e][p.family], p)
+			if !containsStr(order, p.family) {
+				order = append(order, p.family)
+			}
 		}
-		fams[p.family] = append(fams[p.family], p)
 	}
 	sort.Strings(order)
-	for _, f := range order {
-		sort.Slice(fams[f], func(i, j int) bool { return fams[f][i].depth < fams[f][j].depth })
+	for _, e := range estimators {
+		for _, f := range order {
+			sort.Slice(fams[e][f], func(i, j int) bool { return fams[e][f][i].depth < fams[e][f][j].depth })
+		}
 	}
 
-	// Scale: depth range with padding, Elo range including CI bars.
+	// Controls: parity + exclude timeouts + estimator dropdown.
+	paritySel := map[string]string{"all": "", "odd": "", "even": ""}
+	if parity == "odd" || parity == "even" {
+		paritySel[parity] = ` selected`
+	} else {
+		paritySel["all"] = ` selected`
+	}
+	exclChecked := ""
+	if excl {
+		exclChecked = ` checked`
+	}
+	exclFlag := "0"
+	if excl {
+		exclFlag = "1"
+	}
+	estSel := func(e string) string {
+		for _, x := range estimators {
+			if x == e {
+				return ` selected`
+			}
+		}
+		return ""
+	}
+	fmt.Fprintf(w, `<div style="margin-bottom:.6em;display:flex;align-items:center;gap:1em;flex-wrap:wrap"><label for="depth-parity" style="color:var(--muted);font-size:.9em">Depths:</label><select id="depth-parity" onchange="window.location='/stats?tab=depth&parity='+this.value+'&excl_timeouts=%s&est=%s'" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:.25em .5em"><option value="all"%s>All</option><option value="odd"%s>Odd</option><option value="even"%s>Even</option></select><label style="color:var(--muted);font-size:.9em;display:flex;align-items:center;gap:.3em;cursor:pointer"><input type="checkbox" onchange="window.location='/stats?tab=depth&parity=%s&excl_timeouts='+(this.checked?1:0)+'&est=%s'"%s> exclude timeouts</label><label for="depth-est" style="color:var(--muted);font-size:.9em">Elo estimator:</label><select id="depth-est" multiple size="3" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:.25em .5em" onchange="var s=[];for(var o of this.options)if(o.selected)s.push(o.value);window.location='/stats?tab=depth&parity=%s&excl_timeouts=%s&est='+s.join(',')"><option value="historical"%s>historical (live)</option><option value="shuffle"%s>shuffle average</option><option value="bt"%s>Bradley-Terry</option></select></div>`,
+		exclFlag, strings.Join(estimators, ","), paritySel["all"], paritySel["odd"], paritySel["even"], parity, strings.Join(estimators, ","), exclChecked, parity, exclFlag, estSel("historical"), estSel("shuffle"), estSel("bt"))
+
+	// Scale across all estimators.
 	minD, maxD := pts[0].depth, pts[0].depth
 	minE, maxE := pts[0].elo, pts[0].elo
 	for _, p := range pts {
@@ -841,10 +1228,14 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="var(--border)" stroke-width="0.5"/>`, left, yy, svgw-right, yy)
 		fmt.Fprintf(w, `<text x="%d" y="%.1f" fill="var(--muted)" font-size="10" text-anchor="end">%.0f</text>`, left-6, yy+4, val)
 	}
-	// Depth tick labels — only at depths actually present in the data.
+	// Depth tick labels — only at depths actually present in the (filtered) data.
 	seenDepth := map[int]bool{}
-	for _, p := range pts {
-		seenDepth[p.depth] = true
+	for _, e := range estimators {
+		for _, fs := range fams[e] {
+			for _, p := range fs {
+				seenDepth[p.depth] = true
+			}
+		}
 	}
 	for d := range seenDepth {
 		xx := x(d)
@@ -853,37 +1244,67 @@ func (h *Handler) renderDepthChart(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<text x="%.1f" y="%d" fill="var(--muted)" font-size="12" text-anchor="middle">Search depth</text>`, float64(left+plotW)/2, svgh-3)
 	fmt.Fprintf(w, `<text x="14" y="%d" fill="var(--muted)" font-size="10" text-anchor="middle" transform="rotate(-90 14 %d)">Elo</text>`, svgh/2, svgh/2)
 
-	// Curves: CI bars, then polyline, then points.
-	for fi, fam := range order {
-		col := chartColors[fi%len(chartColors)]
-		fs := fams[fam]
-		for _, p := range fs {
-			xx := x(p.depth)
-			fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="2" opacity="0.45"/>`,
-				xx, y(p.elo-p.ci), xx, y(p.elo+p.ci), col)
-			fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" opacity="0.45"/>`,
-				xx-4, y(p.elo-p.ci), xx+4, y(p.elo-p.ci), col)
-			fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" opacity="0.45"/>`,
-				xx-4, y(p.elo+p.ci), xx+4, y(p.elo+p.ci), col)
+	// Curves: per estimator (distinct line style) × per family.
+	estStyle := map[string]string{
+		"historical": "",
+		"shuffle":    ` stroke-dasharray="6,4"`,
+		"bt":         ` stroke-dasharray="2,3"`,
+	}
+	for _, e := range estimators {
+		style := estStyle[e]
+		for fi, fam := range order {
+			col := chartColors[fi%len(chartColors)]
+			fs := fams[e][fam]
+			if len(fs) == 0 {
+				continue
+			}
+			// CI bars only for historical (games-based CI); shuffle uses
+			// order-effect std as its bar.
+			for _, p := range fs {
+				xx := x(p.depth)
+				fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="2" opacity="0.45"/>`,
+					xx, y(p.elo-p.ci), xx, y(p.elo+p.ci), col)
+				fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" opacity="0.45"/>`,
+					xx-4, y(p.elo-p.ci), xx+4, y(p.elo-p.ci), col)
+				fmt.Fprintf(w, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" opacity="0.45"/>`,
+					xx-4, y(p.elo+p.ci), xx+4, y(p.elo+p.ci), col)
+			}
+			var sb strings.Builder
+			for _, p := range fs {
+				fmt.Fprintf(&sb, "%.1f,%.1f ", x(p.depth), y(p.elo))
+			}
+			fmt.Fprintf(w, `<g class="filter-item"><polyline fill="none" stroke="%s" stroke-width="2"%s points="%s"/>`, col, style, strings.TrimSpace(sb.String()))
+			for _, p := range fs {
+				label := "Elo"
+				if e == "shuffle" {
+					label = "Shuffle"
+				} else if e == "bt" {
+					label = "BT"
+				}
+				fmt.Fprintf(w, `<circle cx="%.1f" cy="%.1f" r="3.5" fill="%s"><title>%s [%s] d%d: %s %.0f ± %.0f (%d games)</title></circle>`,
+					x(p.depth), y(p.elo), col, fam, e, p.depth, label, p.elo, p.ci, p.games)
+			}
+			fmt.Fprintf(w, `</g>`)
 		}
-		var sb strings.Builder
-		for _, p := range fs {
-			fmt.Fprintf(&sb, "%.1f,%.1f ", x(p.depth), y(p.elo))
-		}
-		fmt.Fprintf(w, `<g class="filter-item"><polyline fill="none" stroke="%s" stroke-width="2" points="%s"/>`, col, strings.TrimSpace(sb.String()))
-		for _, p := range fs {
-			fmt.Fprintf(w, `<circle cx="%.1f" cy="%.1f" r="3.5" fill="%s"><title>%s d%d: Elo %.0f ± %.0f (%d games)</title></circle>`,
-				x(p.depth), y(p.elo), col, fam, p.depth, p.elo, p.ci, p.games)
-		}
-		fmt.Fprintf(w, `</g>`)
 	}
 	fmt.Fprintf(w, `</svg>`)
 
-	// Legend with engine names + Elo values.
+	// Legend: estimator × family.
 	io.WriteString(w, `<div style="margin-top:.8em">`)
-	for fi, fam := range order {
-		col := chartColors[fi%len(chartColors)]
-		fmt.Fprintf(w, `<span style="color:%s;margin-right:1.2em;white-space:nowrap">● %s</span>`, col, fam)
+	for _, e := range estimators {
+		for fi, fam := range order {
+			col := chartColors[fi%len(chartColors)]
+			line := `———`
+			if e == "shuffle" {
+				line = `╌╌╌`
+			} else if e == "bt" {
+				line = `···`
+			}
+			fmt.Fprintf(w, `<span style="color:%s;margin-right:1.2em;white-space:nowrap">%s %s [%s]</span>`, col, line, fam, e)
+		}
+	}
+	if shufflePending {
+		io.WriteString(w, `<span style="color:var(--muted);font-size:.9em">⏳ shuffle average computing… (graph auto-refreshes in ≤30s)</span>`)
 	}
 	io.WriteString(w, `</div>`)
 }
@@ -953,7 +1374,7 @@ func (h *Handler) exportChartZip(w http.ResponseWriter, r *http.Request, tab str
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 	if f, err := zw.Create("data.csv"); err == nil {
-		io.WriteString(f, h.chartCSV(tab))
+		io.WriteString(f, h.chartCSV(r2, tab))
 	}
 	if f, err := zw.Create("chart.svg"); err == nil {
 		io.WriteString(f, svg)
@@ -961,34 +1382,142 @@ func (h *Handler) exportChartZip(w http.ResponseWriter, r *http.Request, tab str
 }
 
 // chartCSV returns the chart's underlying data as CSV.
-func (h *Handler) chartCSV(tab string) string {
+func (h *Handler) chartCSV(r *http.Request, tab string) string {
 	var sb strings.Builder
 	if tab == "depth" {
-		sb.WriteString("family,depth,elo,ci,games\n")
+		// Estimator selection mirrors renderDepthChart.
+		estParam := r.URL.Query().Get("est")
+		estimators := []string{}
+		for _, e := range strings.Split(estParam, ",") {
+			e = strings.TrimSpace(e)
+			if e == "historical" || e == "shuffle" || e == "bt" {
+				estimators = append(estimators, e)
+			}
+		}
+		if len(estimators) == 0 {
+			estimators = []string{"historical"}
+		}
 		re := regexp.MustCompile(`-d(\d+)`)
-		rows, _ := h.DB.Query(`SELECT e.name,
+		excl := r.URL.Query().Get("excl_timeouts") == "1"
+
+		// Ordered game list for batch estimators.
+		var games []elo.GameRecord
+		needGames := false
+		for _, e := range estimators {
+			if e == "shuffle" || e == "bt" || excl {
+				needGames = true
+			}
+		}
+		if needGames {
+			rows, err := h.DB.Query(`SELECT eh.id, eh.match_id,
+					g.black_id, g.white_id, g.result, g.error_code, g.disconnect
+					FROM elo_history eh JOIN games g ON g.id = eh.match_id
+					ORDER BY eh.id`)
+			if err == nil && rows != nil {
+				seen := map[int]bool{}
+				for rows.Next() {
+					var ehID, gid, bID, wID int
+					var result string
+					var ec int8
+					var disc int
+					if rows.Scan(&ehID, &gid, &bID, &wID, &result, &ec, &disc) != nil {
+						continue
+					}
+					if seen[gid] {
+						continue
+					}
+					seen[gid] = true
+					var score float64
+					switch result {
+					case "1-0":
+						score = 1
+					case "0-1":
+						score = 0
+					default:
+						score = 0.5
+					}
+					games = append(games, elo.GameRecord{
+						BlackID: bID, WhiteID: wID, Result: score,
+						Skip: disc == 1 || (excl && ec == game.ErrTimeout),
+					})
+				}
+				rows.Close()
+			}
+		}
+
+		histElo := map[int]float64{}
+		histGames := map[int]int{}
+		engineName := map[int]string{}
+		rows, _ := h.DB.Query(`SELECT e.id, e.name,
 			COALESCE((SELECT rating_after FROM elo_history WHERE engine_id=e.id ORDER BY id DESC LIMIT 1), 1500.0),
 			(SELECT COUNT(*) FROM games WHERE black_id=e.id OR white_id=e.id)
 			FROM engines e`)
 		if rows != nil {
-			defer rows.Close()
 			for rows.Next() {
+				var id int
 				var name string
 				var elo float64
-				var games int
-				if rows.Scan(&name, &elo, &games) != nil {
+				var gamesN int
+				if rows.Scan(&id, &name, &elo, &gamesN) != nil {
 					continue
 				}
-				m := re.FindStringSubmatch(name)
-				if m == nil {
-					continue
-				}
-				depth, _ := strconv.Atoi(m[1])
-				if games < 1 {
-					games = 1
-				}
-				fmt.Fprintf(&sb, "%s,%d,%.1f,%.1f,%d\n", enginePrefix(name), depth, elo, 400.0/math.Sqrt(float64(games)), games)
+				histElo[id] = elo
+				histGames[id] = gamesN
+				engineName[id] = name
 			}
+			rows.Close()
+		}
+		var shuffleMean map[int]float64
+		var btElo map[int]float64
+		for _, e := range estimators {
+			switch e {
+			case "shuffle":
+				if len(games) > 0 {
+					// Export is a deliberate action — block for the real estimate.
+					shuffleMean, _, _ = shuffleResultBlocking(games)
+				}
+			case "bt":
+				btElo = elo.BradleyTerry(games, 5000)
+			}
+		}
+
+		// CSV header: family, depth, games, then one elo column per estimator.
+		hdr := "family,depth,games"
+		for _, e := range estimators {
+			hdr += "," + e + "_elo"
+		}
+		sb.WriteString(hdr + "\n")
+		parity := r.URL.Query().Get("parity")
+		for id, name := range engineName {
+			m := re.FindStringSubmatch(name)
+			if m == nil {
+				continue
+			}
+			depth, _ := strconv.Atoi(m[1])
+			if parity == "odd" && depth%2 == 0 {
+				continue
+			}
+			if parity == "even" && depth%2 == 1 {
+				continue
+			}
+			gN := histGames[id]
+			if gN < 1 {
+				gN = 1
+			}
+			line := fmt.Sprintf("%s,%d,%d", enginePrefix(name), depth, gN)
+			for _, e := range estimators {
+				var v float64
+				switch e {
+				case "historical":
+					v = histElo[id]
+				case "shuffle":
+					v = shuffleMean[id]
+				case "bt":
+					v = btElo[id]
+				}
+				line += fmt.Sprintf(",%.1f", v)
+			}
+			sb.WriteString(line + "\n")
 		}
 		return sb.String()
 	}

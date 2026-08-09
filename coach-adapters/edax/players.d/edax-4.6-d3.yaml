@@ -1,0 +1,7 @@
+name: "edax-4.6-d3"
+created: "2026-08-08"
+changelog_short: "Edax depth 3, no ES, no book"
+binary: "edax"
+args: "-d 3 -es 0 -nobook"
+cores: 1
+memory_mb: 256

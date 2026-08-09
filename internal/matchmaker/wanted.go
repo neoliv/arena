@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/neoliv/arena/internal/db"
-	"github.com/neoliv/arena/internal/elo"
 )
 
 // ── Engine registry (in-memory) ────────────────────────────────────────
@@ -112,6 +111,36 @@ func (w *WantedList) BudgetSec() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.budgetSec
+}
+
+// pairGameCounts returns the number of completed games per engine pair,
+// keyed by "name:version|name:version" (sorted by key). Used by Tick to
+// prioritize under-sampled pairs so every pair converges to a similar
+// number of matches (pair-balanced round-robin).
+func (w *WantedList) pairGameCounts() map[string]int {
+	out := map[string]int{}
+	rows, err := w.DB.Query(`SELECT b.name, b.version, w.name, w.version, COUNT(*)
+		FROM games g JOIN engines b ON b.id = g.black_id JOIN engines w ON w.id = g.white_id
+		GROUP BY b.id, w.id`)
+	if err != nil || rows == nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var bn, bv, wn, wv string
+		var n int
+		if rows.Scan(&bn, &bv, &wn, &wv, &n) != nil {
+			continue
+		}
+		k1 := bn + ":" + bv + "|" + wn + ":" + wv
+		k2 := wn + ":" + wv + "|" + bn + ":" + bv
+		if k1 <= k2 {
+			out[k1] = n
+		} else {
+			out[k2] = n
+		}
+	}
+	return out
 }
 
 // SetBudget updates the per-game time budget and persists it to the settings
@@ -225,6 +254,7 @@ func (w *WantedList) Tick() {
 		}
 	}
 	// 2. Build priority-sorted wanted pairs
+	pairGames := w.pairGameCounts()
 	var newPairs []*wantedPair
 	seen = make(map[string]bool)
 	for _, a := range elos {
@@ -249,9 +279,16 @@ func (w *WantedList) Tick() {
 				continue
 			}
 
-			ciA := elo.ConfidenceInterval(a.Rating, a.Games)
-			ciB := elo.ConfidenceInterval(b.Rating, b.Games)
-			priority := math.Sqrt(ciA*ciA+ciB*ciB) * w.recencyFactor(akey, bkey)
+			// Pair-balanced priority: under-sampled pairs (few games between
+			// them) get launched first, so every pair converges toward the
+			// same number of matches. Priority ∝ 1/√(games+1) ≈ CI of the pair.
+			pk1 := akey + "|" + bkey
+			pk2 := bkey + "|" + akey
+			pairCount := pairGames[pk1]
+			if pairCount == 0 {
+				pairCount = pairGames[pk2]
+			}
+			priority := 400.0 / math.Sqrt(float64(pairCount)+1.0)
 
 			// Stable ID: hash of the engine pair so the same pairing keeps
 			// the same ID across ticks. This prevents in-flight assignments
@@ -312,8 +349,6 @@ func (w *WantedList) engineAvailable(key string) bool {
 	}
 	return false
 }
-
-func (w *WantedList) recencyFactor(a, b string) float64 { return 1.0 } // simplified
 
 func (w *WantedList) loadOpenings() {
 	if len(w.openings) > 0 {

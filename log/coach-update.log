@@ -159,3 +159,128 @@ Coach binary was updated — restarting service...
 30 players deployed from /home/oliv/coach/engines
 3 engines built successfully
 Log saved to: /home/oliv/dev/agent/othello/arena/log/coach-update.log
+=== Arena Coach Update === (Sat Aug  8 09:23:02 PM CEST 2026)
+0. coach.yaml copied from arena source
+1. Coach binary...
+Already up to date.
+   updated (binary changed)
+   Scanning: /home/oliv/dev/agent/othello/arena/builds.d
+   Scanning: /home/oliv/dev/agent/othello/arena/coach-adapters/builds.d
+
+─── edax ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/edax
+   -> /home/oliv/coach/engines/2030ca0875aac8f0/
+   version: 4.6 (probed via GTP, caches warmed)
+
+─── egaroucid ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/egaroucid
+   -> /home/oliv/coach/engines/3230a05cec784e21/
+   version: 7.8.1 Linux x64 SIMD (GCC) (probed via GTP, caches warmed)
+
+─── neural-reversi ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/neural-reversi
+   -> /home/oliv/coach/engines/c7770b1912284ab2/
+   version: 6.1.0 (probed via GTP, caches warmed)
+
+─── Reload ───
+3. NN weights up to date (/home/oliv/coach/share/eval-large.bin)
+Coach binary was updated — restarting service...
+   restarted
+
+=== Done ===
+36 players deployed from /home/oliv/coach/engines
+3 engines built successfully
+Log saved to: /home/oliv/dev/agent/othello/arena/log/coach-update.log
+=== Arena Coach Update === (Sat Aug  8 09:25:39 PM CEST 2026)
+0. coach.yaml copied from arena source
+1. Coach binary...
+Already up to date.
+   unchanged
+   Scanning: /home/oliv/dev/agent/othello/arena/builds.d
+   Scanning: /home/oliv/dev/agent/othello/arena/coach-adapters/builds.d
+
+─── edax ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/edax
+   -> /home/oliv/coach/engines/7b1437e4c7a9c598/
+   version: 4.6 (probed via GTP, caches warmed)
+
+─── egaroucid ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/egaroucid
+   -> /home/oliv/coach/engines/7ec7d2ea157699bf/
+   version: 7.8.1 Linux x64 SIMD (GCC) (probed via GTP, caches warmed)
+
+─── neural-reversi ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/neural-reversi
+   -> /home/oliv/coach/engines/40f605f805c6c184/
+   version: 6.1.0 (probed via GTP, caches warmed)
+
+─── Reload ───
+3. NN weights up to date (/home/oliv/coach/share/eval-large.bin)
+SIGHUP sent
+
+=== Done ===
+42 players deployed from /home/oliv/coach/engines
+3 engines built successfully
+Log saved to: /home/oliv/dev/agent/othello/arena/log/coach-update.log
+=== Arena Coach Update === (Sat Aug  8 09:26:33 PM CEST 2026)
+0. coach.yaml copied from arena source
+1. Coach binary...
+Already up to date.
+   unchanged
+   Scanning: /home/oliv/dev/agent/othello/arena/builds.d
+   Scanning: /home/oliv/dev/agent/othello/arena/coach-adapters/builds.d
+
+─── edax ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/edax
+   -> /home/oliv/coach/engines/aa64489d1b6e34b2/
+   version: 4.6 (probed via GTP, caches warmed)
+
+─── egaroucid ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/egaroucid
+   -> /home/oliv/coach/engines/8c4fb2b777f634b6/
+   version: 7.8.1 Linux x64 SIMD (GCC) (probed via GTP, caches warmed)
+
+─── neural-reversi ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/neural-reversi
+   -> /home/oliv/coach/engines/3ad457fc2959ba5b/
+   version: 6.1.0 (probed via GTP, caches warmed)
+
+─── Reload ───
+3. NN weights up to date (/home/oliv/coach/share/eval-large.bin)
+SIGHUP sent
+
+=== Done ===
+45 players deployed from /home/oliv/coach/engines
+3 engines built successfully
+Log saved to: /home/oliv/dev/agent/othello/arena/log/coach-update.log
+=== Arena Coach Update === (Sat Aug  8 09:28:39 PM CEST 2026)
+0. coach.yaml copied from arena source
+1. Coach binary...
+Already up to date.
+   unchanged
+   Scanning: /home/oliv/dev/agent/othello/arena/builds.d
+   Scanning: /home/oliv/dev/agent/othello/arena/coach-adapters/builds.d
+
+─── edax ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/edax
+   -> /home/oliv/coach/engines/62b44aec1aad1561/
+   version: 4.6 (probed via GTP, caches warmed)
+
+─── egaroucid ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/egaroucid
+   -> /home/oliv/coach/engines/3b25d82e60e58e5f/
+   version: 7.8.1 Linux x64 SIMD (GCC) (probed via GTP, caches warmed)
+
+─── neural-reversi ───
+   /home/oliv/dev/agent/othello/arena/coach-adapters/neural-reversi
+   -> /home/oliv/coach/engines/b17a1562201cd16e/
+   version: 6.1.0 (probed via GTP, caches warmed)
+
+─── Reload ───
+3. NN weights up to date (/home/oliv/coach/share/eval-large.bin)
+SIGHUP sent
+
+=== Done ===
+48 players deployed from /home/oliv/coach/engines
+3 engines built successfully
+Log saved to: /home/oliv/dev/agent/othello/arena/log/coach-update.log
