@@ -15,9 +15,17 @@
 //	      --hcalib h-calib.json --scalib2 s-calib2.json --scalib3 s-calib3.json \
 //	      [--pairs-games 400] [--budget 2000] [--concurrency 16] \
 //	      [--bootstrap 300] --out bt-calib.json
+//
+// Optional diagnostics:
+//
+//	--games-log games.jsonl   write one JSON line per played game (result,
+//	                          per-side clock seconds, timeout flags).
+//	--pairs "19-20"           restrict the adjacent-pair schedule to a
+//	                          comma-separated list of "A-B" pairs.
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -26,6 +34,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/neoliv/arena/internal/elo"
@@ -148,6 +157,72 @@ var adjacentPairs = [][2]int{
 	{16, 17}, {17, 18}, {18, 19}, {19, 20},
 }
 
+// ── Per-game diagnostics log ───────────────────────────────────────────
+// gameRecord is one JSON line per played game. timeout_side is the color
+// that exceeded the arena clock (tc*1.05 s/side) and thus lost on time;
+// such losses are forced by the arena regardless of the board and are NOT
+// flagged as Disconnect (so they were previously invisible in aggregates).
+type gameRecord struct {
+	Pair        [2]int  `json:"pair"`
+	Game        int     `json:"game"`
+	Opening     string  `json:"opening"`
+	Result      string  `json:"result"`
+	Moves       int     `json:"moves"`
+	BlackTimeS  float64 `json:"black_time_s"`
+	WhiteTimeS  float64 `json:"white_time_s"`
+	TimeoutSide string  `json:"timeout_side"` // "" | "black" | "white"
+	Disconnect  bool    `json:"disconnect"`
+	Investigate bool    `json:"investigate"`
+	Skipped     bool    `json:"skipped"`
+	// Per-move search stats (from hgtp `# arena-stats` comments):
+	// how many moves hit the per-move budget (time management timeouts).
+	PMMoves    int     `json:"pm_moves"`
+	PMTimeouts int     `json:"pm_timeouts"`
+	PMAvgMs    float64 `json:"pm_avg_ms"`
+}
+
+type gamesLog struct {
+	f  *os.File
+	w  *bufio.Writer
+	mu sync.Mutex
+}
+
+func newGamesLog(path string) *gamesLog {
+	if path == "" {
+		return nil
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		slog.Error("create games-log", "path", path, "err", err)
+		os.Exit(1)
+	}
+	return &gamesLog{f: f, w: bufio.NewWriter(f)}
+}
+
+func (g *gamesLog) write(rec gameRecord) {
+	if g == nil {
+		return
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		slog.Error("games-log marshal", "err", err)
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.w.Write(append(b, '\n'))
+}
+
+func (g *gamesLog) close() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.w.Flush()
+	g.f.Close()
+}
+
 func main() {
 	var (
 		hgtpPath    = flag.String("hgtp", "", "path to the hgtp GTP binary")
@@ -163,6 +238,9 @@ func main() {
 		outPath     = flag.String("out", "bt-calib.json", "output JSON")
 		bookPath    = flag.String("book", "openings_8ply.txt", "fair openings file")
 		fitOnly     = flag.Bool("fit-only", false, "skip the adjacent-pair schedule; fit from the loaded aggregates only")
+		pairsFile   = flag.String("pairs-file", "", "JSON of pre-played pair aggregates {\"11-12\":{\"w\":77,\"d\":22,\"l\":301},...}")
+		gamesLogP   = flag.String("games-log", "", "append one JSON line per played game to this file")
+		pairsSel    = flag.String("pairs", "", "restrict schedule to comma-separated A-B pairs (e.g. \"19-20,18-19\"); empty = all")
 	)
 	flag.Parse()
 	if *hgtpPath == "" || *evalPath == "" || *hcalib == "" {
@@ -178,6 +256,37 @@ func main() {
 	if *scalib3 != "" {
 		loadAggregates(*scalib3, "S", v3ToV3, pairs)
 	}
+	if *pairsFile != "" {
+		// Load pre-played pair aggregates (e.g. from a previous schedule
+		// run that this run extends) — format {"11-12":{"w":77,"d":22,"l":301}}.
+		data, err := os.ReadFile(*pairsFile)
+		if err != nil {
+			slog.Error("read pairs-file", "err", err)
+			os.Exit(1)
+		}
+		var seeded map[string]struct {
+			W int `json:"w"`
+			D int `json:"d"`
+			L int `json:"l"`
+		}
+		if err := json.Unmarshal(data, &seeded); err != nil {
+			slog.Error("parse pairs-file", "err", err)
+			os.Exit(1)
+		}
+		for k, v := range seeded {
+			var a, b int
+			if _, err := fmt.Sscanf(k, "%d-%d", &a, &b); err != nil {
+				slog.Error("bad pair key", "key", k)
+				os.Exit(1)
+			}
+			if a < 1 || a > 20 || b < 1 || b > 20 || a == b {
+				slog.Error("pair out of range", "key", k)
+				os.Exit(1)
+			}
+			addPair(pairs, sBase+a-1, sBase+b-1, v.W, v.D, v.L)
+			slog.Info("seeded pair", "pair", k, "agg", fmt.Sprintf("%d-%d-%d", v.W, v.D, v.L))
+		}
+	}
 
 	bookData, err := os.ReadFile(*bookPath)
 	if err != nil {
@@ -189,20 +298,74 @@ func main() {
 		slog.Error("no openings loaded")
 		os.Exit(1)
 	}
+
+	// Restrict the adjacent-pair schedule if --pairs was given. Requested
+	// pairs that are NOT in the default schedule (e.g. a 18-20 probe) are
+	// added — --pairs is additive, not just a filter.
+	schedule := adjacentPairs
+	if *pairsSel != "" {
+		want := map[[2]int]bool{}
+		ordered := [][2]int{}
+		for _, spec := range strings.Split(*pairsSel, ",") {
+			spec = strings.TrimSpace(spec)
+			if spec == "" {
+				continue
+			}
+			var a, b int
+			if n, _ := fmt.Sscanf(spec, "%d-%d", &a, &b); n != 2 {
+				slog.Error("bad --pairs spec", "spec", spec)
+				os.Exit(1)
+			}
+			if a > b {
+				a, b = b, a
+			}
+			if a < 1 || a > 20 || b < 1 || b > 20 || a == b {
+				slog.Error("bad --pairs spec", "spec", spec)
+				os.Exit(1)
+			}
+			want[[2]int{a, b}] = true
+			ordered = append(ordered, [2]int{a, b})
+		}
+		schedule = nil
+		for _, pr := range adjacentPairs {
+			if want[[2]int{pr[0], pr[1]}] || want[[2]int{pr[1], pr[0]}] {
+				schedule = append(schedule, pr)
+			}
+		}
+		for _, pr := range ordered {
+			found := false
+			for _, s := range schedule {
+				if s == pr {
+					found = true
+					break
+				}
+			}
+			if !found {
+				schedule = append(schedule, pr)
+			}
+		}
+		slog.Info("restricted schedule", "pairs", schedule)
+	}
+
+	logger := newGamesLog(*gamesLogP)
+	defer logger.close()
+
 	if *fitOnly {
 		slog.Info("fit-only: skipping adjacent-pair games")
 	} else {
 		type pairResult struct {
-			players [2]int
-			agg     pairAgg
+			players     [2]int
+			agg         pairAgg
+			timeouts    int
+			skippedBads int
 		}
 		var (
 			mu   sync.Mutex
-			outs = make([]pairResult, 0, len(adjacentPairs))
+			outs = make([]pairResult, 0, len(schedule))
 			wg   sync.WaitGroup
 			sem  = make(chan struct{}, *concurrency)
 		)
-		for _, pr := range adjacentPairs {
+		for _, pr := range schedule {
 			pr := pr
 			wg.Add(1)
 			sem <- struct{}{}
@@ -214,20 +377,74 @@ func main() {
 				cmdB := fmt.Sprintf("%s --sparring --level %d --eval %s --budget %d", *hgtpPath, pr[1], *evalPath, *budget)
 				slog.Info("playing adjacent pair", "S", pr, "games", *pairsGames)
 				var agg pairAgg
+				var timeouts, skippedBads int
+				var pmMoves, pmTimeouts int
+				var pmTime float64
 				for g := 0; g < *pairsGames; g++ {
 					op := book[(pr[0]*31+g)%len(book)]
 					var gr game.GameResult
-					if g%2 == 0 {
+					lowerFirst := g%2 == 0
+					if lowerFirst {
 						gr = playOneGame(cmdA, cmdB, op.Line, *tc)
 					} else {
 						gr = playOneGame(cmdB, cmdA, op.Line, *tc)
 					}
+					// Per-move search stats: hgtp emits `# arena-stats`
+					// after each genmove; a move whose search consumed its
+					// per-move budget is a time-management timeout.
+					gPMoves, gPMTimeouts := 0, 0
+					var gPMTime float64
+					for _, ms := range gr.MoveStats {
+						gPMoves++
+						gPMTime += ms.TimeMs
+						if strings.Contains(ms.Flags, "timeout") ||
+							(ms.AllocatedMs > 0 && ms.TimeMs >= ms.AllocatedMs*0.98) {
+							gPMTimeouts++
+						}
+					}
+					rec := gameRecord{
+						Pair:        pr,
+						Game:        g,
+						Opening:     op.Line,
+						Result:      gr.Result,
+						Moves:       gr.TotalMoves,
+						BlackTimeS:  gr.BlackTimeS,
+						WhiteTimeS:  gr.WhiteTimeS,
+						Disconnect:  gr.Disconnect,
+						Investigate: gr.InvestigationNeeded,
+						PMMoves:     gPMoves,
+						PMTimeouts:  gPMTimeouts,
+						PMAvgMs:     gPMTime,
+					}
+					if rec.PMAvgMs > 0 {
+						rec.PMAvgMs /= float64(gPMoves)
+					}
+					// The arena clock (loop.go) forces a loss when a side's
+					// accumulated wall-clock reaches tc*1.05. Detect it here
+					// because hgtp emits no per-move stats and timeouts are
+					// otherwise indistinguishable from normal losses.
+					timeLimit := *tc * 1.05
+					switch {
+					case gr.BlackTimeS >= timeLimit:
+						rec.TimeoutSide = "black"
+					case gr.WhiteTimeS >= timeLimit:
+						rec.TimeoutSide = "white"
+					}
 					if gr.Disconnect || gr.InvestigationNeeded {
+						rec.Skipped = true
+						skippedBads++
+						logger.write(rec)
 						slog.Warn("bad game skipped", "pair", pr, "g", g, "disconnect", gr.Disconnect, "investigation", gr.InvestigationNeeded)
 						continue
 					}
+					if rec.TimeoutSide != "" {
+						timeouts++
+					}
+					pmMoves += gPMoves
+					pmTimeouts += gPMTimeouts
+					pmTime += gPMTime
+					logger.write(rec)
 					// record from the LOWER level's perspective (a)
-					lowerFirst := g%2 == 0
 					switch gr.Result {
 					case "1-0":
 						if lowerFirst {
@@ -246,9 +463,15 @@ func main() {
 					}
 				}
 				mu.Lock()
-				outs = append(outs, pairResult{players: [2]int{a, b}, agg: agg})
+				outs = append(outs, pairResult{players: [2]int{a, b}, agg: agg, timeouts: timeouts, skippedBads: skippedBads})
 				mu.Unlock()
-				slog.Info("adjacent pair done", "S", pr, "agg", fmt.Sprintf("%d-%d-%d", agg.wins, agg.draws, agg.losses))
+				pmPct := 0.0
+				if pmMoves > 0 {
+					pmPct = float64(pmTimeouts) / float64(pmMoves) * 100
+				}
+				slog.Info("adjacent pair done", "S", pr, "agg", fmt.Sprintf("%d-%d-%d", agg.wins, agg.draws, agg.losses),
+					"timeouts", timeouts, "skipped", skippedBads,
+					"pm_moves", pmMoves, "pm_timeouts", pmTimeouts, "pm_timeout_pct", fmt.Sprintf("%.0f%%", pmPct))
 			}()
 		}
 		wg.Wait()
