@@ -75,13 +75,17 @@ func pk(a, b int) [2]int {
 
 // ── Config-version mapping (old calibrate tables -> final v3 S levels) ──
 // Level N of run v1 (s-calib2, first new table) -> v3 S level, or 0 = drop.
+// Level N of run v1 (s-calib2) -> final v3 S level, or 0 = drop.
+// Index N-1 (level 1 = index 0). The leading-0 style of an early draft
+// shifted every level by one and silently corrupted all S vs-d6 edges —
+// the arrays were re-verified entry by entry (Aug 12 2026).
 var v1ToV3 = []int{
-	0, 1, 2, 3, 0, 0, 7, 8, 0, 10, 11, 0, 12, 0, 13, 14, 15, 16, 17, 19,
+	1, 2, 3, 0, 0, 7, 9, 8, 0, 10, 11, 0, 12, 0, 13, 14, 15, 16, 17, 19,
 }
 
 // Level N of run v2/v3 (s-calib3, confirm run) -> v3 S level (S4/S5 swap).
 var v3ToV3 = []int{
-	0, 1, 2, 3, 5, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+	1, 2, 3, 5, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 }
 
 // ── Existing aggregate JSON (calibrate output) ─────────────────────────
